@@ -337,6 +337,7 @@ leaves=(
   hardware/surface.sh
   hardware/fix-surface-keyboard.sh
   hardware/lenovo/thinkpad-t14s-camera.sh
+  hardware/asus/rog-ally.sh
   hardware/asus/fix-asus-zenbook-a16-speakers.sh
   hardware/asus/fix-asus-proart-pz13-speakers.sh
   hardware/asus/fix-asus-zenbook-a16-firmware.sh
