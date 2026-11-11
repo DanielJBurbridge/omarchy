@@ -232,7 +232,8 @@ def write_control(manager, name, raw):
     if name == "gpu-clock" and manager.get("GpuPerformanceLevel1", "GpuPerformanceLevel") != "manual":
         raise ValueError("Select the manual GPU level before setting its clock")
     suffix, prop, signature, _ = CONTROLS[name]
-    manager.set(suffix, prop, signature, value)
+    if cap["value"] != value:
+        manager.set(suffix, prop, signature, value)
     # TdpLimit's getter is queued after its setter in Manager. This is a real
     # hardware read, not an optimistic echo of Properties.Set's success.
     actual = manager.get(suffix, prop)
@@ -241,8 +242,14 @@ def write_control(manager, name, raw):
     if name == "profile" and value == "performance":
         try:
             manager.wait_tdp()
-        except Exception:
-            pass  # Profile can work even when the kernel lacks the TDP attributes.
+            tdp = capability(manager, "tdp", manager.source())
+            if not tdp.get("available"):
+                raise RuntimeError(tdp.get("reason", "TDP unavailable"))
+            bounded = max(tdp["min"], min(tdp["max"], tdp["value"]))
+            if bounded != tdp["value"]:
+                write_control(manager, "tdp", str(bounded))
+        except Exception as error:
+            raise RuntimeError(f"Performance profile read back, but cannot verify/bound TDP: {error}") from error
     return value
 
 
@@ -254,7 +261,14 @@ def require_owner():
         raise RuntimeError("Competing power writer active: " + ", ".join(active))
 
 
-def remember(manager, name, raw):
+def preference_source(manager, source):
+    if source not in ("autodetect", "ac", "battery"):
+        raise ValueError("Choose autodetect, ac or battery")
+    return manager.source() if source == "autodetect" else source
+
+
+def remember(manager, name, raw, source="autodetect"):
+    source = preference_source(manager, source)
     require_owner()
     with lock():
         original = load("original.json")
@@ -268,7 +282,6 @@ def remember(manager, name, raw):
             save("original.json", original)
         value = write_control(manager, name, raw)
         policy = load("preferences.json")
-        source = manager.source()
         policy.setdefault(source, {})[name] = value
         # Quiet/balanced must not retain a hidden custom TDP preference.
         if name == "profile" and value != "performance":
@@ -302,10 +315,11 @@ def override_values():
         return load("game.json")
 
 
-def restore(manager):
+def restore(manager, source="autodetect"):
+    source = preference_source(manager, source)
     require_owner()
     with lock():
-        values = load("preferences.json").get(manager.source(), {})
+        values = load("preferences.json").get(source, {})
         values.update(override_values())
         errors = apply_values(manager, values, clamp=True)
     status = snapshot(manager)
@@ -368,6 +382,10 @@ def watch(manager):
     loop.run()
 
 
+class GameTerminated(RuntimeError):
+    pass
+
+
 def run_game(manager, watts, command):
     require_owner()
     if not command:
@@ -382,36 +400,53 @@ def run_game(manager, watts, command):
         # Manual clock only has meaning in manual mode.
         if values.get("gpu-level") != "manual":
             values.pop("gpu-clock", None)
+        child = None
+        cleaning = False
+
+        def terminate(signum, frame):
+            if cleaning:
+                return  # Finish restoration even if the caller repeats a signal.
+            if child is None:
+                raise GameTerminated(f"Game startup terminated by signal {signum}")
+            try:
+                child.send_signal(signum)
+            except ProcessLookupError:
+                pass
+
+        previous = {}
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            previous[sig] = signal.signal(sig, terminate)
         try:
             with lock():
                 write_control(manager, "profile", "performance")
                 write_control(manager, "tdp", watts)
                 save("game.json", {"profile": "performance", "tdp": int(watts)})
             child = subprocess.Popen(command)
-            previous = {}
-            for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-                previous[sig] = signal.signal(sig, lambda signum, frame: child.send_signal(signum))
+            return child.wait()
+        finally:
+            cleaning = True
             try:
-                return child.wait()
+                with lock():
+                    (state_dir() / "game.json").unlink(missing_ok=True)
+                    errors = apply_values(manager, values, clamp=True)
+                    # If unplugged while gaming, the current source policy wins.
+                    errors.extend(apply_values(manager, load("preferences.json").get(manager.source(), {}), clamp=True))
+                if errors:
+                    raise RuntimeError("Game exited; power restore failed: " + "; ".join(errors))
             finally:
                 for sig, handler in previous.items():
                     signal.signal(sig, handler)
-        finally:
-            with lock():
-                (state_dir() / "game.json").unlink(missing_ok=True)
-                errors = apply_values(manager, values, clamp=True)
-                # If unplugged while gaming, the current source policy wins.
-                errors.extend(apply_values(manager, load("preferences.json").get(manager.source(), {}), clamp=True))
-            if errors:
-                raise RuntimeError("Game exited; power restore failed: " + "; ".join(errors))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
-    for action in ("status", "restore", "watch", "rollback", "initialise"):
+    for action in ("status", "watch", "rollback", "initialise"):
         sub.add_parser(action)
+    restorer = sub.add_parser("restore")
+    restorer.add_argument("--source", choices=("autodetect", "ac", "battery"), default="autodetect")
     setter = sub.add_parser("set")
+    setter.add_argument("--source", choices=("autodetect", "ac", "battery"), default="autodetect")
     setter.add_argument("control", choices=CONTROLS)
     setter.add_argument("value")
     game = sub.add_parser("run")
@@ -446,7 +481,7 @@ def main():
             if errors:
                 raise RuntimeError("Rollback readback failed: " + "; ".join(errors))
     else:
-        status = snapshot(manager) if args.action == "status" else (restore(manager) if args.action == "restore" else remember(manager, args.control, args.value))
+        status = snapshot(manager) if args.action == "status" else (restore(manager, args.source) if args.action == "restore" else remember(manager, args.control, args.value, args.source))
         print(json.dumps(status))
         return 1 if status.get("error") else 0
     return 0

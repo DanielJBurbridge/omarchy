@@ -72,3 +72,30 @@ pass "power profile retains performance as AC default"
 "$ROOT/bin/omarchy-powerprofiles-init"
 [[ $(tail -n 1 "$tmp_dir/calls") == "power-saver" ]] || fail "init restores the autodetected preference"
 pass "power profile init restores the autodetected preference"
+
+# Exercise the real compatibility router with handheld ownership selected.
+mkdir -p "$tmp_dir/handheld/omarchy/ally-power"
+touch "$tmp_dir/handheld/omarchy/ally-power/enabled"
+export XDG_STATE_HOME="$tmp_dir/handheld"
+cat >"$tmp_dir/bin/omarchy-hw-rog-ally" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$tmp_dir/bin/omarchy-power-ally" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"$POWERPROFILES_LOG"
+EOF
+chmod +x "$tmp_dir/bin/omarchy-hw-rog-ally" "$tmp_dir/bin/omarchy-power-ally"
+ON_BATTERY=0 "$ROOT/bin/omarchy-powerprofiles-set" battery power-saver
+[[ $(tail -n 1 "$POWERPROFILES_LOG") == "set --source battery profile quiet" ]] || fail "handheld router preserves battery target while plugged in"
+pass "handheld router preserves battery target while plugged in"
+ON_BATTERY=1 "$ROOT/bin/omarchy-powerprofiles-set" ac performance
+[[ $(tail -n 1 "$POWERPROFILES_LOG") == "set --source ac profile performance" ]] || fail "handheld router preserves AC target while unplugged"
+pass "handheld router preserves AC target while unplugged"
+before=$(<"$POWERPROFILES_LOG")
+if "$ROOT/bin/omarchy-powerprofiles-set" invalid balanced; then fail "handheld router rejects an invalid action"; fi
+[[ $(<"$POWERPROFILES_LOG") == "$before" ]] || fail "invalid action reached handheld backend"
+pass "invalid handheld action never reaches backend"
+"$ROOT/bin/omarchy-powerprofiles-set" battery
+[[ $(tail -n 1 "$POWERPROFILES_LOG") == "restore --source battery" ]] || fail "handheld router restores the requested source"
+pass "handheld router restores the requested source"
