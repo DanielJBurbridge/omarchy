@@ -44,4 +44,3 @@ PanelWindow {
     onClicked: previewWindow.dismissed()
   }
 }
-
