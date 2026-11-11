@@ -63,10 +63,16 @@ def main():
         source.write_text(FIXTURE)
         binary = root / 'wvkbd-mobintl'
         subprocess.run(['cc', '-Wall', '-Wextra', str(source), '-o', str(binary)], check=True)
-        present = root / 'omarchy-cmd-present'
-        present.write_text('#!/bin/bash\ncommand -v "$1" >/dev/null\n')
-        present.chmod(0o700)
-        env = os.environ | {'PATH': str(root) + ':' + os.environ['PATH'],
+        # Only the fixture keyboard and the helper's real system dependencies
+        # are visible. Appending the host PATH lets a genuinely installed
+        # wvkbd escape the missing-dependency case when ours is renamed.
+        for name in ('cat', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm'):
+            tool = shutil.which(name)
+            assert tool, f'Required system tool missing: {name}'
+            (root / name).symlink_to(tool)
+        present = Path(__file__).resolve().parents[2] / 'bin/omarchy-cmd-present'
+        (root / 'omarchy-cmd-present').symlink_to(present)
+        env = os.environ | {'PATH': str(root),
                             'XDG_RUNTIME_DIR': str(root), 'WAYLAND_DISPLAY': 'wayland-test',
                             'SIGNALS': str(root / 'signals')}
         state = root / 'omarchy-desktop-keyboard-wayland-test'
