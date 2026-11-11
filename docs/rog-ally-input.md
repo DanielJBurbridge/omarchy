@@ -25,9 +25,9 @@ cd pkg/rog-ally-input
 sudo systemctl mask --runtime inputplumber.service
 omarchy-pkg-add inputplumber
 makepkg --cleanbuild
-pacman -Qip omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
-bsdtar -tf omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
-sudo pacman -U ./omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
+pacman -Qip omarchy-rog-ally-input-1.0.3-1-any.pkg.tar.zst
+bsdtar -tf omarchy-rog-ally-input-1.0.3-1-any.pkg.tar.zst
+sudo pacman -U ./omarchy-rog-ally-input-1.0.3-1-any.pkg.tar.zst
 sudo systemctl daemon-reload
 sudo systemctl unmask --runtime inputplumber.service
 omarchy-setup-rog-ally-input --enable
@@ -78,6 +78,8 @@ Short/long distinctions come from upstream `ally_type1.yaml`, using firmware/ker
 The bridge watches D-Bus ObjectManager/device events, logind session changes and AUTH's one-way `$XDG_RUNTIME_DIR/omarchy-lock-$HYPRLAND_INSTANCE_SIGNATURE.sock` stream. The stream supplies an initial JSON line `{"locked":true|false}` and actual lock-request/compositor-secure transitions. Missing, malformed or disconnected state blocks desktop input. A same-user peer check and socket EOF provide producer identity/liveness; no saved file can leave an old `false` behind after shell death. The canonical `omarchy-shell lock isLocked` and compositor lock helper are also checked at state/action boundaries, catching a pending lock event or compositor-held lock surviving a shell restart. Logind `LockedHint` alone is insufficient for Omarchy's lock. There are no idle queries or polling timer.
 
 Only an active, unlocked Hyprland session launches desktop actions. Lock/inactive transitions release an owned desktop profile into gamepad mode, then restore the selected profile on return. Normal bridge shutdown also releases owned desktop input. Every automatic lifecycle write requires interception mode zero and both an exact shipped profile name and its package-owned path; a name match alone does not grant ownership. Discovery can also claim the exact upstream Default bootstrap profile when interception is zero. Restart, hotplug, lock, unlock and shutdown leave another overlay's interception/custom profile intact and never reset interception. When an overlay releases interception while locked, a D-Bus property event releases any now-owned desktop profile. Service/device reappearance triggers discovery without polling. Physical lock and controller acceptance remains separate from these source checks.
+
+Companion 1.0.3 also retries readiness at the next owned action when a strictly false lock snapshot arrived before the canonical lock/compositor became available. It requires a fresh active-session and canonical/compositor unlock result, then rechecks profile ownership before acting. No additional frame or timer is required; unknown, locked and external/overlay events remain blocked. This source/package increment does not update any approved frontend exact-version gate or authorise deployment of an earlier frozen release.
 
 Profile validation uses the upstream DeviceProfile and CompositeDevice schemas. In 0.84.0 the generated DeviceProfile schema omits `mouse.wheel`, although upstream's own mouse profile uses it and the Rust `MouseCapability.wheel`/`translate_button_to_wheel` implementation supports it. Validate that field against the Rust direction values (`up`, `down`, `left`, `right`); do not substitute `button: WheelUp`, which does not emit a scroll event in this version.
 
