@@ -40,6 +40,24 @@ fi
 [[ -n ${OMARCHY_PATH:-} ]] || fail "OMARCHY_PATH is not set"
 [[ -f $OMARCHY_PATH/shell/shell.qml ]] || fail "omarchy-shell config not found: $OMARCHY_PATH/shell/shell.qml"
 
+# The opted-in authentication owner survives desktop-shell crashes/restarts.
+# Read selection only: status must never initialise a mode or start the host.
+if [[ $1 == "lock" && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  lock_mode=$("$OMARCHY_PATH/bin/omarchy-lock-host" mode 2>/dev/null || true)
+  if [[ $lock_mode == "host" ]]; then
+    if (( $# == 2 )) && [[ $2 == "lock" || $2 == "status" || $2 == "isLocked" ]]; then
+      if result=$("$OMARCHY_PATH/bin/omarchy-lock-host" "$2"); then
+        [[ -n $result ]] && printf '%s\n' "$result"
+        exit 0
+      else
+        fail "Trusted lock host is unavailable or unready"
+      fi
+    else
+      fail "Trusted lock host permits lock, status and isLocked only"
+    fi
+  fi
+fi
+
 # qs matches instances by display, and a caller from outside the session (an
 # ssh or TTY omarchy-restart-shell, and the migrations it runs for) has none,
 # so recover it from the compositor socket. A display whose socket is gone is

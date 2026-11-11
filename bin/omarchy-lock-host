@@ -1,0 +1,12 @@
+#!/bin/bash -p
+# omarchy:summary=Send a lock or status request to the trusted authentication host
+# omarchy:hidden=true
+
+# Keep BASH_ENV/exported functions out of this security boundary before its
+# first command. An ordinary Bash invocation with a decoy -p argument is refused.
+if [[ $- != *p* ]]; then
+  echo "omarchy-lock-host requires privileged Bash startup (-p)" >&2
+  exit 1
+fi
+
+exec /usr/bin/python3 -I "$OMARCHY_PATH/default/lock-host/control.py" "$@"

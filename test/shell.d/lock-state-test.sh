@@ -20,16 +20,41 @@ assert(
 assert(
   /function lock\(\): string \{[\s\S]*?if \(!root\.currentlyLocked\(\) && !root\.beginLock\(\)\) return "failed"/.test(serviceQml)
     && /function isLocked\(\): string \{\s*return root\.currentlyLocked\(\)/.test(serviceQml)
-    && /locked: root\.currentlyLocked\(\),/.test(serviceQml),
+    && /locked: currentlyLocked\(\),/.test(serviceQml),
   'lock, isLocked and status decide from the current lock state'
 )
 assert(
-  /onLockRequestedChanged: lockStateSocket\.stateChanged\(\)/.test(serviceQml)
-    && /onSecureStateChanged: \{\s*lockStateSocket\.stateChanged\(\)/.test(serviceQml)
-    && /onLockStateChanged: \{\s*lockStateSocket\.stateChanged\(\)/.test(serviceQml)
-    && /readLocked: function\(\) \{ return root\.currentlyLocked\(\) \}/.test(serviceQml),
+  /onLockRequestedChanged: publishState\(\)/.test(serviceQml)
+    && /onSecureStateChanged: \{\s*root\.publishState\(\)/.test(serviceQml)
+    && /onLockStateChanged: \{\s*root\.publishState\(\)/.test(serviceQml)
+    && /readLocked: function\(\) \{ return root\.currentlyLocked\(\) \|\| \(root\.trustedHost && !root\.ownerReady\) \}/.test(serviceQml),
   'the readonly feed re-reads actual state on request, compositor lock and secure transitions'
 )
+
+// Run the production service selector: losing the broker substitution would
+// silently create a second PAM/session-lock owner in the plugin process.
+const vm = require('vm')
+const source = fs.readFileSync(path.join(root, 'shell/shell.qml'), 'utf8')
+const selector = source.slice(source.indexOf('  function ensureService('), source.indexOf('  function _syncServices('))
+for (const [mode, componentReady, expected] of [['0', true, 'Service.qml'], ['1', true, 'Broker.qml'], ['1', false, 'Broker.qml']]) {
+  const selected = []
+  let created = 0
+  const manifest = { __isFirstParty: true, kinds: ['service'], entryPoints: { service: 'Service.qml' } }
+  const context = {
+    _services: {}, pluginRegistry: { installedPlugins: { 'omarchy.lock': manifest }, entryPointUrl: () => 'Service.qml' },
+    Quickshell: { env: () => mode }, Component: { Ready: 1, Loading: 2 }, console: { warn() {} },
+    Qt: { createComponent(url) { selected.push(url); return {
+      status: componentReady ? 1 : 3, errorString: () => 'unavailable', createObject(parent) { assertEqual(parent, null, 'auth/broker has no public parent'); created++; return {} }
+    } } },
+    AuthServiceStore: { has: () => false, put() {} },
+    shell: { omarchyPath: '/trusted', isAuthenticationService: () => true }
+  }
+  vm.createContext(context)
+  vm.runInContext(selector, context)
+  context.ensureService('omarchy.lock')
+  assert(selected.length === 1 && selected[0].endsWith(expected), `mode ${mode} selects ${expected} without owner fallback`)
+  assertEqual(created, componentReady ? 1 : 0, 'unavailable broker never creates a fallback owner')
+}
 JS
 
 # Exercise the real one-way producer without a compositor or authentication.
@@ -61,3 +86,5 @@ PY_PROBE
     skip "AF_UNIX unavailable; skipping readonly lock-state socket runtime check"
   fi
 fi
+
+PYTHONDONTWRITEBYTECODE=1 python3 "$SHELL_TEST_DIR/trusted-lock-host-test.py"

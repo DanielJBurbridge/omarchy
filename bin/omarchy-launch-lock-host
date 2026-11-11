@@ -1,0 +1,12 @@
+#!/bin/bash -p
+# omarchy:summary=Run the opted-in trusted authentication host under its user service
+# omarchy:hidden=true
+
+# Suppress BASH_ENV and exported startup functions before the first command;
+# the ordinary-Bash/decoy-argument regression covers this deliberate boundary.
+if [[ $- != *p* ]]; then
+  echo "omarchy-launch-lock-host requires privileged Bash startup (-p)" >&2
+  exit 1
+fi
+
+exec /usr/bin/python3 -I "$OMARCHY_PATH/default/lock-host/control.py" run-host

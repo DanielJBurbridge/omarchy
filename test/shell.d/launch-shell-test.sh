@@ -22,7 +22,10 @@ fake_bin="$test_tmp/bin"
 shell_root="$test_tmp/root"
 launch_home="$test_tmp/home"
 startup_wallpaper="$test_tmp/Selected wallpaper.webp"
-mkdir -p "$fake_bin" "$shell_root/shell" "$launch_home/.local/state/omarchy/current"
+mkdir -p "$fake_bin" "$shell_root/shell" "$shell_root/bin" "$shell_root/default/lock-host" "$test_tmp/runtime" "$launch_home/.local/state/omarchy/current"
+chmod 700 "$test_tmp/runtime"
+cp "$ROOT/bin/omarchy-lock-host" "$shell_root/bin/"
+cp "$ROOT/default/lock-host/control.py" "$shell_root/default/lock-host/"
 touch "$startup_wallpaper"
 ln -s "$startup_wallpaper" "$launch_home/.local/state/omarchy/current/background"
 
@@ -111,6 +114,7 @@ launch_shell() {
 
   PATH="$fake_bin:$PATH" \
   HOME="$launch_home" \
+  XDG_RUNTIME_DIR="$test_tmp/runtime" HYPRLAND_INSTANCE_SIGNATURE=launcher-fixture \
   QT_IM_MODULE=fcitx QT_IM_MODULES=fcitx QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=0 \
   OMARCHY_PATH="$shell_root" \
   OMARCHY_TEST_QS_LOG="$qs_log" \
@@ -178,6 +182,7 @@ pass "a compositor too busy to answer is not mistaken for one that is gone"
 : >"$logger_log"
 
 PATH="$fake_bin:$PATH" \
+XDG_RUNTIME_DIR="$test_tmp/runtime" HYPRLAND_INSTANCE_SIGNATURE=launcher-fixture \
 OMARCHY_PATH="$shell_root" \
 OMARCHY_TEST_QS_LOG="$qs_log" \
 OMARCHY_TEST_QS_ENV_LOG="$qs_env_log" \
@@ -207,6 +212,7 @@ pass "a signal during backoff stops the supervisor before it relaunches"
 rm -f "$qs_terminated"
 
 PATH="$fake_bin:$PATH" \
+XDG_RUNTIME_DIR="$test_tmp/runtime" HYPRLAND_INSTANCE_SIGNATURE=launcher-fixture \
 OMARCHY_PATH="$shell_root" \
 OMARCHY_TEST_QS_LOG="$qs_log" \
 OMARCHY_TEST_QS_ENV_LOG="$qs_env_log" \
@@ -241,7 +247,9 @@ pass "stopping the supervisor stops the shell it is watching"
 # reports the three exact inherited values, including unset versus empty.
 if command -v quickshell >/dev/null 2>&1; then
   context_root="$test_tmp/input-context"
-  mkdir -p "$context_root/shell" "$context_root/runtime" "$context_root/bin"
+  mkdir -p "$context_root/shell" "$context_root/runtime" "$context_root/bin" "$context_root/default/lock-host"
+  cp "$ROOT/bin/omarchy-lock-host" "$context_root/bin/"
+  cp "$ROOT/default/lock-host/control.py" "$context_root/default/lock-host/"
   chmod 700 "$context_root/runtime"
   cp "$SHELL_TEST_DIR/fixtures/lock-input-context/"*.qml "$context_root/shell/"
   ln -s "$ROOT/shell/Ui" "$context_root/shell/Ui"
@@ -255,7 +263,7 @@ if command -v quickshell >/dev/null 2>&1; then
       custom) context_env=(QT_IM_MODULE=fcitx QT_IM_MODULES='fcitx;ibus' QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=0) ;;
     esac
     PATH="$context_root/bin:$PATH" OMARCHY_TEST_ALLY=1 HOME="$launch_home" \
-      XDG_RUNTIME_DIR="$context_root/runtime" OMARCHY_PATH="$context_root" \
+      XDG_RUNTIME_DIR="$context_root/runtime" HYPRLAND_INSTANCE_SIGNATURE=context-fixture OMARCHY_PATH="$context_root" \
       OMARCHY_AUTH_SOURCE_ROOT="$ROOT" OMARCHY_AUTH_CHILD_RESULT="$context_root/$variant.json" \
       OMARCHY_AUTH_EXPECT_EXPOSED=0 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_QUICK_BACKEND=software \
       env "${context_env[@]}" timeout 15 "$ROOT/bin/omarchy-launch-shell" >"$context_root/$variant.log" 2>&1 || {

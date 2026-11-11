@@ -945,6 +945,10 @@ ShellRoot {
     if (!Array.isArray(manifest.kinds) || manifest.kinds.indexOf("service") === -1) return null
     if (!manifest.entryPoints || !manifest.entryPoints.service) return null
     var url = pluginRegistry.entryPointUrl(manifest, "service")
+    // Host ownership is fixed for this graphical session by the launcher.
+    // Never instantiate a local PAM/session-lock owner as a host fallback.
+    if (key === "omarchy.lock" && manifest.__isFirstParty && Quickshell.env("OMARCHY_LOCK_HOST") === "1")
+      url = "file://" + shell.omarchyPath + "/shell/plugins/lock/Broker.qml"
     if (!url) return null
     var authenticationService = shell.isAuthenticationService(manifest, key)
     if (authenticationService && AuthServiceStore.has(key)) return null

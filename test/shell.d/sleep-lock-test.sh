@@ -341,6 +341,32 @@ grep -qF "within 3000ms" "$journal_log" ||
 pass "sleep lock caps the budget a huge logind window would allow"
 sleep_lock="$sleep_lock_shipped"
 
+# Trusted-host readiness never substitutes for actual compositor security,
+# and an unready owner cannot authorise suspend even with a malformed secure flag.
+for host_state in missing unready requested secure; do
+  setup_scenario "trusted_$host_state"
+  case $host_state in
+    missing) payload='{}' ;;
+    unready) payload='{"owner":"trusted-host","ready":false,"secure":true}' ;;
+    requested) payload='{"owner":"trusted-host","ready":true,"requested":true,"secure":false}' ;;
+    secure) payload='{"owner":"trusted-host","ready":true,"requested":true,"secure":true}' ;;
+  esac
+  cat >"$mock_bin/omarchy-shell" <<SH
+#!/bin/bash
+printf 'shell %s\\n' "\$*" >>"\$CALL_LOG"
+printf '%s\\n' '$payload'
+SH
+  chmod +x "$mock_bin/omarchy-shell"
+  mock_clamshell
+  run_sleep_lock 180
+  if [[ $host_state == "secure" ]]; then
+    (( exit_status == 0 )) || fail "secure ready host permits the proactive suspend handshake"
+  else
+    (( exit_status != 0 )) || fail "$host_state host fails the proactive suspend handshake closed"
+  fi
+  pass "$host_state trusted host has correct secure-before-suspend result"
+done
+
 # The cap is only reachable because the shipped drop-in widens logind's window
 # past it. Ship one without the other and the cap is dead weight.
 inhibit_delay=$(sed -n 's/^InhibitDelayMaxSec=//p' "$ROOT/etc/systemd/logind.conf.d/20-inhibit-delay.conf")

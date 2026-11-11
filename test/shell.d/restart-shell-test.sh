@@ -23,7 +23,9 @@ restart_env_log="$test_tmp/restart-env.log"
 dispatch_log="$test_tmp/dispatch.log"
 ipc_log="$test_tmp/ipc.log"
 runtime_dir="$test_tmp/runtime"
-mkdir -p "$restart_root/shell" "$restart_bin" "$runtime_dir"
+mkdir -p "$restart_root/shell" "$restart_bin" "$runtime_dir" "$restart_root/default/lock-host"
+cp "$ROOT/bin/omarchy-lock-host" "$restart_bin/"
+cp "$ROOT/default/lock-host/control.py" "$restart_root/default/lock-host/"
 touch "$restart_root/shell/shell.qml"
 ln -s "$ROOT/bin/omarchy-shell" "$restart_bin/omarchy-shell"
 ln -s "$ROOT/bin/omarchy-launch-shell" "$restart_bin/omarchy-launch-shell"
@@ -65,7 +67,7 @@ strays=${OMARCHY_TEST_QS_STRAYS:-/nonexistent}
 
 case " $* " in
   *' list '*)
-    [[ -f $strays ]] && jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {config_path: (.[0] + "/shell.qml"), pid: (.[1] | tonumber)})' "$strays"
+    [[ -f $strays ]] && jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {config_path: (.[0] | if endswith(".qml") then . else . + "/shell.qml" end), pid: (.[1] | tonumber)})' "$strays"
     ;;
   *' kill -p '*)
     if [[ $3 != "$OMARCHY_TEST_SESSION_PATH/shell" ]]; then
@@ -329,3 +331,53 @@ wait "$restart_pid_one" 2>/dev/null || true
 restart_pid_one=""
 [[ $(<"$restart_state") == 303 ]] || fail "restart with a worktree shell leaves one fresh session shell"
 pass "restart stops a worktree's shell and leaves other Quickshell configs alone"
+
+# An independently validated host permits a desktop restart while locked.
+# The real peer/unit/start-time validation is exercised by lock-state-test;
+# this fixture isolates the restart policy and exact config kill selection.
+cat >"$restart_bin/omarchy-lock-host" <<'SH'
+#!/bin/bash
+case $1 in
+  mode) echo host ;;
+  status)
+    [[ ${OMARCHY_TEST_HOST_VALID:-0} == "1" ]] || exit 1
+    echo '{"protocol":1,"owner":"trusted-host","ready":true,"locked":true,"requested":true,"secure":true}' ;;
+  run-shell) exec quickshell -n -p "$OMARCHY_PATH/shell" ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$restart_bin/omarchy-lock-host"
+sleep 30 &
+restart_pid_one=$!
+printf '%s\n' "$restart_pid_one" >"$restart_state"
+printf '%s %s\n' "$restart_root/shell/lock-host.qml" "$restart_pid_two" >"$test_tmp/strays"
+: >"$restart_log"
+: >"$ipc_log"
+PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
+  HYPRLAND_INSTANCE_SIGNATURE=trusted-fixture OMARCHY_TEST_HOST_VALID=1 OMARCHY_TEST_SESSION_LOCKED=1 \
+  OMARCHY_TEST_QS_STATE="$restart_state" OMARCHY_TEST_QS_LOG="$restart_log" \
+  OMARCHY_TEST_QS_ENV_LOG="$restart_env_log" OMARCHY_TEST_DISPATCH_LOG="$dispatch_log" \
+  OMARCHY_TEST_IPC_LOG="$ipc_log" OMARCHY_TEST_SESSION_PATH="$restart_root" \
+  OMARCHY_TEST_QS_STRAYS="$test_tmp/strays" \
+  timeout 5 "$ROOT/bin/omarchy-restart-shell" || fail "validated trusted lock permits broker-only restart"
+wait "$restart_pid_one" 2>/dev/null || true
+restart_pid_one=""
+kill -0 "$restart_pid_two" 2>/dev/null || fail "desktop restart preserves the independent lock host"
+if grep -qF 'kill -p '"$restart_root/shell/lock-host.qml" "$restart_log"; then
+  fail "desktop restart never targets the trusted host config"
+fi
+if grep -qF 'lock lock' "$ipc_log"; then
+  fail "broker restart does not reacquire an independently owned active lock"
+fi
+pass "validated independent owner survives locked desktop broker restart"
+
+: >"$restart_log"
+if PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
+  HYPRLAND_INSTANCE_SIGNATURE=trusted-fixture OMARCHY_TEST_HOST_VALID=0 OMARCHY_TEST_SESSION_LOCKED=1 \
+  OMARCHY_TEST_QS_STATE="$restart_state" OMARCHY_TEST_QS_LOG="$restart_log" \
+  OMARCHY_TEST_SESSION_PATH="$restart_root" \
+  "$ROOT/bin/omarchy-restart-shell" >"$test_tmp/unvalidated-host.log" 2>&1; then
+  fail "restart refuses an unvalidated locked owner"
+fi
+[[ ! -s $restart_log ]] || fail "unvalidated owner refusal occurs before killing any shell"
+pass "unvalidated external lock owner keeps restart conservative"

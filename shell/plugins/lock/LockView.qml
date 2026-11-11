@@ -19,6 +19,9 @@ Item {
   property bool loadBackground: true
   property string passwordText: ""
   property bool syncingPasswordText: false
+  property bool keyboardAvailable: false
+  property bool keyboardRequested: false
+  readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
   readonly property string placeholderText: Commons.I18n.t("lock.enterPassword")
   readonly property int fieldWidth: 381
@@ -58,10 +61,18 @@ Item {
     passwordTextEdited("")
   }
 
+  function showKeyboard() {
+    if (!keyboardAvailable || !inputEnabled || authenticatingPassword) return
+    keyboardRequested = true
+    forcePasswordFocus()
+    Qt.inputMethod.show()
+  }
+
   function cancelEntry() {
     if (authenticatingPassword) return
     clearPassword()
     clearFailureRequested()
+    keyboardRequested = false
     Qt.inputMethod.hide()
     forcePasswordFocus()
   }
@@ -98,11 +109,13 @@ Item {
   onPasswordTextChanged: syncPasswordText()
   onInputEnabledChanged: {
     if (inputEnabled) Qt.callLater(forcePasswordFocus)
+    else { keyboardRequested = false; Qt.inputMethod.hide() }
   }
 
   onAuthenticatingPasswordChanged: {
     if (!authenticatingPassword && inputEnabled) Qt.callLater(function() {
       root.forcePasswordFocus()
+      if (root.keyboardRequested) Qt.inputMethod.show()
     })
   }
 
@@ -167,7 +180,7 @@ Item {
       width: Math.min(root.fieldWidth, parent.width - 32)
       height: root.fieldHeight
       anchors.horizontalCenter: parent.horizontalCenter
-      anchors.verticalCenter: parent.verticalCenter
+      y: (parent.height - root.keyboardHeight - height) / 2 - (root.keyboardHeight > 0 ? 36 : 0)
       color: Commons.Color.lock.background
       borderSpec: root.inputBorderSpec
       radius: Style.cornerRadius
@@ -215,6 +228,7 @@ Item {
         }
 
         onAccepted: root.submitEntry()
+        TapHandler { onTapped: root.showKeyboard() }
 
         Keys.onPressed: function(event) {
           root.wakeRequested()
@@ -274,9 +288,22 @@ Item {
       enabled: root.inputEnabled && !root.authenticatingPassword
 
       Button {
+        objectName: "lockKeyboard"
+        visible: root.keyboardAvailable
+        text: Commons.I18n.t("lock.keyboard", "Keyboard")
+        width: (inputField.width - 16) / 3
+        height: 48
+        bordered: true
+        onClicked: {
+          root.wakeRequested()
+          if (root.keyboardHeight > 0) { root.keyboardRequested = false; Qt.inputMethod.hide() }
+          else root.showKeyboard()
+        }
+      }
+      Button {
         objectName: "lockCancel"
         text: Commons.I18n.t("lock.cancel")
-        width: (inputField.width - 8) / 2
+        width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
         height: 48
         bordered: true
         onClicked: { root.wakeRequested(); root.cancelEntry() }
@@ -284,10 +311,27 @@ Item {
       Button {
         objectName: "lockSubmit"
         text: Commons.I18n.t("lock.unlock")
-        width: (inputField.width - 8) / 2
+        width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
         height: 48
         bordered: true
         onClicked: { root.wakeRequested(); root.submitEntry() }
+      }
+    }
+
+    Loader {
+      id: keyboardLoader
+      objectName: "lockKeyboardLoader"
+      active: root.keyboardAvailable && root.inputEnabled && root.keyboardRequested && root.Window.active
+      width: Math.min(root.width - 16, root.height * 1.3, 1000)
+      height: root.keyboardHeight
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.bottom: parent.bottom
+      source: "../../lock-host/Keyboard.qml"
+      onLoaded: { root.forcePasswordFocus(); Qt.inputMethod.show() }
+      Connections {
+        target: keyboardLoader.item
+        ignoreUnknownSignals: true
+        function onFocusRequested() { root.forcePasswordFocus() }
       }
     }
 
