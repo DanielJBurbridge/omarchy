@@ -4,6 +4,10 @@ o.bind("SUPER + CTRL + E", "Emojis", { panel = "omarchy.emojis" })
 o.bind("SUPER + CTRL + C", "Capture menu", { menu = "capture" })
 o.bind("SUPER + CTRL + O", "Toggle menu", { menu = "toggle" })
 o.bind("SUPER + CTRL + H", "Hardware menu", { menu = "hardware" })
+-- Optional Ally panel; leave ordinary desktop keyboards and shortcuts alone.
+if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds("omarchy-hw-rog-ally") then
+  o.bind("SUPER + CTRL + Y", "Desktop keyboard", "omarchy-toggle-desktop-keyboard")
+end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
 o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = true })
