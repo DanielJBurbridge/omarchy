@@ -64,13 +64,23 @@ while true; do
       fi
       ;;
     'Desktop keyboard')
-      choose 'Review wvkbd AUR source before installation' \
-        "$(row '' 'Install reviewed keyboard' 'Uses the existing optional AUR installer; preserves existing launcher')" \
-        "$(row '󰌑' 'Back' 'No changes')"
-      if [[ $selection == 'Install reviewed keyboard' ]]; then
-        omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --install-reviewed-aur
-        exit
+      keyboard_options=()
+      if omarchy-cmd-present wvkbd-mobintl; then
+        keyboard_options+=("$(row '' 'Toggle desktop keyboard' 'Show or hide the desktop keyboard; unavailable in a gaming session')")
       fi
+      keyboard_options+=("$(row '' 'Configure reviewed keyboard' 'Use an already installed reviewed wvkbd 0.21-1; no package install')"
+        "$(row '' 'Install reviewed keyboard' 'Review wvkbd AUR source first; installer preserves existing launcher')"
+        "$(row '󰌑' 'Back' 'No changes')")
+      choose 'Optional desktop keyboard' "${keyboard_options[@]}"
+      case "$selection" in
+        'Toggle desktop keyboard') omarchy-toggle-desktop-keyboard toggle; exit ;;
+        'Configure reviewed keyboard')
+          omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --configure-reviewed-package
+          exit ;;
+        'Install reviewed keyboard')
+          omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --install-reviewed-aur
+          exit ;;
+      esac
       ;;
     'Game libraries') omarchy-launch-floating-terminal-with-presentation omarchy-drive-game-library --menu; exit ;;
     'Update and recovery')

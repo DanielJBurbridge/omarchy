@@ -35,12 +35,14 @@ exit 93''',
         path.chmod(0o755)
     env = dict(os.environ, PATH=f'{root}:{repo}/bin:' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(repo), TEST_ROOT=temp)
 
+    # A hang guard, not a performance assertion: real probes have cumulative
+    # timeouts, and the nine-stream build host can be heavily scheduled.
     def run(command, *args, choices=('CANCEL',), **overrides):
         (root / 'menus').write_text('')
         (root / 'actions').write_text('')
         (root / 'count').write_text('0\n')
         (root / 'choices').write_text('\n'.join(choices) + '\n')
-        return subprocess.run([str(repo / 'bin' / command), *args], env=dict(env, **overrides), capture_output=True, text=True, timeout=10)
+        return subprocess.run([str(repo / 'bin' / command), *args], env=dict(env, **overrides), capture_output=True, text=True, timeout=60)
 
     for command in ('omarchy-hw-rog-ally-status', 'omarchy-setup-rog-ally'):
         result = run(command, ALLY='0')
@@ -92,6 +94,7 @@ exit 93''',
         (('Update and recovery', 'Restore system snapshot', 'Back', 'Close'), ''),
         (('Update and recovery', 'Restore system snapshot', 'Open snapshot restore'), 'omarchy-launch-floating-terminal-with-presentation omarchy-snapshot restore\n'),
         (('Desktop keyboard', 'Back', 'Close'), ''),
+        (('Desktop keyboard', 'Configure reviewed keyboard'), 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --configure-reviewed-package\n'),
         (('Desktop keyboard', 'Install reviewed keyboard'), 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --install-reviewed-aur\n'),
     ]
     for choices, expected in cases:
