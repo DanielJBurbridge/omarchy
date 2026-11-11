@@ -1,0 +1,31 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Launch Steam inside the managed Gamescope scope
+
+set -uo pipefail
+[[ -n ${OMARCHY_GAMING_RUNTIME:-} && -n ${DISPLAY:-} ]] || exit 1
+export PATH="$OMARCHY_PATH/default/gaming/bin:$PATH"
+# Upstream CachyOS steam-launcher contract; use the installed Steam/library.
+export XDG_SESSION_TYPE=x11 SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+export STEAM_MULTIPLE_XWAYLANDS=1 SRT_URLOPEN_PREFER_STEAM=1
+# No fake Deck HDR, fan, TDP, drive-formatting or update capability flags.
+printf 'started\n' > "$OMARCHY_GAMING_RUNTIME/ready"
+power_pid=''
+cleanup() {
+  if [[ -n $power_pid ]]; then
+    kill "$power_pid" 2>/dev/null || true
+    wait "$power_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+if omarchy-cmd-present omarchy-launch-gaming-powerbutton && omarchy-pkg-present omarchy-rog-ally-powerbutton && [[ -x /usr/bin/steamos-powerbuttond ]]; then
+  omarchy-launch-gaming-powerbutton &
+  power_pid=$!
+fi
+steam -steamos3 -steampal -steamdeck -gamepadui &
+steam_pid=$!
+wait "$steam_pid"
+status=$?
+printf '%s\n' "$status" > "$OMARCHY_GAMING_RUNTIME/steam-exit"
+exit "$status"

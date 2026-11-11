@@ -1,0 +1,18 @@
+#!/bin/bash
+# omarchy:summary=End standalone gaming and return to the Omarchy desktop
+# omarchy:args=[--help]
+
+set -euo pipefail
+if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
+  echo 'Save your game, then run omarchy-launch-gaming-desktop inside the managed gaming login.'
+  exit 0
+fi
+(( $# == 0 )) || exit 2
+source "$OMARCHY_PATH/default/gaming/session.sh"
+gaming_runtime_init
+[[ -p $gaming_runtime/return && -f $gaming_runtime/active && $(cat "$gaming_runtime/active") == "gaming" ]] || {
+  gaming_fail 'no managed gaming session in this login.'; exit 1;
+}
+# Bound the request if the supervisor died; never hang a controller action.
+# shellcheck disable=SC2016
+timeout 2 bash -c 'printf "desktop\n" > "$1"' _ "$gaming_runtime/return"
