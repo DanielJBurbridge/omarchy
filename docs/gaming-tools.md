@@ -89,14 +89,14 @@ Install the reviewed AUR recipe through the normal helper, then build/install th
 
 ```bash
 omarchy install gaming decky --install-reviewed-aur
-cd "$OMARCHY_PATH/packages/omarchy-gaming-decky"
+cd "$release_checkout/packages/omarchy-gaming-decky"
 makepkg --nodeps
 sudo pacman -U ./omarchy-gaming-decky-1.0.0-1-any.pkg.tar.zst
 omarchy setup gaming decky enable --allow-root-plugins
 omarchy setup gaming decky status
 ```
 
-Review `PKGBUILD` before building. The first command also installs `python-installer`, omitted from the reviewed AUR build dependencies. `--nodeps` above only builds the tiny local companion; its actual dependency must be installed before `pacman -U`. Use an appropriately configured build directory when the packaged Omarchy tree is read-only: copy `PKGBUILD`, `50-omarchy.conf` and `LICENSE` together to a user-writable build directory first. No local package or AUR dependency is fetched by this companion build.
+Set `release_checkout` to the clean checkout pinned to the reviewed release SHA, then review `PKGBUILD` before building. The first command also installs `python-installer`, omitted from the reviewed AUR build dependencies. `--nodeps` above only builds the tiny local companion; its actual dependency must be installed before `pacman -U`. Copy `PKGBUILD`, `50-omarchy.conf` and `LICENSE` together to a fresh user-writable build directory if the source checkout is read-only. No local package or AUR dependency is fetched by this companion build, and recipe availability in an installed runtime package is not assumed.
 
 Activation requires the companion, the reviewed Decky version, native Steam initialised under the current user and the package's expected `/home/USERNAME` home. It refuses a legacy `plugin_loader.service` or `~/homebrew/services/PluginLoader` rather than altering it. It refuses nonempty existing plugin directories until their contents are reviewed and moved aside, preserving them for manual migration. It reloads systemd, checks the effective service safeguards, records any newly created Steam debug marker and enables only `decky-loader@USERNAME.service`. It does not restart Steam: restart it yourself after saving work. If service startup fails, it disables the instance and cleans up the marker it created. An already-running protected instance is left alone.
 
