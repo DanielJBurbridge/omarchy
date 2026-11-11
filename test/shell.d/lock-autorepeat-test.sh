@@ -4,7 +4,7 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-# This offscreen check uses the real Qt keyboard plugin and never locks the
+# This offscreen check uses the real SDDM Qt keyboard plugin and never locks the
 # compositor. It also runs on builders without a desktop session.
 if command -v quickshell >/dev/null 2>&1; then
   work=$(mktemp -d)
@@ -26,7 +26,7 @@ if command -v quickshell >/dev/null 2>&1; then
     cat "$work/log" >&2
     fail "trusted authentication keyboard handles password entry and submission"
   fi
-  pass "trusted keyboards mask and edit non-US input, submit once and cancel safely"
+  pass "SDDM keyboard masks and edits non-US input, submits once and cancels safely"
   rm -rf "$work"
   trap - EXIT
 fi

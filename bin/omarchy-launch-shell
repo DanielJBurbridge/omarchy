@@ -17,14 +17,9 @@
 run_shell() {
   local startup_background
   startup_background=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null)
-  # Qt's input context is process-wide. Limit the trusted touch keyboard to
-  # the Ally so other machines retain their shell's existing desktop IME.
-  # These variables reach only the shell, not the user's desktop applications.
-  local -a keyboard_env=(OMARCHY_TRUSTED_KEYBOARD=0)
-  if omarchy-hw-rog-ally; then
-    keyboard_env=(OMARCHY_TRUSTED_KEYBOARD=1 QT_IM_MODULE=qtvirtualkeyboard QT_IM_MODULES=qtvirtualkeyboard QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1)
-  fi
-  env "${keyboard_env[@]}" \
+  # Keep the caller's input-method environment intact. Qt Virtual Keyboard's
+  # process-wide InputContext exposes focused fields across unrelated QML;
+  # it must not be enabled inside this plugin-bearing shell.
   OMARCHY_STARTUP_BACKGROUND="$startup_background" QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
     systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell" &
   shell_pid=$!
