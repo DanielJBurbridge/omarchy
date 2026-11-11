@@ -28,14 +28,18 @@ marker="$HOME/.steam/steam/.cef-enable-remote-debugging"
 
 cleanup_marker() {
   local identity
-  if [[ -f $state_dir/debug-marker && -f $marker && ! -L $marker && ! -s $marker ]]; then
-    identity=$(stat -c '%d:%i' "$marker")
-    if [[ $identity == "$(<"$state_dir/debug-marker")" ]]; then
-      rm -- "$marker"
-      rm -- "$state_dir/debug-marker"
-    else
-      echo "Steam debug marker changed; keeping it for manual review."
+  if [[ -f $state_dir/debug-marker ]]; then
+    if [[ -f $marker && ! -L $marker && ! -s $marker ]]; then
+      identity=$(stat -c '%d:%i' "$marker")
+      if [[ $identity == "$(<"$state_dir/debug-marker")" ]]; then
+        rm -- "$marker"
+      else
+        echo "Steam debug marker changed; keeping it for manual review."
+      fi
     fi
+    # This instance is stopped. Retire stale ownership even if another owner
+    # replaced the marker, so a later inode reuse cannot authorise its removal.
+    rm -- "$state_dir/debug-marker"
   fi
 }
 

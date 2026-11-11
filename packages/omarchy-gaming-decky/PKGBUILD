@@ -16,4 +16,3 @@ package() {
     "$pkgdir/usr/lib/systemd/system/decky-loader@.service.d/50-omarchy.conf"
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
-
