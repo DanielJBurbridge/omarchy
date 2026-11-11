@@ -28,3 +28,5 @@ Frozen code release: `47e0e976f47c86edf9962d0debde9b571fadc385`; see the [releas
 
 RECOVERY's reviewed input-enable frontend is a [next-stage source candidate](rog-ally-parity.md#next-stage-source-candidate), integrated as `8b72cb72e5981f5a02221e05823d48c4d22ef951`. It is not part of frozen `47e0e976f` and does not trigger a rebuild or installation in the active rollout.
 
+POWER's finite prerequisite/design commit `0fbd941c8d73fc7287cf5098f0a469cb28967de1` is integrated as `b021f775ebd5803060bb7250499d15ba2629e509`, without its duplicate central-guard parent. The [remediation design](../docs/rog-ally-manager-remediation.md), pinned provenance, unbuilt input-management opt-out patch and proposed three-limit schema are next-stage preparation only. Caller/session delegation, restricted server surface, complete transactional implementation, actual artifacts and firmware acceptance remain blockers; no Manager install/build/takeover clearance follows.
+
