@@ -40,7 +40,7 @@ while true; do
     options+=("$(row '' 'Controller input' 'Reviewed companion setup, readiness and disable; keep touch or USB keyboard recovery')")
   fi
   if omarchy-cmd-present omarchy-setup-rog-ally-power && omarchy-cmd-present omarchy-power-ally; then
-    options+=("$(row '󰁹' 'Power setup' 'Readiness and rollback; independent Manager package review still required')")
+    options+=("$(row '󰁹' 'Power setup' 'Readiness and legacy rollback; unchanged Manager package must not be installed')")
   fi
   if omarchy-cmd-present omarchy-setup-gaming-session; then
     options+=("$(row '' 'Gaming session' 'Authenticated session preference, rendering, desktop recovery')")
@@ -92,7 +92,7 @@ while true; do
       esac
       ;;
     'Power setup')
-      choose 'One power owner — reviewed SteamOS Manager required' \
+      choose 'Power activation blocked — unchanged Manager package rejected' \
         "$(row '󰋖' 'Power readiness' 'Actual available controls and readback; no hardware changes')" \
         "$(row '󰁯' 'Roll back power backend' 'Verify original settings, then restore prior services; reconnect AC if needed')" \
         "$(row '󰌑' 'Back' 'No changes')"

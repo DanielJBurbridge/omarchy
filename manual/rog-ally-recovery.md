@@ -14,11 +14,11 @@ The shareable report shows composite readability, known profile name, intercepti
 
 ## Power readiness and rollback
 
-POWER source corrections have passed review, but activation remains held pending independent review of the standalone Manager recipe, dependencies and built artifact. **Power setup** offers per-control readiness and rollback, without configuration/takeover or a writable power-panel action. Normal generic power remains in place until that separate review clears.
+POWER's client corrections have passed focused checks, but the independent package review rejected unchanged `steamos-manager 26.4.1-3`. Do not install it, even as an inactive prerequisite: its installation enables a root service for the next boot. No remediated power-only package is approved. **Power setup** offers per-control readiness and legacy rollback, without configuration/takeover or a writable power-panel action. Normal generic power remains in place.
 
 The report lists only controls the running Manager backend can actually read. Missing TDP support stays unavailable; an installed package or older watt reading does not prove the required performance-profile/asus-armoury API. Charge `-1` is shown as the firmware default. Conflicts and policy errors suppress control values. Independent burst watts, CPU frequency limits, SMT, fan curves, bypass and thermal telemetry are unavailable in this backend API.
 
-If rolling back a previously configured backend, reconnect AC if the recorded original limit exceeds the battery ceiling. Use the delivered rollback before removing Manager or restoring a different power owner; failed readback must be resolved first.
+If rolling back a previously configured backend, reconnect AC if the recorded original limit exceeds the battery ceiling. Use the delivered rollback before removing Manager or restoring a different power owner; failed readback must be resolved first. A legacy receipt does not prove restoration of all three hardware power limits or the service state before the rejected package was installed. Keep the receipt for a reviewed recovery plan.
 
 ## Dedicated gaming session
 
