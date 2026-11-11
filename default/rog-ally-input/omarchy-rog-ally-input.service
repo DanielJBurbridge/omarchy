@@ -1,0 +1,16 @@
+[Unit]
+Description=ROG Ally desktop controller actions
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
+ConditionPathExists=/etc/omarchy/rog-ally-input-enabled
+
+[Service]
+Type=simple
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
+ExecStart=/usr/bin/python /usr/lib/omarchy-rog-ally-input/bridge.py watch
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

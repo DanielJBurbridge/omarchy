@@ -1,0 +1,25 @@
+# Build locally from a reviewed Omarchy checkout; no network sources or scriptlet.
+pkgname=omarchy-rog-ally-input
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Optional original ROG Ally RC71L InputPlumber profiles and session bridge'
+arch=('any')
+url='https://github.com/DanielJBurbridge/omarchy'
+license=('MIT' 'GPL-3.0-or-later')
+depends=('omarchy' 'inputplumber>=0.84.0' 'python-gobject')
+backup=('etc/inputplumber/devices.d/50-rog_ally.yaml')
+
+package() {
+  local source_root="$startdir/../../default/rog-ally-input"
+  install -Dm644 "$source_root/bridge.py" "$pkgdir/usr/lib/omarchy-rog-ally-input/bridge.py"
+  install -Dm644 "$source_root/50-rog_ally.yaml" "$pkgdir/etc/inputplumber/devices.d/50-rog_ally.yaml"
+  install -Dm644 "$source_root/omarchy-rog-ally-input.service" "$pkgdir/usr/lib/systemd/user/omarchy-rog-ally-input.service"
+  install -Dm644 "$source_root/90-omarchy-rc71l.conf" "$pkgdir/usr/lib/systemd/system/inputplumber.service.d/90-omarchy-rc71l.conf"
+  local mode
+  for mode in desktop gamepad dualsense; do
+    install -Dm644 "$source_root/profiles/$mode.yaml" "$pkgdir/usr/share/omarchy-rog-ally-input/profiles/$mode.yaml"
+  done
+  install -Dm644 "$startdir/../../docs/rog-ally-input.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "$source_root/LICENSE.inputplumber" "$pkgdir/usr/share/licenses/$pkgname/InputPlumber"
+  install -Dm644 "$startdir/../../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/MIT"
+}

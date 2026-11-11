@@ -1,0 +1,159 @@
+# InputPlumber DeviceProfile v1. Omarchy RC71L mapping.
+version: 1
+kind: "DeviceProfile"
+name: "Omarchy Ally desktop"
+target_devices:
+  - "mouse"
+  - "keyboard"
+mapping:
+  - name: "Mode switch on Armoury long"
+    source_event:
+      gamepad:
+        button: "QuickAccess2"
+    target_events:
+      - dbus: "omarchy_mode"
+  - name: "Command Centre short"
+    source_event:
+      gamepad:
+        button: "Guide"
+    target_events:
+      - dbus: "omarchy_power"
+  - name: "Command Centre long"
+    source_event:
+      gamepad:
+        button: "Keyboard"
+    target_events:
+      - keyboard: "KeyLeftMeta"
+      - keyboard: "KeyLeftCtrl"
+      - keyboard: "KeyY"
+  - name: "Armoury short"
+    source_event:
+      gamepad:
+        button: "QuickAccess"
+    target_events:
+      - dbus: "omarchy_menu"
+  - name: "Right stick pointer"
+    source_event:
+      gamepad:
+        axis:
+          name: "RightStick"
+    target_events:
+      - mouse:
+          motion:
+            speed_pps: 900
+  - name: "South"
+    source_event:
+      gamepad:
+        button: "South"
+    target_events:
+      - mouse:
+          button: "Left"
+  - name: "East"
+    source_event:
+      gamepad:
+        button: "East"
+    target_events:
+      - mouse:
+          button: "Right"
+  - name: "West"
+    source_event:
+      gamepad:
+        button: "West"
+    target_events:
+      - mouse:
+          button: "Middle"
+  - name: "North"
+    source_event:
+      gamepad:
+        button: "North"
+    target_events:
+      - keyboard: "KeyEnter"
+  - name: "Start"
+    source_event:
+      gamepad:
+        button: "Start"
+    target_events:
+      - keyboard: "KeyEsc"
+  - name: "Select"
+    source_event:
+      gamepad:
+        button: "Select"
+    target_events:
+      - keyboard: "KeyTab"
+  - name: "LeftPaddle1"
+    source_event:
+      gamepad:
+        button: "LeftPaddle1"
+    target_events:
+      - keyboard: "KeyLeftShift"
+  - name: "RightPaddle1"
+    source_event:
+      gamepad:
+        button: "RightPaddle1"
+    target_events:
+      - keyboard: "KeyLeftCtrl"
+  - name: "RightStick"
+    source_event:
+      gamepad:
+        button: "RightStick"
+    target_events:
+      - mouse:
+          button: "Left"
+  - name: "DPadUp"
+    source_event:
+      gamepad:
+        button: "DPadUp"
+    target_events:
+      - keyboard: "KeyUp"
+  - name: "DPadDown"
+    source_event:
+      gamepad:
+        button: "DPadDown"
+    target_events:
+      - keyboard: "KeyDown"
+  - name: "DPadLeft"
+    source_event:
+      gamepad:
+        button: "DPadLeft"
+    target_events:
+      - keyboard: "KeyLeft"
+  - name: "DPadRight"
+    source_event:
+      gamepad:
+        button: "DPadRight"
+    target_events:
+      - keyboard: "KeyRight"
+  - name: "RightTrigger"
+    source_event:
+      gamepad:
+        trigger:
+          name: "RightTrigger"
+          deadzone: 0.25
+    target_events:
+      - mouse:
+          button: "Left"
+  - name: "LeftTrigger"
+    source_event:
+      gamepad:
+        trigger:
+          name: "LeftTrigger"
+          deadzone: 0.25
+    target_events:
+      - mouse:
+          button: "Right"
+  - name: "RightBumper"
+    source_event:
+      gamepad:
+        button: "RightBumper"
+    target_events:
+      - mouse:
+          wheel:
+            direction: "up"
+  - name: "LeftBumper"
+    source_event:
+      gamepad:
+        button: "LeftBumper"
+    target_events:
+      - mouse:
+          wheel:
+            direction: "down"
