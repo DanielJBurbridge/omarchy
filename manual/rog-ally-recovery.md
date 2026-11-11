@@ -4,7 +4,7 @@ For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld*
 
 ## Controller input
 
-INPUT's source corrections have passed review. **Controller input > Enable reviewed input** appears only when matching runtime helpers and the reviewed `omarchy-rog-ally-input 1.0.2-1` companion are installed. It requires an explicit confirmation and opens the existing setup in a visible terminal. Opening setup or checking status never enables it or installs packages. Earlier companions and unreviewed newer versions are refused; use the reviewed release's matching package build.
+INPUT's source corrections have passed review. **Controller input > Enable reviewed input** appears only when matching runtime helpers and the reviewed `omarchy-rog-ally-input 1.0.3-1` companion are installed. It requires an explicit confirmation and opens the existing setup in a visible terminal. Opening setup or checking status never enables it or installs packages. Earlier companions, including `1.0.2-1`, and unreviewed newer versions are refused. Do not newly enable `1.0.2-1`; use the next reviewed stage's matching runtime and companion build. This source change does not promote or install the frozen release.
 
 Keep touch or a USB keyboard available before enabling InputPlumber. The backend setup refuses competing input owners; it does not remove them. Readiness and disable stay available even when activation prerequisites are missing. A source-review result or installed package does not establish physical controller acceptance.
 

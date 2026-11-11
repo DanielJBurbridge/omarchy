@@ -165,24 +165,24 @@ exit 93''',
         result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b true', **overrides)
         assert result.returncode == 0 and 'missing, ambiguous or unreadable' in result.stdout and 'SECRET' not in result.stdout, result
     assert 'Input source review\tcleared' in result.stdout and 'Input activation review' not in result.stdout
-    for version in ('', '1.0.0-1', '1.0.1-1', '1.0.2-2', '1.0.3-1', '1.0.2-1 invalid'):
+    for version in ('', '1.0.0-1', '1.0.1-1', '1.0.2-1', '1.0.2-2', '1.0.3-2', '1.0.4-1', '1.0.3-1 invalid'):
         result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE=version)
         assert result.returncode == 0 and not (root / 'actions').read_text(), (version, result)
         assert 'Enable reviewed input' not in (root / 'menus').read_text(), version
-    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.3-1')
     assert result.returncode == 0 and (root / 'actions').read_text() == 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --enable\n', result
-    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.3-1')
     assert result.returncode == 0 and not (root / 'actions').read_text(), result
-    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1', INPUT_PACKAGE_CHANGED='1')
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.3-1', INPUT_PACKAGE_CHANGED='1')
     assert result.returncode == 0 and not (root / 'actions').read_text(), result
     assert 'prerequisites changed' in (root / 'menus').read_text()
-    result = run('omarchy-setup-rog-ally', INPUT_PACKAGE='1.0.2-1')
+    result = run('omarchy-setup-rog-ally', INPUT_PACKAGE='1.0.3-1')
     assert result.returncode == 0 and 'Controller input' not in (root / 'menus').read_text() and not (root / 'actions').read_text(), result
+    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', INPUT_PACKAGE='1.0.3-1')
+    assert 'reviewed companion 1.0.3-1 installed; explicit terminal setup only' in result.stdout
     result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
-    assert 'reviewed companion 1.0.2-1 installed; explicit terminal setup only' in result.stdout
-    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', INPUT_PACKAGE='1.0.1-1')
-    assert 'matching runtime helpers and reviewed companion 1.0.2-1 required' in result.stdout
-    print('PASS reviewed input activation requires installed 1.0.2-1, explicit confirmation and unchanged prerequisites; disable/status stay available')
+    assert 'matching runtime helpers and reviewed companion 1.0.3-1 required' in result.stdout
+    print('PASS reviewed input activation requires installed 1.0.3-1, explicit confirmation and unchanged prerequisites; disable/status stay available')
     for choice, expected in (
         ('Roll back power backend', 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-power --rollback\n'),
     ):
