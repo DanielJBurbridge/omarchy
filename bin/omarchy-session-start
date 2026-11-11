@@ -95,8 +95,8 @@ run_gaming() {
   export XDG_CURRENT_DESKTOP=gamescope XDG_SESSION_DESKTOP=gamescope
   unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
   mv -f "$gaming_state/session.log" "$gaming_state/session.previous.log" 2>/dev/null || true
-  # A scope preserves logind seat access. A user service would lose that link.
-  # Scope stop owns only this session's subtree, including games and helpers.
+  # Group Gamescope and its children for teardown; scope membership does not
+  # establish logind session membership or target DRM/libseat access.
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
     gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
