@@ -22,5 +22,7 @@ The common baseline preserves the existing gaming setup, optional wvkbd desktop 
 
 An additional predicate correction, `28a5d89fc2ecb376cea9f06e66caa69530a5883d`, was reported by source integration after launch. Feature owners must preserve its use of `omarchy-hw-rog-ally` rather than reintroducing product-only checks.
 
-Read the integration and rollout threads for current source and installed results. Initial implementation is in progress; optional, unsupported, pending physical checks and completed features remain distinct.
+Reviewed source increments from all nine streams, their integration corrections, tests and source/installed limits are recorded in the [integration ledger](rog-ally-parity.md#reviewed-source-increments). The staged tree includes only the corrected AUTH set: SDDM touch keyboard and read-only lock feed; the unsafe shell lock keyboard remains unavailable pending an agreed trusted design. INPUT's integrated companion is 1.0.2-1, including the removed-device correction. POWER still requires an independently reviewed standalone Manager package before takeover. Source delivery does not establish installed or physical acceptance.
+
+Read the integration and rollout threads for each exact release SHA and actual device receipt. The last completed rollout receipt installed two per-user helpers only; full runtime/settings installation and subsequent features remain separate until the sole live owner records them. No upstream pull request is authorised by this work.
 
