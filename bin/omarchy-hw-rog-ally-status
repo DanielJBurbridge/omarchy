@@ -45,7 +45,7 @@ package() {
 }
 service() {
   local state load active key value
-  state=$(timeout 3 systemctl show "$1" --property=LoadState --property=ActiveState 2>/dev/null) || state=''
+  state=$(timeout 3 systemctl "${2:---system}" show "$1" --property=LoadState --property=ActiveState 2>/dev/null) || state=''
   load=''; active=''
   while IFS='=' read -r key value; do
     case "$key" in LoadState) load=$value ;; ActiveState) active=$value ;; esac
@@ -79,7 +79,7 @@ module() {
 }
 
 report 'Hardware' 'original ROG Ally RC71L'
-for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Trusted keyboard:qt6-virtualkeyboard' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
+for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'Input companion:omarchy-rog-ally-input' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Trusted keyboard:qt6-virtualkeyboard' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
   report "${spec%%:*} package" "$(package "${spec#*:}")"
 done
 for unit in inputplumber powerstation power-profiles-daemon; do
@@ -92,7 +92,39 @@ for unit in hhd handheld-daemon; do
     report 'Input ownership conflict' "$unit is active; resolve before enabling InputPlumber"
   fi
 done
-report 'InputPlumber readiness' "$(bus_ready --system org.shadowblip.InputPlumber)"
+input_ready=$(bus_ready --system org.shadowblip.InputPlumber)
+report 'InputPlumber readiness' "$input_ready"
+if omarchy-cmd-present omarchy-hw-rog-ally-input; then
+  report 'Input desktop bridge' "$(service omarchy-rog-ally-input.service --user)"
+  if [[ $input_ready == 'API present;'* ]]; then
+    # Never print raw composite names, profile/source paths or backend errors.
+    # Probe only a running API; status must not activate a missing input owner.
+    if input_json=$(timeout 12 omarchy-hw-rog-ally-input status 2>/dev/null) && \
+      input_summary=$(jq -er '
+        select(type == "object" and (.ProfileName | type == "string") and (.TargetDevices | type == "array" and length <= 128))
+        | (.ProfileName | if . == "Omarchy Ally desktop" then "desktop" elif . == "Omarchy Ally gamepad" then "gamepad" elif . == "Omarchy Ally dualsense" then "dualsense" else "custom" end) as $profile
+        | (.InterceptMode | if . == 0 then "none" elif . == 2 then "all" else "unrecognised" end) as $intercept
+        | "composite readable; profile \($profile); interception \($intercept); \(.TargetDevices | length) targets; physical input unverified"
+      ' <<< "$input_json" 2>/dev/null); then
+      report 'Input composite' "$input_summary"
+    else
+      report 'Input composite' 'missing, ambiguous or unreadable; see local input diagnostics'
+    fi
+    if input_caps=$(timeout 12 omarchy-hw-rog-ally-input capabilities 2>/dev/null) && \
+      input_counts=$(jq -er '
+        select(type == "object" and (.Capabilities | type == "array" and length <= 4096) and (.OutputCapabilities | type == "array" and length <= 4096))
+        | "\(.Capabilities | length) advertised input capabilities; \(.OutputCapabilities | length) output capabilities; physical behaviour unverified"
+      ' <<< "$input_caps" 2>/dev/null); then
+      report 'Input capabilities' "$input_counts"
+    else
+      report 'Input capabilities' 'unreadable; no gyro, rumble or lighting support inferred'
+    fi
+  else
+    report 'Input composite' 'not probed because the API has no readable owner'
+  fi
+else
+  report 'Input composite' 'integration command not delivered in this installation'
+fi
 report 'SteamOS Manager readiness' "$(bus_ready --user com.steampowered.SteamOSManager1)"
 module 'Display' omarchy-display-rog-ally
 module 'Game tools' omarchy-install-gaming-tools

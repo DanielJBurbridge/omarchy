@@ -1,4 +1,5 @@
 """Run real recovery commands with isolated package, service and picker boundaries."""
+import json
 import os
 import pathlib
 import subprocess
@@ -13,7 +14,13 @@ with tempfile.TemporaryDirectory(prefix='ally-recovery-') as temp:
         'systemctl': '''printf 'LoadState=%s\\nActiveState=%s\\n' "${LOAD:-loaded}" "${ACTIVE:-active}"''',
         'busctl': 'printf "%s\\n" "${BUS:-b false}"',
         'findmnt': 'echo btrfs',
-        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools || ${DISPLAY_TOOLS:-0} == 1 && $1 == omarchy-display-rog-ally || ${DECKY_TOOLS:-0} == 1 && $1 == omarchy-*-gaming-decky ]]',
+        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools || ${DISPLAY_TOOLS:-0} == 1 && $1 == omarchy-display-rog-ally || ${DECKY_TOOLS:-0} == 1 && $1 == omarchy-*-gaming-decky || ${INPUT_TOOLS:-0} == 1 && $1 == omarchy-*-rog-ally-input ]]',
+        'omarchy-hw-rog-ally-input': '''printf '%s\\n' "$1" >> "$TEST_ROOT/input-calls"
+[[ ${INPUT_ERROR:-0} == 0 ]] || exit 9
+case "$1" in
+  status) printf '%s\\n' "$INPUT_STATE" ;;
+  capabilities) printf '%s\\n' "$INPUT_CAPABILITIES" ;;
+esac''',
         'checkupdates': '''printf '%s\\n' 'private-repo-package 1 -> 2'; exit "${UPDATE_STATUS:-0}"''',
         'omarchy-menu-select': '''printf '%s\\n' "$@" >> "$TEST_ROOT/menus"
 read -r count < "$TEST_ROOT/count"
@@ -33,11 +40,14 @@ exit 93''',
         path = root / name
         path.write_text('#!/bin/bash\n' + body + '\n')
         path.chmod(0o755)
-    env = dict(os.environ, PATH=f'{root}:{repo}/bin:' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(repo), TEST_ROOT=temp)
+    input_state = json.dumps({'Name': 'SECRET', 'ProfilePath': '/private/SECRET', 'ProfileName': 'Omarchy Ally desktop', 'TargetDevices': ['/SECRET'], 'InterceptMode': 0})
+    input_capabilities = json.dumps({'Capabilities': ['SECRET'], 'OutputCapabilities': ['SECRET'], 'SourceDevicePaths': ['/private/SECRET']})
+    env = dict(os.environ, PATH=f'{root}:{repo}/bin:' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(repo), TEST_ROOT=temp, INPUT_STATE=input_state, INPUT_CAPABILITIES=input_capabilities)
 
     # A hang guard, not a performance assertion: real probes have cumulative
     # timeouts, and the nine-stream build host can be heavily scheduled.
     def run(command, *args, choices=('CANCEL',), **overrides):
+        (root / 'input-calls').write_text('')
         (root / 'menus').write_text('')
         (root / 'actions').write_text('')
         (root / 'count').write_text('0\n')
@@ -125,3 +135,21 @@ exit 93''',
     result = run('omarchy-setup-rog-ally', choices=('Game software', 'Decky', 'Enable root plugins', 'Back', 'Close'), DECKY_TOOLS='1')
     assert result.returncode == 0 and not (root / 'actions').read_text(), result
     print('PASS optional Decky install, explicit activation and cancellation stay separate')
+    for choice, command in (
+        ('Enable reviewed input', 'omarchy-setup-rog-ally-input --enable'),
+        ('Disable input integration', 'omarchy-setup-rog-ally-input --disable'),
+        ('Desktop pointer profile', 'omarchy-hw-rog-ally-input desktop'),
+        ('Xbox gamepad profile', 'omarchy-hw-rog-ally-input gamepad'),
+        ('DualSense profile', 'omarchy-hw-rog-ally-input dualsense'),
+    ):
+        result = run('omarchy-setup-rog-ally', choices=('Controller input', choice), INPUT_TOOLS='1')
+        assert result.returncode == 0 and (root / 'actions').read_text() == f'omarchy-launch-floating-terminal-with-presentation {command}\n', result
+    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b true')
+    assert result.returncode == 0 and 'profile desktop; interception none' in result.stdout and 'SECRET' not in result.stdout, result
+    assert '1 advertised input capabilities' in result.stdout
+    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b false')
+    assert result.returncode == 0 and not (root / 'input-calls').read_text(), result
+    for overrides in ({'INPUT_ERROR': '1'}, {'INPUT_STATE': 'invalid SECRET', 'INPUT_CAPABILITIES': 'invalid SECRET'}):
+        result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b true', **overrides)
+        assert result.returncode == 0 and 'missing, ambiguous or unreadable' in result.stdout and 'SECRET' not in result.stdout, result
+    print('PASS delivered input setup/profile verbs and redacted composite/capability readiness')

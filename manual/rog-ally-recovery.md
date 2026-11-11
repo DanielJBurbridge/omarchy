@@ -2,6 +2,14 @@
 
 For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld** or **Setup > ROG Ally Handheld**. You can also run `omarchy setup rog ally`. Each component is an explicit choice. Opening or cancelling setup does not install packages or change services. Steam Big Picture still works inside the existing desktop on other machines.
 
+## Controller input
+
+When the input integration commands are installed, **Controller input** offers explicit enable/disable, a desktop pointer profile and Xbox or optional DualSense gamepad profiles. The reviewed companion and InputPlumber must already be installed together; setup never installs or starts a backend from the status report. Keep touch or a USB keyboard available while changing input ownership. Choose the target before launching a game because profile changes disconnect the previous controller.
+
+Enable refuses competing controller owners. Disable this integration before removing its companion or restoring another owner. If InputPlumber was installed for this increment, remove it before restoring the old owner: removing the companion also removes its opt-in guard, leaving upstream udev activation possible. Follow the input component's installation and rollback instructions rather than removing files manually.
+
+The shareable report shows composite readability, known profile name, interception state and advertised capability counts. It omits raw device names, paths and source identifiers. These software results do not prove gyro, rumble, buttons or pointer behaviour.
+
 ## Desktop keyboard
 
 **Desktop keyboard > Configure reviewed keyboard** configures an already installed, reviewed wvkbd 0.21-1 without installing a package. The separate AUR action requires reviewing that package's source first. When wvkbd is installed, **Toggle desktop keyboard** shows or hides it. The delivered touch integration also adds the optional Keyboard bar control and `Super + Ctrl + Y`; reload/login may be needed for the binding. This keyboard belongs to the desktop; the greeter, lock screen and Steam gaming keyboard have separate owners. Automatic text-field activation is unavailable while Fcitx owns the input-method slot.
