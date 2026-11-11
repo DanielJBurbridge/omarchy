@@ -1,11 +1,10 @@
-import os, pathlib, subprocess, tempfile
+import json, os, pathlib, shlex, subprocess, tempfile
 script = pathlib.Path(os.environ['OMARCHY_TEST_ROOT']) / 'bin/omarchy-setup-gaming'
 with tempfile.TemporaryDirectory(prefix='haki-gaming-test-') as temp:
     root = pathlib.Path(temp)
     commands = {
         'omarchy-hw-rog-ally': '#!/bin/bash\n[[ ${ALLY_PRESENT:-0} == 1 ]]\n',
         'omarchy-setup-rog-ally': '#!/bin/bash\necho handheld >> "$TEST_ROOT/actions"\n',
-        'omarchy-i18n': '#!/bin/bash\nvalue=$("$OMARCHY_TEST_ROOT/bin/omarchy-i18n" "$@") || exit $?\nif [[ ${TEST_TRANSLATED:-0} == 1 ]]; then printf "translated:%s\\n" "$value"; else printf "%s\\n" "$value"; fi\n',
         'omarchy-cmd-present': '#!/bin/bash\n[[ $1 == steam && $STEAM_PRESENT == 1 ]]\n',
         'omarchy-menu-select': '''#!/bin/bash
 printf '%s\\n' "$*" >> "$TEST_ROOT/menus"
@@ -26,6 +25,12 @@ printf '%s\\tfixture subtext\\n' "$line"
         'omarchy-launch-steam-desktop': '#!/bin/bash\necho desktop >> "$TEST_ROOT/actions"\n',
         'omarchy-menu': '#!/bin/bash\necho "$*" >> "$TEST_ROOT/actions"\n',
     }
+    # Routing needs stable labels, not hundreds of real jq translations per
+    # picker traversal. Localisation has its own suite; read the English labels
+    # once so concurrent feature tests cannot turn this into a timing test.
+    catalog = json.loads((script.parent.parent / 'default/i18n/en/cli.json').read_text())
+    labels = '\n'.join(f'  {shlex.quote(key)}) value={shlex.quote(value)} ;;' for key, value in catalog.items() if key.startswith('gaming.') and isinstance(value, str))
+    commands['omarchy-i18n'] = '#!/bin/bash\ncase "$1" in\n' + labels + '\n  *) exit 1 ;;\nesac\nif [[ ${TEST_TRANSLATED:-0} == 1 ]]; then printf "translated:%s\\n" "$value"; else printf "%s\\n" "$value"; fi\n'
     for name, source in commands.items():
         path = root / name
         path.write_text(source)
@@ -50,7 +55,7 @@ printf '%s\\tfixture subtext\\n' "$line"
         (root / 'actions').write_text('')
         (root / 'menus').write_text('')
         env = dict(os.environ, PATH=f'{root}:' + str(script.parent) + ':' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(script.parent.parent), TEST_ROOT=temp, STEAM_PRESENT=str(present), TEST_TRANSLATED=str(int(translated)), ALLY_PRESENT=str(int(name == 'ally-handheld')))
-        result = subprocess.run([str(script)], env=env, capture_output=True, text=True, timeout=15)
+        result = subprocess.run([str(script)], env=env, capture_output=True, text=True, timeout=60)
         assert result.returncode == status, (name, result)
         assert (root / 'actions').read_text() == actions, name
         menus = (root / 'menus').read_text()

@@ -24,6 +24,8 @@ These are the nine feature streams from [the parity plan](../plans/rog-ally-pari
 - `omarchy-hw-rog-ally-status [--menu] [--updates]` reports allow-listed package versions, system-service states and non-activating bus-owner checks. Its default report performs no network check, sudo, firmware operation or log export. `--updates` calls `checkupdates --nocolor` with a timeout and distinguishes exit 2 (no updates) from sync failure. It shows a count, not private repository package names. Snapshot file presence is only a prerequisite, never proof of a bootable recovery point.
 - `omarchy-drive-game-library` uses existing UDisks policy and removable data partitions; see [storage and save recovery](rog-ally-storage.md).
 
+The keyboard picker supports the delivered TOUCH contract (`c2ce33d5d`, `bdb732d94`): configure an already reviewed package, explicitly install reviewed AUR source, or toggle the installed desktop keyboard. No automatic IME activation or gaming-session keyboard is introduced.
+
 The optional game-tools picker is wired to the delivered `omarchy-install-gaming-tools` contract from GAMES/PERFORMANCE commit `a820984f5`. It is offered only when that command is installed; otherwise the existing game-installer menu remains usable. It passes only fixed component names and never runs GameMode on the Ally. The trusted keyboard package is listed as a package prerequisite, without claiming that fixed SDDM settings have been installed or password entry has passed.
 
 No new repositories, firmware writes, kernel changes, bootloader entries, login policy, system services or `/etc` files are introduced by these commands. Fixed backend files belong in the relevant reviewed companion package, outside this stream.

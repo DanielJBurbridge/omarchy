@@ -2,6 +2,10 @@
 
 For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld** or **Setup > ROG Ally Handheld**. You can also run `omarchy setup rog ally`. Each component is an explicit choice. Opening or cancelling setup does not install packages or change services. Steam Big Picture still works inside the existing desktop on other machines.
 
+## Desktop keyboard
+
+**Desktop keyboard > Configure reviewed keyboard** configures an already installed, reviewed wvkbd 0.21-1 without installing a package. The separate AUR action requires reviewing that package's source first. When wvkbd is installed, **Toggle desktop keyboard** shows or hides it. The delivered touch integration also adds the optional Keyboard bar control and `Super + Ctrl + Y`; reload/login may be needed for the binding. This keyboard belongs to the desktop; the greeter, lock screen and Steam gaming keyboard have separate owners. Automatic text-field activation is unavailable while Fcitx owns the input-method slot.
+
 ## Games and compatibility tools
 
 **Game software > Game installers** opens the existing Steam and launcher installation menu. When the delivered gaming-tools command is installed, this picker also offers optional UMU/Protontricks/Winetricks, ProtonPlus, MangoHud, GOverlay and Sunshine. These are explicit installations; they do not replace existing runners or prefixes. Sunshine host input permissions and actual streaming acceptance remain separate. GameMode is excluded from this handheld picker because its power writes would compete with the Ally power owner.
