@@ -516,6 +516,7 @@ Item {
         authenticatingPassword: root.authenticatingPassword
         failureMessage: root.failureMessage
         failedAttempts: root.failedAttempts
+        keyboardAvailable: Quickshell.env("OMARCHY_TRUSTED_KEYBOARD") === "1"
         inputEnabled: root.lockRequested
         loadBackground: root.locked
         passwordText: root.enteredPassword
