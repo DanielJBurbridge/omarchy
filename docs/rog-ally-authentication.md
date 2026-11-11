@@ -18,6 +18,14 @@ The keyboard is created only on demand and only on the active monitor, since Qt 
 
 The existing lock's separate password and fingerprint PAM contexts are unchanged. The enrolled-reader hint and unavailable-reader notice remain visible, and password entry remains available when a reader fails. This does not establish RC71L fingerprint support: the rollout owner must record driver, enrollment and actual PAM results. No fingerprint enrollment or PAM editing is performed by this increment.
 
+## Read-only lock-state feed
+
+The detached first-party lock service owns a Unix stream socket at `$XDG_RUNTIME_DIR/omarchy-lock-$HYPRLAND_INSTANCE_SIGNATURE.sock`. Each subscriber immediately receives one JSON line with exactly `{"locked":true}` or `{"locked":false}`. The producer re-reads `currentlyLocked()` on connection and on `lockRequested`, compositor locked and compositor secure transitions; identical consecutive booleans are suppressed. Thus a lock request blocks desktop input before the compositor confirms the secure surface. No secret, authentication object or request method is exported. Unsolicited lines disconnect that subscriber.
+
+INPUT owns the consumer: check the peer UID, require a strict boolean, treat missing/malformed data or EOF as unknown/locked, and watch the runtime directory for socket recreation. Do not authorise desktop input from a saved false value after disconnect. At initial connection and action boundaries, also check the existing canonical `omarchy-shell lock isLocked` and compositor helper to cover a stranded compositor lock during shell startup. The compositor helper's exit 2 is undetermined and must fail closed. Those checks are event-driven, never idle polling. No logind LockedHint or PAM policy changes are made.
+
+The producer starts only for a service with its normal shell host, so standalone service fixtures cannot replace the live shell's endpoint. It adds no process or timer. The focused `lock-state-test.sh` exercises the actual Unix stream offscreen: initial/late snapshots, two-subscriber changes, duplicate suppression, rejected writes and EOF on producer destruction. Its existing source checks cover the actual session-lock transition wiring; real secure-lock/controller acceptance still belongs to rollout.
+
 ## Dependencies and package manifest
 
 Required package: `qt6-virtualkeyboard`. Arch Extra and the configured sync database supplied **6.12.0-1** when checked on 11 November 2026, matching local Qt 6.12.0. The package includes the platform input plugin, `QtQuick.VirtualKeyboard`, layouts, styles and their runtime dependencies. Reuse the installed package under its published licences; no upstream keyboard source is copied into Omarchy. The package metadata lists GPL-3.0-only, LGPL-3.0-only, LicenseRef-Qt-Commercial and Qt-GPL-exception-1.0; individual components retain their own notices.
@@ -30,7 +38,7 @@ Reviewed source-to-install mapping for the normal Omarchy package build:
 | `default/sddm/omarchy/Main.qml` | Settings package: `/usr/share/sddm/themes/omarchy/Main.qml` |
 | `etc/sddm.conf.d/10-wayland.conf` | Settings package: `/etc/sddm.conf.d/10-wayland.conf` |
 | `bin/omarchy-launch-shell` | Runtime package command, reached through the normal Omarchy installation |
-| `shell/plugins/lock/Service.qml`, `LockView.qml` and `TrustedKeyboard.qml` | Runtime package shell sources |
+| `shell/plugins/lock/Service.qml`, `LockView.qml`, `TrustedKeyboard.qml` and `LockStateSocket.qml` | Runtime package shell sources |
 | `default/i18n/en/shell.json` | Runtime package fallback strings |
 
 The greeter and RC71L shell receive `QT_IM_MODULE=qtvirtualkeyboard`, `QT_IM_MODULES=qtvirtualkeyboard` and `QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1`. The last variable prevents an external keyboard window. The plural setting takes precedence in current Qt, so both IM settings must be local to these processes. Do not put them in the session environment: desktop application Fcitx and desktop wvkbd retain their own roles.
