@@ -30,6 +30,9 @@ while true; do
   options=("$(row '󰋖' 'Status' 'Packages, services, recovery readiness and unverified device checks')")
   # Backend setup commands are optional increments. Never invoke an absent
   # command or silently install a different backend in its place.
+  if omarchy-cmd-present omarchy-setup-rog-ally-input && omarchy-cmd-present omarchy-hw-rog-ally-input; then
+    options+=("$(row '' 'Controller input' 'Explicitly enable the reviewed companion, choose a profile or disable it')")
+  fi
   if omarchy-cmd-present omarchy-display-rog-ally; then
     options+=("$(row '󰍹' 'Display and touch layout' 'Inspect actual modes or choose the optional touch preset')")
   fi
@@ -41,6 +44,24 @@ while true; do
   choose 'ROG Ally handheld setup' "${options[@]}"
   case "$selection" in
     'Status') omarchy-hw-rog-ally-status --menu ;;
+    'Controller input')
+      choose 'InputPlumber — keep a touch or USB keyboard recovery route' \
+        "$(row '󰋖' 'Input readiness' 'Shareable package, service, composite and capability summary')" \
+        "$(row '' 'Enable reviewed input' 'Requires reviewed companion already installed; refuses competing owners')" \
+        "$(row '󰁯' 'Disable input integration' 'Disable before removing companion or restoring an old owner')" \
+        "$(row '󰍹' 'Desktop pointer profile' 'Requires active unlocked Hyprland; right stick pointer and button clicks')" \
+        "$(row '' 'Xbox gamepad profile' 'Choose before launching a game; changing target disconnects it')" \
+        "$(row '' 'DualSense profile' 'Optional gyro target; physical motion and rumble checks still needed')" \
+        "$(row '󰌑' 'Back' 'No changes')"
+      case "$selection" in
+        'Input readiness') omarchy-hw-rog-ally-status --menu ;;
+        'Enable reviewed input') omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --enable; exit ;;
+        'Disable input integration') omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --disable; exit ;;
+        'Desktop pointer profile') omarchy-launch-floating-terminal-with-presentation omarchy-hw-rog-ally-input desktop; exit ;;
+        'Xbox gamepad profile') omarchy-launch-floating-terminal-with-presentation omarchy-hw-rog-ally-input gamepad; exit ;;
+        'DualSense profile') omarchy-launch-floating-terminal-with-presentation omarchy-hw-rog-ally-input dualsense; exit ;;
+      esac
+      ;;
     'Display and touch layout')
       choose 'Display and touch layout' \
         "$(row '󰋖' 'Display status' 'Read advertised capabilities and actual touchscreen names')" \
