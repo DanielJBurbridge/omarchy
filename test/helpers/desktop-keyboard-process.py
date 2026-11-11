@@ -74,6 +74,8 @@ def main():
         (root / 'omarchy-cmd-present').symlink_to(present)
         env = os.environ | {'PATH': str(root),
                             'XDG_RUNTIME_DIR': str(root), 'WAYLAND_DISPLAY': 'wayland-test',
+                            'HYPRLAND_INSTANCE_SIGNATURE': 'hyprland-test',
+                            'XDG_CURRENT_DESKTOP': 'Hyprland',
                             'SIGNALS': str(root / 'signals')}
         state = root / 'omarchy-desktop-keyboard-wayland-test'
         record = state / 'process'
@@ -82,11 +84,11 @@ def main():
         def run(*args, ok=True, extra=None):
             result = subprocess.run(['/bin/bash', str(HELPER), *args], env=env | (extra or {}),
                                     capture_output=True, text=True, timeout=5)
-            assert (result.returncode == 0) == ok, (args, result.returncode, result.stderr)
             if record.exists():
                 pid, stamp, executable = record.read_text().split()
                 if executable == str(binary) and Path(f'/proc/{pid}').exists() and starttime(pid) == stamp:
                     owned.add(int(pid))
+            assert (result.returncode == 0) == ok, (args, result.returncode, result.stderr)
             return result
 
         def events():
@@ -109,6 +111,13 @@ def main():
             assert not record.exists()
             print('[Haki] PASS help, invalid arguments, missing session, inactive hide/stop')
 
+            # A dedicated Steam compositor must not acquire a desktop OSK.
+            for action in ('show', 'toggle'):
+                run(action, ok=False, extra={'HYPRLAND_INSTANCE_SIGNATURE': ''})
+                run(action, ok=False, extra={'XDG_CURRENT_DESKTOP': 'Gamescope'})
+                assert not record.exists() and not (root / 'signals').exists()
+            print('[Haki] PASS non-Hyprland and Gamescope launches rejected before starting a process')
+
             for _ in range(3):
                 run('show')
                 saved = record.read_text()
@@ -116,7 +125,7 @@ def main():
                 pid = int(saved.split()[0])
                 # Real argv observed by the native child, not source-text assertions.
                 argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[1:-1]
-                assert argv == [b'-H', b'180', b'-L', b'180', b'--non-exclusive',
+                assert argv == [b'-H', b'264', b'-L', b'264', b'--non-exclusive',
                                 b'--wayland-layer', b'overlay', b'-l', b'full,special',
                                 b'--landscape-layers', b'full,special', b'--no-popup'], argv
                 suffix = ''

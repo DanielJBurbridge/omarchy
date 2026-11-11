@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.desktop-keyboard",
+  "name": "Desktop keyboard",
+  "version": "1.0.0",
+  "author": "Omarchy",
+  "description": "Show or hide the optional wvkbd touch keyboard without changing text focus",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "DesktopKeyboard.qml" },
+  "barWidget": {
+    "displayName": "Desktop keyboard",
+    "description": "Show or hide the optional touch keyboard",
+    "category": "Compositor",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}
