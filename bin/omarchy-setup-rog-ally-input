@@ -1,0 +1,74 @@
+#!/bin/bash
+# omarchy:summary=Enable or disable the optional RC71L InputPlumber integration
+# omarchy:args=[--enable|--disable|--help]
+
+set -euo pipefail
+case "${1:-}" in
+  -h | --help)
+    cat <<'HELP'
+Usage: omarchy-setup-rog-ally-input --enable|--disable
+
+Install the reviewed omarchy-rog-ally-input companion package first; it depends
+on Arch Extra inputplumber>=0.84.0. This command does not install packages.
+Enable refuses competing input services; it never disables another owner.
+Disable stops this user's bridge and InputPlumber and removes the opt-in marker.
+See docs/rog-ally-input.md for package build, acceptance and full rollback.
+Run as the desktop user in a terminal, with sudo available for system changes.
+HELP
+    exit 0
+    ;;
+  --enable | --disable) action=$1 ;;
+  *) echo 'Choose --enable or --disable; use --help.' >&2; exit 2 ;;
+esac
+(( $# == 1 )) || exit 2
+omarchy-hw-rog-ally || { echo 'This setup is only for ASUS ROG Ally RC71L.' >&2; exit 1; }
+(( EUID != 0 )) || { echo 'Run as the desktop user, without sudo.' >&2; exit 1; }
+
+if [[ $action == "--enable" ]]; then
+  # Package-management boundary: the companion owns fixed paths, not dev link.
+  pacman -Q omarchy-rog-ally-input >/dev/null || { echo 'Install the reviewed companion package first.' >&2; exit 1; }
+  installed=$(pacman -Q inputplumber)
+  version=${installed#* }
+  (( $(vercmp "$version" 0.84.0) >= 0 )) || { echo 'InputPlumber 0.84.0 or newer is required.' >&2; exit 1; }
+  # Examine both installed enablement and running instances (including hhd@USER).
+  # Reject uncertainty; a failed query is not proof there is no other owner.
+  system_units=$(systemctl list-units --all --type=service --no-legend --plain)
+  system_files=$(systemctl list-unit-files --type=service --no-legend)
+  user_units=$(systemctl --user list-units --all --type=service --no-legend --plain)
+  user_files=$(systemctl --user list-unit-files --type=service --no-legend)
+  conflicts=$(printf '%s\n' "$system_units" "$system_files" "$user_units" "$user_files" |
+    awk '$1 ~ /^(hhd(@|\.)|handheld-daemon|input-remapper|xboxdrv|chimera|opengamepadui)/ && ($2 ~ /^(enabled|linked|alias)$/ || $3 == "active" || $3 == "activating") {print $1}')
+  if [[ -n $conflicts ]]; then
+    printf 'Resolve competing input owners before enabling InputPlumber:\n%s\n' "$conflicts" >&2
+    exit 1
+  fi
+  # Catch manually started owners too; leave Steam running (it consumes targets).
+  if pgrep -af '(^|/)(hhd|handheld-daemon|input-remapper-service|xboxdrv|opengamepadui)([[:space:]]|$)' >/dev/null; then
+    echo 'A competing input process is running; stop its launcher first.' >&2
+    exit 1
+  fi
+  suspend_state=$(systemctl is-enabled inputplumber-suspend.service || true)
+  case "$suspend_state" in
+    enabled | enabled-runtime | disabled) ;;
+    *) echo "InputPlumber suspend hook is $suspend_state; resolve it before enabling input." >&2; exit 1 ;;
+  esac
+  sudo install -Dm644 /dev/null /etc/omarchy/rog-ally-input-enabled
+  sudo systemctl daemon-reload
+  systemctl --user daemon-reload
+  if [[ $suspend_state == "disabled" ]]; then
+    sudo install -Dm644 /dev/null /etc/omarchy/rog-ally-input-suspend-owned
+    sudo systemctl enable inputplumber-suspend.service
+  fi
+  sudo systemctl start inputplumber.service
+  systemctl --user enable --now omarchy-rog-ally-input.service
+  echo 'Input integration enabled. Check omarchy-hw-rog-ally-input status and perform physical acceptance.'
+else
+  systemctl --user disable --now omarchy-rog-ally-input.service
+  sudo rm -f /etc/omarchy/rog-ally-input-enabled
+  sudo systemctl stop inputplumber.service
+  if [[ -e /etc/omarchy/rog-ally-input-suspend-owned ]]; then
+    sudo systemctl disable inputplumber-suspend.service
+    sudo rm -f /etc/omarchy/rog-ally-input-suspend-owned
+  fi
+  echo 'Input integration disabled. Firmware controller operation resumes; verify it before removing packages.'
+fi

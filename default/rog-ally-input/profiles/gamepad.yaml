@@ -1,0 +1,24 @@
+# InputPlumber DeviceProfile v1. Omarchy RC71L mapping.
+version: 1
+kind: "DeviceProfile"
+name: "Omarchy Ally gamepad"
+target_devices:
+  - "xbox-elite"
+  - "mouse"
+  - "keyboard"
+mapping:
+  - name: "Mode switch on Armoury long"
+    source_event:
+      gamepad:
+        button: "QuickAccess2"
+    target_events:
+      - dbus: "omarchy_mode"
+  - name: "Steam keyboard"
+    source_event:
+      gamepad:
+        button: "Keyboard"
+    target_events:
+      - gamepad:
+          button: "Guide"
+      - gamepad:
+          button: "West"

@@ -4,6 +4,9 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+# These exercise input ownership, lock races and hotplug, not physical input.
+PYTHONDONTWRITEBYTECODE=1 python "$ROOT/test/helpers/rog-ally-input.py" "$ROOT/default/rog-ally-input/bridge.py"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 
