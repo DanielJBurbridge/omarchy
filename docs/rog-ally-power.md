@@ -18,6 +18,8 @@ The reviewed immutable CachyOS recipe is commit `ab15ca2048159897015eb0ac90eac8c
 
 POWER owns a bounded prerequisite input-management opt-out patch, immutable source/patch/Cargo.lock manifest and power-only interface/authorisation/transaction design. That opt-out alone is not a security or power-only fix. `omarchy-steamos-manager-power` is a reserved future identity only; no version or artifact is approved. Full builds and deployment wait for an agreed remediated design. The remaining sections document the experimental client and earlier proposed API, not an approved installation procedure.
 
+The finite proposal, exact remaining code/API blockers and all-three-limit contract are in [SteamOS Manager power-only remediation](rog-ally-manager-remediation.md). Its typed snapshot schema and isolated input opt-out patch are preparation artifacts, not executable installation guidance. The client carries frozen47e's `NO_AUTO_START` correction unchanged from central commit `67e8829d5dbf92f86e90e9428aeca5ecbb36d6d9`.
+
 ## Backend and package boundary
 
 The experimental client targets one SteamOS Manager power owner. PowerStation, HHD/Adjustor, asusctl or custom sysfs writers must not run alongside it. The rejected [CachyOS standalone recipe](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/ab15ca2048159897015eb0ac90eac8c756b86e7a/handheld/steamos-manager/PKGBUILD) packages `steamos-manager 26.4.1-3`, MIT, from upstream tag `v26.4.1`, commit `a0d399defebd60db30ba38325d9cf47dbda49bee`. Do not build/install it for this rollout. Do not add CachyOS repositories, install `cachyos-handheld` wholesale, install `jupiter-hw-support`, or copy their login/autologin policy.
@@ -69,13 +71,7 @@ The panel offers 48-pixel touch targets, profile choices, 10/15/25 W presets wit
 
 TERM/INT/HUP handling is installed before the first startup power mutation. A signal during the initial setters or child launch enters the same restoration path; repeated handled signals during cleanup do not interrupt it. Original signal handlers are reinstated after cleanup, including failed launch and restoration failures.
 
-Desktop route is `omarchy-shell shell toggle omarchy.power`. The Hyprland panel does not cross into Gamescope. Gaming uses Steam's QAM and the **same Manager session API**, with the input Guide/South proposal provisional until exercised. SESSION must start the user Manager and policy units inside its authenticated gaming session (it does not start `graphical-session.target`), and stop only the units it started when handing back; call the exact commands below once, not once per Steam child:
-
-```bash
-systemctl --user start steamos-manager.service omarchy-ally-power.service
-# On session teardown, only if these were not active before entry:
-systemctl --user stop omarchy-ally-power.service steamos-manager.service
-```
+Desktop route is `omarchy-shell shell toggle omarchy.power`. The Hyprland panel does not cross into Gamescope. The proposed Steam QAM/Guide+South route and Manager API compatibility remain unverified. No session should start the rejected backend. A future restricted backend needs a revised authenticated-session lifecycle contract before SESSION may acquire its units; the earlier full-Manager start/stop proposal is held along with package activation.
 
 The setup's opt-in marker must gate that power-policy unit. No shortcut, Steam QAM watt slider, gaming lifecycle or resume behaviour is physically accepted until rollout evidence establishes it. OGUI is not installed by this increment; if Steam QAM does not use Manager on this device, gaming overlay acceptance remains blocked and must be reported, not replaced with a desktop panel claim.
 

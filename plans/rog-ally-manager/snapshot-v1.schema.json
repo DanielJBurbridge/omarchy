@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omarchy:design:manager-power-snapshot-v1",
+  "title": "PROPOSED complete RC71L profile/PPT snapshot; NOT an implemented upstream API",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "backend_build_sha256",
+    "boot_id",
+    "device",
+    "owner",
+    "epoch",
+    "source",
+    "profile",
+    "ppt",
+    "safety_caps",
+    "restore_scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "backend_build_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "boot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "driver",
+        "instance_generation"
+      ],
+      "properties": {
+        "family": {
+          "const": "RC71L"
+        },
+        "driver": {
+          "const": "asus-armoury"
+        },
+        "instance_generation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uid",
+        "session_id",
+        "seat_id"
+      ],
+      "properties": {
+        "uid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seat_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18446744073709551615
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "epoch"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "ac",
+            "battery"
+          ]
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "choices"
+      ],
+      "properties": {
+        "current": {
+          "type": "string",
+          "minLength": 1
+        },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "ppt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spl",
+        "sppt",
+        "fppt"
+      ],
+      "properties": {
+        "spl": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "current_w",
+            "min_w",
+            "max_w",
+            "step_w"
+          ],
+          "properties": {
+            "current_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "min_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "max_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "step_w": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        },
+        "sppt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "current_w",
+            "min_w",
+            "max_w",
+            "step_w"
+          ],
+          "properties": {
+            "current_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "min_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "max_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "step_w": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        },
+        "fppt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "current_w",
+            "min_w",
+            "max_w",
+            "step_w"
+          ],
+          "properties": {
+            "current_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "min_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "max_w": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "step_w": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        }
+      }
+    },
+    "safety_caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spl_ac_max_w",
+        "spl_battery_max_w",
+        "sppt_max_w",
+        "fppt_max_w",
+        "policy_sha256"
+      ],
+      "properties": {
+        "spl_ac_max_w": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "spl_battery_max_w": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "sppt_max_w": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "fppt_max_w": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "restore_scope": {
+      "const": "profile-and-all-three-ppt"
+    }
+  }
+}

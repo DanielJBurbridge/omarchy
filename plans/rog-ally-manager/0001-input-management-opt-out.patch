@@ -1,0 +1,124 @@
+Subject: [PATCH prerequisite] Allow root input-management opt-out
+
+Base: a0d399defebd60db30ba38325d9cf47dbda49bee (v26.4.1).
+Retains the MIT notices in the modified source. Candidate only: not built,
+not installed, not a power-only build and not an authorisation fix.
+
+Set [services] manage_input=false in the root-owned daemon configuration.
+Skip both DeckService and DS inhibitor at startup; ignore later inhibitor
+commands in RootContext. Existing queued D-Bus acknowledgement is unchanged.
+The default remains true. Changing the flag requires restart.
+
+--- a/steamos-manager/src/daemon/root.rs
++++ b/steamos-manager/src/daemon/root.rs
+@@ -32,8 +32,17 @@
+     pub services: RootServicesConfig,
+ }
+ 
+-#[derive(Copy, Clone, Default, Deserialize, Debug)]
+-pub(crate) struct RootServicesConfig {}
++#[derive(Copy, Clone, Deserialize, Debug)]
++#[serde(default)]
++pub(crate) struct RootServicesConfig {
++    pub manage_input: bool,
++}
++
++impl Default for RootServicesConfig {
++    fn default() -> Self {
++        Self { manage_input: true }
++    }
++}
+ 
+ #[derive(Copy, Clone, Default, Deserialize, Serialize, Debug)]
+ #[serde(default)]
+@@ -68,6 +77,7 @@
+     channel: Sender<Command>,
+ 
+     ds_inhibit: Option<CancellationToken>,
++    manage_input: bool,
+ }
+ 
+ impl RootContext {
+@@ -76,6 +86,7 @@
+             state: RootState::default(),
+             channel,
+             ds_inhibit: None,
++            manage_input: true,
+         }
+     }
+ 
+@@ -118,32 +129,39 @@
+     async fn start(
+         &mut self,
+         state: RootState,
+-        _config: RootConfig,
++        config: RootConfig,
+         daemon: &mut Daemon<RootContext>,
+     ) -> Result<()> {
+         self.state = state;
++        self.manage_input = config.services.manage_input;
+ 
+         let connection = daemon.get_connection();
+         let ftrace = Ftrace::init(&connection).await?;
+         daemon.add_service(ftrace);
+ 
+-        let ip = DeckService::init(connection);
+-        daemon.add_service(ip);
++        if self.manage_input {
++            let ip = DeckService::init(connection);
++            daemon.add_service(ip);
++        }
+ 
+         let sysfs = SysfsWriterService::init()?;
+         daemon.add_service(sysfs);
+ 
+-        self.reload_ds_inhibit(daemon).await?;
++        if self.manage_input {
++            self.reload_ds_inhibit(daemon).await?;
++        }
+ 
+         Ok(())
+     }
+ 
+     async fn reload(
+         &mut self,
+-        _config: RootConfig,
++        config: RootConfig,
+         _daemon: &mut Daemon<RootContext>,
+     ) -> Result<()> {
+-        // Nothing to do yet
++        if config.services.manage_input != self.manage_input {
++            error!("Changing manage_input requires a daemon restart; keeping current setting");
++        }
+         Ok(())
+     }
+ 
+@@ -154,6 +172,10 @@
+     ) -> Result<()> {
+         match cmd {
+             RootCommand::SetDsInhibit(enable) => {
++                if !self.manage_input {
++                    error!("Ignoring inhibitor command: root input management is disabled");
++                    return Ok(());
++                }
+                 self.state.services.ds_inhibit.enabled = enable;
+                 self.reload_ds_inhibit(daemon).await?;
+                 self.channel.send(DaemonCommand::WriteState).await?;
+@@ -207,3 +229,17 @@
+ 
+     daemon.run(context).await
+ }
++
++#[cfg(test)]
++mod input_config_test {
++    use super::*;
++
++    #[test]
++    fn input_management_is_explicit_and_preserves_legacy_default() {
++        assert!(RootConfig::default().services.manage_input);
++        assert!(toml::from_str::<RootConfig>("").unwrap().services.manage_input);
++        assert!(toml::from_str::<RootConfig>("[services]").unwrap().services.manage_input);
++        assert!(!toml::from_str::<RootConfig>("[services]\nmanage_input = false")
++            .unwrap().services.manage_input);
++    }
++}

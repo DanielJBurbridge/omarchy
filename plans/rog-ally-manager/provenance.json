@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "status": "design-and-unbuilt-prerequisite-only; INSTALL/TAKEOVER HELD",
+  "reserved_package_name": "omarchy-steamos-manager-power",
+  "accepted_package_identity": null,
+  "accepted_version": null,
+  "artifact": null,
+  "frozen_integration_commit": "47e0e976f47c86edf9962d0debde9b571fadc385",
+  "upstream": {
+    "repository": "https://gitlab.steamos.cloud/holo/steamos-manager",
+    "mirror": "https://github.com/evlaV/steamos-manager",
+    "commit": "a0d399defebd60db30ba38325d9cf47dbda49bee",
+    "tag": "v26.4.1",
+    "official_git_archive_sha256": "0191e09b05324aab8fe4dfd7e133e8e702fc1a633d29484ed0a367216ad35817",
+    "license": "MIT",
+    "license_file": "UPSTREAM-LICENSE",
+    "license_sha256": "f53dcc321aae90730a5d8b831de34eca141ad277f352ab3f8ad5f860060cef77"
+  },
+  "recipe": {
+    "repository": "https://github.com/CachyOS/CachyOS-PKGBUILDS",
+    "commit": "ab15ca2048159897015eb0ac90eac8c756b86e7a",
+    "reviewed_identity": "steamos-manager 26.4.1-3 x86_64",
+    "active_cherry_pick": "7de5caad5e4d4f3bd9f179ddd7acc94e1cb2d677",
+    "sha256": {
+      "recipe/.SRCINFO": "4393cd95ce2883c00b7f2f0ec7c359f6a1da0d178b169bae5e55c0c1ee58bf95",
+      "recipe/.nvchecker.toml": "c69309762b7532d91489127430c5ca5a4f44d6aa97dbdc3101f10d96d823ae4c",
+      "recipe/PKGBUILD": "4cc9005e13cddf708f86bec2ad2dfb9effe1d249de65f5b95d4b6e85c999e403",
+      "recipe/steamos-manager.install": "7905635744f624655ce2eef05ff276dde78c686114d129048a87074b1d39234b",
+      "recipe/support-gamescope-session-steam.patch": "7eb26772b2d6ce474ce4469816ee224bba8cd68c6847487b14e09865194238d8",
+      "recipe/use-cachyos-gamescope-session-and-plasmalogin.patch": "b1feebe4267773ccdc79425c967b4aee623261d76c5d11310892bf64eb177093",
+      "msi.patch": "1cc1ea4386b7908f344c8e1e388322e37aa3e58e68a07f05000200e9341451a8"
+    },
+    "reuse_status": "evidence only; not an approved build recipe"
+  },
+  "source_sha256": {
+    "Cargo.lock": "001bf56bb9f357710986bea869c67473e2afd358bf2288a00b661ba8ea0027c1",
+    "steamos-manager/Cargo.toml": "78a3b78831c6c3a2834d167b2bfdbb166363b65efc082cc5e449e57a46277937",
+    "steamos-manager/src/daemon/root.rs": "ff556cd7ca1e93ebb4e3ebd4e754022c3370406dd1775d4ad3eff2a0faedb6ba",
+    "steamos-manager/src/daemon/user.rs": "a71a67cda8d5dd14e42df89eda22cc30b902b9e6525f13c1e86066eee78045bf",
+    "steamos-manager/src/manager/root.rs": "95a7b81981e116295c6a7e95d373c9dd762209c35653670f5695770cc0c88a1e",
+    "steamos-manager/src/manager/user.rs": "7db6bc290d6160399d94f15be7ebc1d9e2b76c18ed2f41ea2a56ffdddf0ac447",
+    "steamos-manager/src/power.rs": "bb8d86cb0638f4a58fedb643653f63ef3b3bb68d4fae84516b41e9fcc1ab2623",
+    "steamos-manager/src/gpu.rs": "523d73dcf94fc453b4c162f15e7f52c97919e36bd0e18a4079ef4c634403973e",
+    "steamos-manager/src/inputplumber.rs": "e01f10f35524dfb6af009fb64537aa37fdf0e81abc88cf2667c7c82558e2eb77",
+    "data/devices/rog-ally-series.toml": "b08bb7cff26027544b7f2eef0ce23b46495eb91c905cdedc0288408ff96dd862",
+    "data/interfaces/com.steampowered.SteamOSManager1.xml": "0c8c181501d1e24480d2394369c362770d32424e1d107014aa86639e185d405c",
+    "data/system/com.steampowered.SteamOSManager1.conf": "edf68febb5573f8048661fb7a2893302daeeeaff66bb6d4808fe03d8be43011f",
+    "Makefile": "53f8740d7a8109364f0b74771a55b209ecf5456d26c54a7aa77e9b2f80c4aef7"
+  },
+  "prerequisite_patch": {
+    "path": "0001-input-management-opt-out.patch",
+    "sha256": "0759e73bf06ff610571ec85cd6ac4a00a5720c012bdb4869e95ab95d132c953f",
+    "built": false,
+    "security_clearance": false,
+    "power_only": false,
+    "patched_root_sha256": "a2c594bd81cc8881e97940929d0b8d78032d334a1d524fbe1c7007585eda1cdb"
+  },
+  "evidence_sha256": {
+    "review-evidence.json": "f50ff89e2c71dfb544f79e8386301a27dbc6f5b2cbde0491cd33e07d1cc420fa",
+    "expected-package-files.txt": "a2ba9c39f0fb558c0a8aaeafd5aab93ee5974a86d66c66d38306404f1875545f",
+    "current-build-closure.txt": "e464f0c9834eb73b5cfa86180100077bcbb99b1f5a03233ca688dc389fa37642",
+    "current-runtime-closure.txt": "5c3817aa69933437fb2a9507581e766c242964a5927a4ca6755d4c3b8f2967d7",
+    "current-networking-closure.txt": "35406a652d945c4f9db383d160ec59ae5d55eff0e4dd570b5b44dce5f3d1658d"
+  },
+  "dependency_decision": "Keep stock dependencies unchanged in this unbuilt prerequisite. Removing networking/speech dependencies requires separately reviewed code-path removal and new resolved closure.",
+  "build_contract": [
+    "no build in this increment",
+    "immutable source archive/commit and patch checksums",
+    "Cargo.lock unchanged by prerequisite",
+    "later vendor exact locked registry/git crates with checksums; cargo build --frozen --offline",
+    "pin compiler, build-root packages and sources; no make auto-fetch",
+    "no accepted package until signature, artifact hash, actual manifest, activation and hostile-caller tests reviewed"
+  ],
+  "preserved_client_correction": {
+    "central_commit": "67e8829d5dbf92f86e90e9428aeca5ecbb36d6d9",
+    "file": "default/handheld/power.py",
+    "change": "Gio.DBusCallFlags.NO_AUTO_START; exact frozen47e line carried, unrelated central onboarding paths absent from feature branch"
+  },
+  "central_setup_guard": {
+    "original_commit": "180aa53b2c061c6687776b6d204a911416fe8e41",
+    "feature_cherry_pick": "313ca7ae3",
+    "status": "exact guard and regression cherry-picked; no competing guard implementation"
+  }
+}
