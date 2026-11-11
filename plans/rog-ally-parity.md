@@ -263,7 +263,7 @@ Research is complete. Nine feature worktrees and one source integration worktree
 
 | Increment | Owner commit → integrated commit | Source checks | Installed and physical evidence |
 | --- | --- | --- | --- |
-| Preserved gaming setup, desktop keyboard and RC71L laptop/audio boundaries | Common baseline `f7194066d` | Eight preserved focused logs reviewed; see below | Native baseline runtime/settings pair installed as `dev.28a5d89-1`; full staged release below still building |
+| Preserved gaming setup, desktop keyboard and RC71L laptop/audio boundaries | Common baseline `f7194066d` | Eight preserved focused logs reviewed; see below | Native baseline runtime/settings pair remains installed as `dev.28a5d89-1`; frozen release below is built/prepared but installation is blocked on authentication |
 | Keyboard setup and menu accept the short Ally product name with RC71L board | INTEGRATION `28a5d89fc2ecb376cea9f06e66caa69530a5883d` | Regression failed before fix; hardware, gaming setup and keyboard suites passed afterwards | Rollout checked keyboard visibility/focus with automated `wtype`, Big Picture hiding and Desktop Mode retaining the Steam PID. Actual OSK taps/controllers remain unverified |
 | Launcher removal preserves libraries, saves, prefixes and settings; RetroArch reinstall preserves configuration/shaders | GAMES `ed85c4121767c3b23a3f4121eb86245aefb2b512` → `d7d417e9f278e0c89a3313af5845b5fd85559ad7` | Integrated filesystem regression passed; obsolete English Battle.net removal prompts retired in `03c9872d6` | No live uninstall test authorised as acceptance; actual game/save continuity remains unverified |
 | Existing removable game-library mount/check/unmount and save-backup guidance (A14/U14 partial) | RECOVERY `f55be85dd1d1d1135e69c35a623b202cf81cc220` → `c9b1441b1` | Integrated storage guards and picker tests passed; no real disk mounted | Actual microSD/USB, game launch and save restore remain unverified |
@@ -298,7 +298,11 @@ Subsequent coordinator reconciliation of the live owner confirms the native base
 
 ### Frozen staged release
 
-Runtime source **`47e0e976f47c86edf9962d0debde9b571fadc385`** is pushed to `origin/feat/ally-parity-release-20261111`. This is the frozen code cut; later evidence-only ledger commits do not change that release SHA. The sole rollout owner has already received its exact handoff and is freezing/building it in the existing thread. Do not launch another owner or resend/restart the same release job. No installed or physical result for this new cut has been received.
+Runtime source **`47e0e976f47c86edf9962d0debde9b571fadc385`** is pushed to `origin/feat/ally-parity-release-20261111`. This remains the frozen code cut; later ledger and next-stage commits do not promote a different source into this rollout. The coordinator read the sole rollout owner's completed run 6 through final position 363: frozen runtime/settings packages and the powerbutton companion built on the Ally, local focused checks passed, and all 22 isolated INPUT tests passed, including the previously sandbox-restricted socket fixtures. Those are build/source checks on the device, not physical sticks, touch or real secure-lock acceptance.
+
+**Frozen 47e is prepared, not installed.** Its single sudo card expired before the first dependency transaction. No prompt remains active, and this stage changed no installed packages, services, masks or configuration. The Ally remains on native `dev.28a5d89-1`. The prepared-stage receipt, backups, checksums and exact resume boundary are committed to private Fleet `main` as `d51ba01`, in `log/2026-11-11-ally-staged-release-47e0e976.md`.
+
+Keep the prepared transaction pinned to 47e. Do not restart the rollout, launch another live owner or create a credential loop to acknowledge this receipt. When Daniel explicitly returns for credentials, resume the same sole owner at its recorded transaction boundary with one secure prompt. No next-stage source promotion, rebuild or Manager artifact approval is implied by these checks.
 
 Source-matching clean companion builds completed with exit 0, without installing or checking dependency availability on Sigil:
 
