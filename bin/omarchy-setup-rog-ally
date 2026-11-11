@@ -20,7 +20,7 @@ reviewed_input_installed() {
   local companion
   # This setup boundary requires the exact companion reviewed with the runtime.
   companion=$(pacman -Q omarchy-rog-ally-input 2>/dev/null) || return 1
-  [[ $companion == "omarchy-rog-ally-input 1.0.2-1" ]]
+  [[ $companion == "omarchy-rog-ally-input 1.0.3-1" ]]
 }
 choose() {
   local status
@@ -40,7 +40,7 @@ while true; do
     options+=("$(row '' 'Controller input' 'Reviewed companion setup, readiness and disable; keep touch or USB keyboard recovery')")
   fi
   if omarchy-cmd-present omarchy-setup-rog-ally-power && omarchy-cmd-present omarchy-power-ally; then
-    options+=("$(row '󰁹' 'Power setup' 'Readiness and rollback; independent Manager package review still required')")
+    options+=("$(row '󰁹' 'Power setup' 'Readiness and legacy rollback; unchanged Manager package must not be installed')")
   fi
   if omarchy-cmd-present omarchy-setup-gaming-session; then
     options+=("$(row '' 'Gaming session' 'Authenticated session preference, rendering, desktop recovery')")
@@ -59,9 +59,9 @@ while true; do
     'Controller input')
       input_options=("$(row '󰋖' 'Input readiness' 'Shareable package, service, composite and capability summary')")
       if reviewed_input_installed; then
-        input_options+=("$(row '' 'Enable reviewed input' 'Explicit opt-in with installed companion 1.0.2-1; no packages installed')")
+        input_options+=("$(row '' 'Enable reviewed input' 'Explicit opt-in with installed companion 1.0.3-1; no packages installed')")
       fi
-      input_options+=("$(row '󰋖' 'Input setup requirements' 'Matching runtime + reviewed companion 1.0.2-1; visible terminal and recovery input')"
+      input_options+=("$(row '󰋖' 'Input setup requirements' 'Matching runtime + reviewed companion 1.0.3-1; visible terminal and recovery input')"
         "$(row '󰁯' 'Disable input integration' 'Disable before removing companion or restoring an old owner')"
         "$(row '󰌑' 'Back' 'No changes')")
       choose 'InputPlumber — keep a touch or USB keyboard recovery route' "${input_options[@]}"
@@ -77,13 +77,13 @@ while true; do
               exit
             else
               choose 'Input prerequisites changed — nothing enabled' \
-                "$(row '󰌑' 'Back' 'Install matching runtime and reviewed companion 1.0.2-1 before retrying')"
+                "$(row '󰌑' 'Back' 'Install matching runtime and reviewed companion 1.0.3-1 before retrying')"
             fi
           fi
           ;;
         'Input setup requirements')
           choose 'Reviewed input setup requirements' \
-            "$(row '󰋖' 'Matching packages' 'Install matching reviewed runtime + companion 1.0.2-1; setup installs no packages')" \
+            "$(row '󰋖' 'Matching packages' 'Install matching reviewed runtime + companion 1.0.3-1; setup installs no packages')" \
             "$(row '󰌾' 'Recovery input' 'Keep touch or a USB keyboard available before changing controller ownership')" \
             "$(row '󰁯' 'Rollback order' 'Disable integration before companion removal or restoring the prior owner')" \
             "$(row '󰌑' 'Back' 'Follow docs/rog-ally-input.md for dependency installation and rollback')"
@@ -92,7 +92,7 @@ while true; do
       esac
       ;;
     'Power setup')
-      choose 'One power owner — reviewed SteamOS Manager required' \
+      choose 'Power activation blocked — unchanged Manager package rejected' \
         "$(row '󰋖' 'Power readiness' 'Actual available controls and readback; no hardware changes')" \
         "$(row '󰁯' 'Roll back power backend' 'Verify original settings, then restore prior services; reconnect AC if needed')" \
         "$(row '󰌑' 'Back' 'No changes')"

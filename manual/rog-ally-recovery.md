@@ -4,7 +4,7 @@ For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld*
 
 ## Controller input
 
-INPUT's source corrections have passed review. **Controller input > Enable reviewed input** appears only when matching runtime helpers and the reviewed `omarchy-rog-ally-input 1.0.2-1` companion are installed. It requires an explicit confirmation and opens the existing setup in a visible terminal. Opening setup or checking status never enables it or installs packages. Earlier companions and unreviewed newer versions are refused; use the reviewed release's matching package build.
+INPUT's source corrections have passed review. **Controller input > Enable reviewed input** appears only when matching runtime helpers and the reviewed `omarchy-rog-ally-input 1.0.3-1` companion are installed. It requires an explicit confirmation and opens the existing setup in a visible terminal. Opening setup or checking status never enables it or installs packages. Earlier companions, including `1.0.2-1`, and unreviewed newer versions are refused. Do not newly enable `1.0.2-1`; use the next reviewed stage's matching runtime and companion build. This source change does not promote or install the frozen release.
 
 Keep touch or a USB keyboard available before enabling InputPlumber. The backend setup refuses competing input owners; it does not remove them. Readiness and disable stay available even when activation prerequisites are missing. A source-review result or installed package does not establish physical controller acceptance.
 
@@ -14,11 +14,11 @@ The shareable report shows composite readability, known profile name, intercepti
 
 ## Power readiness and rollback
 
-POWER source corrections have passed review, but activation remains held pending independent review of the standalone Manager recipe, dependencies and built artifact. **Power setup** offers per-control readiness and rollback, without configuration/takeover or a writable power-panel action. Normal generic power remains in place until that separate review clears.
+POWER's client corrections have passed focused checks, but the independent package review rejected unchanged `steamos-manager 26.4.1-3`. Do not install it, even as an inactive prerequisite: its installation enables a root service for the next boot. No remediated power-only package is approved. **Power setup** offers per-control readiness and legacy rollback, without configuration/takeover or a writable power-panel action. Normal generic power remains in place.
 
 The report lists only controls the running Manager backend can actually read. Missing TDP support stays unavailable; an installed package or older watt reading does not prove the required performance-profile/asus-armoury API. Charge `-1` is shown as the firmware default. Conflicts and policy errors suppress control values. Independent burst watts, CPU frequency limits, SMT, fan curves, bypass and thermal telemetry are unavailable in this backend API.
 
-If rolling back a previously configured backend, reconnect AC if the recorded original limit exceeds the battery ceiling. Use the delivered rollback before removing Manager or restoring a different power owner; failed readback must be resolved first.
+If rolling back a previously configured backend, reconnect AC if the recorded original limit exceeds the battery ceiling. Use the delivered rollback before removing Manager or restoring a different power owner; failed readback must be resolved first. A legacy receipt does not prove restoration of all three hardware power limits or the service state before the rejected package was installed. Keep the receipt for a reviewed recovery plan.
 
 ## Dedicated gaming session
 
