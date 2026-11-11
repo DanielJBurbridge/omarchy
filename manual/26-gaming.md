@@ -26,6 +26,10 @@ To return to the desktop, choose **Power > Exit Big Picture Mode** in Steam. You
 
 This uses your existing desktop and Steam installation. It does not configure controller mappings, handheld power controls, suspend behaviour or a separate gaming session.
 
+### Original ROG Ally
+
+On the original RC71L, **Setup > Gaming** includes **ROG Ally handheld** for component setup, package/service status, external game libraries, full-system updates and snapshot recovery. Missing backend increments remain visible as unavailable in status; controller and touch operation still need device verification. See [ROG Ally setup and recovery](rog-ally-recovery.md) for recovery, save backups and rollback.
+
 ## RetroArch
 
 Install [RetroArch](https://www.retroarch.com/) by selecting _Install > Gaming > RetroArch_ from the Omarchy menu (`Super + Space`). It comes with the full set of libretro cores, so all the classic systems are covered.

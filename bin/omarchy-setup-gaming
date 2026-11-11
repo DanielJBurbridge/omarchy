@@ -43,8 +43,11 @@ while true; do
   options=("$play" "$(row '󰍹' "$(omarchy-i18n gaming.desktopMode)" "$(omarchy-i18n gaming.preserveDownloads)")")
   if omarchy-cmd-present omarchy-toggle-desktop-keyboard && omarchy-cmd-present wvkbd-mobintl; then
     options+=("$(row '' "$(omarchy-i18n gaming.desktopKeyboard)" "$(omarchy-i18n gaming.keyboardToggle)")")
-  elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-asus-rog && omarchy-hw-match 'ROG Ally.*RC71L'; then
+  elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-rog-ally; then
     options+=("$(row '' "$(omarchy-i18n gaming.installKeyboard)" "$(omarchy-i18n gaming.keyboardAur)")")
+  fi
+  if omarchy-hw-rog-ally; then
+    options+=("$(row '' 'ROG Ally handheld' 'Setup, status, game libraries, updates and recovery')")
   fi
   options+=("$(row '󰋖' "$(omarchy-i18n gaming.help)" "$(omarchy-i18n gaming.helpTopics)")" "$(row '󰅖' "$(omarchy-i18n gaming.close)" "$(omarchy-i18n gaming.closeHelp)")")
   choose "$(omarchy-i18n gaming.title)" "${options[@]}"
@@ -58,6 +61,7 @@ while true; do
   fi
 
   case "$selection" in
+    "ROG Ally handheld") omarchy-setup-rog-ally; exit ;;
     "$(omarchy-i18n gaming.openBigPicture)") omarchy-launch-steam-bigpicture; exit ;;
     "$(omarchy-i18n gaming.desktopMode)") omarchy-launch-steam-desktop; exit ;;
     "$(omarchy-i18n gaming.installSteam)") omarchy-menu summon install.gaming; exit ;;

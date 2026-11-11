@@ -179,6 +179,7 @@
   "trigger.tests.disk-speedtest": {"icon":"󰋊","label":"Disk Speed Test","action":"omarchy-shell shell summon omarchy.disk-speedtest"},
 
   // Setup
+  "setup.rog-ally": {"icon":"","label":"ROG Ally Handheld","description":"Setup, status, game libraries, updates and recovery","when":"omarchy-hw-rog-ally","action":"omarchy-setup-rog-ally"},
   "setup.gaming": {"icon":"","label":"Gaming","description":"Steam, first sign-in, controller and touch setup","action":"omarchy-setup-gaming"},
   "setup.keyboard": {"icon":"","label":"Keyboard"},
   "setup.keyboard.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/bindings.lua\""},
