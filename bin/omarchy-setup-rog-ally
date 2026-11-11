@@ -67,6 +67,9 @@ while true; do
           "$(row '󰍹' 'GOverlay' 'Optional overlay configuration application')"
           "$(row '󰖔' 'Sunshine' 'Optional streaming application; host permissions remain separate')")
       fi
+      if omarchy-cmd-present omarchy-install-gaming-decky && omarchy-cmd-present omarchy-setup-gaming-decky; then
+        game_options+=("$(row '' 'Decky' 'Optional root-plugin loader; installation and activation are separate')")
+      fi
       game_options+=("$(row '󰌑' 'Back' 'Return without installation')")
       choose 'Game software' "${game_options[@]}"
       component=''
@@ -77,6 +80,28 @@ while true; do
         'Performance overlay') component=overlay ;;
         'GOverlay') component=goverlay ;;
         'Sunshine') component=sunshine ;;
+        'Decky')
+          choose 'Optional Decky — plugins run as root' \
+            "$(row '󰋖' 'Decky status' 'Inspect locally; this output is not part of the shareable status report')" \
+            "$(row '' 'Install reviewed Decky' 'Review AUR source and companion instructions first; package stays disabled')" \
+            "$(row '' 'Enable root plugins' 'Requires reviewed package + companion; enables Steam debugging')" \
+            "$(row '󰁯' 'Disable Decky' 'Stop the service; preserve plugins and user data')" \
+            "$(row '󰌑' 'Back' 'No changes')"
+          case "$selection" in
+            'Decky status') omarchy-launch-floating-terminal-with-presentation omarchy-setup-gaming-decky status; exit ;;
+            'Install reviewed Decky') omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-decky --install-reviewed-aur; exit ;;
+            'Enable root plugins')
+              choose 'Allow root plugins and Steam debugging?' \
+                "$(row '' 'Allow root plugins' 'Explicitly enable the reviewed Decky backend; no plugins are installed')" \
+                "$(row '󰌑' 'Back' 'No changes')"
+              if [[ $selection == 'Allow root plugins' ]]; then
+                omarchy-launch-floating-terminal-with-presentation omarchy-setup-gaming-decky enable --allow-root-plugins
+                exit
+              fi
+              ;;
+            'Disable Decky') omarchy-launch-floating-terminal-with-presentation omarchy-setup-gaming-decky disable; exit ;;
+          esac
+          ;;
       esac
       if [[ -n $component ]]; then
         omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-tools "$component"

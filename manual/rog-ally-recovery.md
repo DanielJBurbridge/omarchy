@@ -29,6 +29,10 @@ The normal report is offline. It lists selected package versions and service sta
 
 The shareable status report excludes raw journals, host/user names, storage labels, device identifiers, network details and account configuration. Review any additional logs before sharing them; launcher logs and firmware device listings can contain personal information.
 
+## Optional Decky
+
+When its delivered commands are installed, **Game software > Decky** separates reviewed AUR package installation from activation. Activation requires the reviewed companion package and an explicit **Allow root plugins** choice: Decky plugins run as root and Steam debugging is enabled. No plugins are installed by this picker. Use **Disable Decky** before updating it through packages; the in-app self-updater is incompatible with this integration. The companion safeguards, source review and rollback are documented in `docs/gaming-tools.md`. This optional loader is not required for ordinary Steam games or the handheld power backend.
+
 ## Recover an update
 
 Before an increment, create a system snapshot using **Update and recovery > Create system snapshot** or `omarchy snapshot create`. Snapper must be configured; an installed Snapper package by itself does not make a recovery point. Check the command succeeded, then confirm that the snapshot is visible in Limine before relying on it. The status report does not prove a snapshot is bootable.
