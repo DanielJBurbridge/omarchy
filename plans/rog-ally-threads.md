@@ -26,3 +26,5 @@ Reviewed source increments from all nine streams, their integration corrections,
 
 Frozen code release: `47e0e976f47c86edf9962d0debde9b571fadc385`; see the [release ledger](rog-ally-parity.md#frozen-staged-release). The existing rollout owner has its handoff and is building it. The preceding native baseline pair is installed as `dev.28a5d89-1` (private Fleet receipt `eeb1136`); later feature installation and physical acceptance remain separate. Read the integration and rollout threads for exact receipts. No upstream pull request is authorised by this work.
 
+RECOVERY's reviewed input-enable frontend is a [next-stage source candidate](rog-ally-parity.md#next-stage-source-candidate), integrated as `8b72cb72e5981f5a02221e05823d48c4d22ef951`. It is not part of frozen `47e0e976f` and does not trigger a rebuild or installation in the active rollout.
+
