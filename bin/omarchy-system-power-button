@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# omarchy:summary=Handle the desktop power button with RC71L lock-before-suspend
+# omarchy:hidden=true
+
+set -euo pipefail
+
+if omarchy-hw-rog-ally; then
+  # The desktop is the only caller. Gaming uses SteamOS Powerbuttond inside
+  # its own session; logind keeps HandlePowerKey=ignore in both sessions.
+  # Hold the lock across the request so repeated events cannot race a lock.
+  exec 9>"$XDG_RUNTIME_DIR/omarchy-power-button.lock"
+  flock -n 9 || exit 0
+
+  if omarchy-sleep-disabled || omarchy-toggle-enabled suspend-off; then
+    omarchy-menu toggle system
+  else
+    # Unlike a PrepareForSleep delay inhibitor, this path can refuse suspend
+    # when the shell is missing or cannot establish a secure lock.
+    if "$OMARCHY_PATH/bin/omarchy-system-sleep-lock"; then
+      systemctl suspend
+    else
+      echo "Power button: suspend cancelled because the desktop did not lock." >&2
+      exit 1
+    fi
+  fi
+else
+  omarchy-menu toggle system
+fi
