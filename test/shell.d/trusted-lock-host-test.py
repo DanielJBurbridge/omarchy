@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 import shutil
+import struct
 import subprocess
 import time
 import tempfile
@@ -42,6 +43,77 @@ class HostControlTests(unittest.TestCase):
       process.assert_not_called()
     self.assertFalse(control.session_path("mode").exists())
 
+  def test_lock_context_requires_matching_live_owner_and_compositor_peers(self):
+    owner_env = b"HYPRLAND_INSTANCE_SIGNATURE=fixture\0WAYLAND_DISPLAY=wayland-1\0"
+    replies = [222, 222]
+    def resolve(path, **kwargs):
+      return Path("/usr/bin/Hyprland") if str(path).startswith("/proc/") else path
+    with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-1"}), \
+         patch.object(control, "mode", return_value="host"), patch.object(control, "role_pid", return_value=111), \
+         patch.object(control, "unit_pid", return_value=111), patch.object(Path, "read_bytes", return_value=owner_env), \
+         patch.object(Path, "resolve", resolve), patch.object(control.socket, "socket") as socket_factory:
+      connection = socket_factory.return_value.__enter__.return_value
+      def peers():
+        connection.getsockopt.side_effect = [struct.pack("3i", pid, os.getuid(), 0) for pid in replies]
+      peers()
+      self.assertEqual(control.context(), "host")
+      replies = [222, 333]
+      peers()
+      with self.assertRaises(ValueError):
+        control.context()
+      with patch.object(control, "unit_pid", return_value=999):
+        with self.assertRaises(ValueError):
+          control.context()
+      with patch.dict(os.environ, {"WAYLAND_DISPLAY": "stale-display"}):
+        with self.assertRaises(ValueError):
+          control.context()
+      with patch.object(Path, "read_bytes", return_value=b"HYPRLAND_INSTANCE_SIGNATURE=stale\0WAYLAND_DISPLAY=wayland-1\0"):
+        with self.assertRaises(ValueError):
+          control.context()
+      with patch.object(control, "mode", return_value="shell"), patch.object(control, "unit_pid") as unit:
+        replies = [222, 222]
+        peers()
+        self.assertEqual(control.context(), "shell")
+        unit.assert_not_called()  # Generic ownership has no trusted-host unit.
+
+  def test_canonical_lock_refuses_missing_or_stale_context_before_broker(self):
+    binary_dir = self.runtime / "bin"
+    binary_dir.mkdir()
+    calls = self.runtime / "qs-calls"
+    fallback = binary_dir / "qs"
+    fallback.write_text('#!/bin/bash\nprintf called >>"$CALLS"\nprintf "false\\n"\n')
+    fallback.chmod(0o755)
+    env = dict(os.environ, PATH=str(binary_dir) + ":/usr/bin:/bin", CALLS=str(calls), WAYLAND_DISPLAY="wayland-1")
+    cases = ({"HYPRLAND_INSTANCE_SIGNATURE": None}, {"HYPRLAND_INSTANCE_SIGNATURE": "stale"},
+             {"HYPRLAND_INSTANCE_SIGNATURE": "fixture", "WAYLAND_DISPLAY": None})
+    (self.runtime / "omarchy-lock-mode-stale").write_text("shell\n")
+    for values in cases:
+      candidate = dict(env)
+      for key, value in values.items():
+        if value is None:
+          candidate.pop(key, None)
+        else:
+          candidate[key] = value
+      result = subprocess.run([str(ROOT / "bin/omarchy-shell"), "lock", "isLocked"], env=candidate, capture_output=True, text=True, timeout=3)
+      self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+      self.assertNotEqual(result.stdout.strip(), "false")
+      self.assertIn("Lock IPC", result.stderr)
+    self.assertFalse(calls.exists(), "unsupported lock context must not query the main broker")
+    # The generic route remains available after successful context validation;
+    # identity validation itself is exercised above, rather than faked here.
+    source = self.runtime / "generic-root"
+    (source / "shell").mkdir(parents=True)
+    (source / "shell/shell.qml").touch()
+    (source / "bin").mkdir()
+    helper = source / "bin/omarchy-lock-host"
+    helper.write_text('#!/bin/bash\n[[ $1 == "context" ]] || exit 1\necho shell\n')
+    helper.chmod(0o755)
+    result = subprocess.run([str(ROOT / "bin/omarchy-shell"), "lock", "isLocked"],
+                            env=dict(env, OMARCHY_PATH=str(source)), capture_output=True, text=True, timeout=3)
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual(result.stdout.strip(), "false")
+    self.assertTrue(calls.exists())
+
   def test_future_preference_does_not_change_latched_owner_on_restart(self):
     self.assertEqual(control.mode(initialize=True), "shell")
     control.preference().parent.mkdir(parents=True)
@@ -52,7 +124,7 @@ class HostControlTests(unittest.TestCase):
     control.preference().unlink()
     with patch.dict(os.environ, {"HYPRLAND_INSTANCE_SIGNATURE": "next-session"}):
       self.assertEqual(control.mode(initialize=True), "host")
-      with patch.object(control.os, "execvpe") as execute:
+      with patch.object(control.os, "execvpe") as execute, patch.object(control, "unit_pid", return_value=os.getpid()):
         control.run("host", ["quickshell", "-p", str(ROOT / "shell/lock-host.qml")])
         execute.assert_called_once()  # Staged opt-out cannot defeat crash recovery.
 
@@ -74,10 +146,8 @@ class HostControlTests(unittest.TestCase):
         value = json.dumps(state)
       elif args[0].endswith("omarchy-hyprland-session-locked"):
         code = 1
-      elif "--property=FragmentPath" in args:
-        value = fragment
-      elif "--property=DropInPaths" in args:
-        value = overrides
+      elif "--property=MainPID" in args:
+        value = f"MainPID=0\nFragmentPath={fragment}\nDropInPaths={overrides}\n"
       return SimpleNamespace(returncode=code, stdout=value)
     with patch.object(control.subprocess, "run", side_effect=respond) as commands:
       with self.assertRaises(ValueError):
@@ -127,7 +197,7 @@ class HostControlTests(unittest.TestCase):
               "QT_VIRTUALKEYBOARD_STYLE": "/untrusted/style", "QT_VIRTUALKEYBOARD_LAYOUT_PATH": "/untrusted/layouts",
               "BASH_ENV": "/untrusted/startup", "BASH_FUNC_exec%%": "() { unsafe; }", "PYTHONPATH": "/untrusted/python",
               "QT_QPA_GENERIC_PLUGINS": "/untrusted/plugin", "LD_AUDIT": "/untrusted/audit.so"}
-    with patch.dict(os.environ, values), patch.object(control.os, "execvpe") as execute:
+    with patch.dict(os.environ, values), patch.object(control.os, "execvpe") as execute, patch.object(control, "unit_pid", return_value=os.getpid()):
       control.run("host", ["quickshell", "-p", str(ROOT / "shell/lock-host.qml")])
       passed = execute.call_args.args[2]
       self.assertEqual(passed["QT_IM_MODULES"], "qtvirtualkeyboard")
@@ -172,6 +242,65 @@ class HostControlTests(unittest.TestCase):
             with self.assertRaises(ValueError):
               control.checked_peer(client)
 
+  def test_manifest_overrides_after_staging_rejected_at_launch_peer_and_recovery(self):
+    control.preference().parent.mkdir(parents=True)
+    control.preference().touch()
+    fragment = "/usr/lib/systemd/user/omarchy-lock-host.service"
+    overrides = ""
+    def systemd(args, **kwargs):
+      self.assertEqual(args[:4], ["/usr/bin/systemctl", "--user", "show", control.UNIT])
+      text = str(os.getpid()) if "--value" in args else f"MainPID={os.getpid()}\nFragmentPath={fragment}\nDropInPaths={overrides}\n"
+      return SimpleNamespace(stdout=text, returncode=0)
+    with patch.object(control.subprocess, "run", side_effect=systemd) as query, \
+         patch.object(control, "role_pid", return_value=os.getpid()):
+      self.assertEqual(control.unit_pid(), os.getpid())
+      self.assertEqual(query.call_count, 1)
+      for changed_fragment, changed_overrides in ((fragment, "/home/example/Restart-no.conf"),
+                                                  ("/home/example/replacement.service", "")):
+        fragment, overrides = changed_fragment, changed_overrides
+        with self.assertRaises(ValueError):
+          control.unit_pid()  # A formerly valid manifest is re-read, never cached.
+        with patch.object(control.os, "execvpe") as execute:
+          with self.assertRaises(ValueError):
+            control.run("host", ["must-not-launch"])
+          execute.assert_not_called()
+        connection = SimpleNamespace(getsockopt=lambda *_: struct.pack("3i", os.getpid(), os.getuid(), 0))
+        with self.assertRaises(ValueError):
+          control.checked_peer(connection)
+        self.assertEqual(control.stranded(os.getpid()), 2)
+
+  def test_unready_explicit_lock_is_sent_but_status_does_not_activate(self):
+    control.preference().parent.mkdir(parents=True)
+    control.preference().touch()
+    control.mode(initialize=True)
+    state = dict(protocol=1, owner="trusted-host", ready=False, locked=False, requested=False, secure=False)
+    with socket.socket(socket.AF_UNIX) as server:
+      try:
+        server.bind(str(self.runtime / "omarchy-lock-control-fixture.sock"))
+      except PermissionError:
+        self.skipTest("AF_UNIX unavailable in this sandbox")
+      server.listen()
+      received = []
+      def serve():
+        for _ in range(2):
+          client, _ = server.accept()
+          with client:
+            client.settimeout(2)
+            client.sendall(json.dumps(state).encode() + b"\n")
+            message = client.recv(128)
+            received.append(message)
+            if message:
+              client.sendall(json.dumps(state).encode() + b"\n")
+      worker = threading.Thread(target=serve, daemon=True)
+      worker.start()
+      with patch.object(control, "role_pid", return_value=os.getpid()), patch.object(control, "unit_pid", return_value=os.getpid()):
+        self.assertFalse(control.request("status")["ready"])
+        with self.assertRaises(ValueError):
+          control.request("lock")  # Recovery request sent, but no premature success.
+      worker.join(timeout=3)
+      self.assertFalse(worker.is_alive())
+      self.assertEqual(received, [b"", b'{"method":"lock"}\n'])
+
   def test_orphan_recovery_exempts_only_validated_broker(self):
     def result(*args, **kwargs):
       class Result:
@@ -195,6 +324,68 @@ class HostControlTests(unittest.TestCase):
 
 
 class HostProcessTests(unittest.TestCase):
+  def test_explicit_lock_rearms_exhausted_actual_service_budget(self):
+    if not shutil.which("quickshell"):
+      self.skipTest("Quickshell is unavailable")
+    with tempfile.TemporaryDirectory(prefix="omarchy-lock-recovery-test.") as work:
+      base = Path(work)
+      for folder in ("shell", "bin", "runtime", "home"):
+        (base / folder).mkdir()
+      (base / "runtime").chmod(0o700)
+      for module in ("Commons", "Ui"):
+        (base / "shell" / module).symlink_to(ROOT / "shell" / module)
+      shutil.copy(ROOT / "test/shell.d/fixtures/trusted-lock-host/recovery.qml", base / "shell/lock-host.qml")
+      helper = base / "bin/omarchy-lock-host"
+      helper.write_text('#!/bin/bash\n[[ $1 == "stranded" ]] || exit 2\necho probe >>"$OMARCHY_AUTH_PROBE_FILE.calls"\nexit "$(<"$OMARCHY_AUTH_PROBE_FILE")"\n')
+      helper.chmod(0o755)
+      helper = base / "bin/fprintd-list"
+      helper.write_text('#!/bin/bash\necho no\n')
+      helper.chmod(0o755)
+      status = base / "probe-status"
+      status.write_text("2\n")
+      env = dict(os.environ, HOME=str(base / "home"), OMARCHY_PATH=str(base), XDG_RUNTIME_DIR=str(base / "runtime"),
+                 HYPRLAND_INSTANCE_SIGNATURE="recovery", OMARCHY_AUTH_SOURCE_ROOT=str(ROOT), OMARCHY_AUTH_PROBE_FILE=str(status),
+                 QT_QPA_PLATFORM="offscreen", QT_QPA_PLATFORMTHEME="", QT_QUICK_BACKEND="software", PATH=str(base / "bin") + ":/usr/bin:/bin")
+      (base / "runtime/omarchy-lock-mode-recovery").write_text("host\n")
+      log = base / "host.log"
+      with log.open("w") as output:
+        process = subprocess.Popen(["quickshell", "-n", "-p", str(base / "shell/lock-host.qml"), "--no-color"], env=env, stdout=output, stderr=subprocess.STDOUT)
+      role = dict(protocol=1, pid=process.pid, start=control.start_time(process.pid), role="host", instance="recovery", root=str(base))
+      (base / "runtime/omarchy-lock-host.json-recovery").write_text(json.dumps(role))
+      def await_log(marker):
+        for _ in range(100):
+          text = log.read_text()
+          if marker in text:
+            return
+          if "EXPLICIT_LOCK_RECOVERY_FAIL" in text or process.poll() is not None:
+            self.fail(text)
+          time.sleep(0.05)
+        self.fail(log.read_text())
+      try:
+        await_log("RECOVERY_EXHAUSTED")
+        with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid):
+          calls = status.with_name(status.name + ".calls")
+          before = calls.read_text()
+          self.assertFalse(control.request("status")["ready"])
+          time.sleep(0.05)
+          self.assertEqual(calls.read_text(), before, "status cannot re-arm the expired budget")
+          status.write_text("127\n")  # A failed helper exec is also unknown, never unlocked.
+          with self.assertRaises(ValueError):
+            control.request("lock")  # Unknown/competing proof cannot claim success.
+          await_log("RECOVERY_REARMED")
+          await_log("RECOVERY_SECOND_EXHAUSTED")
+          status.write_text("1\n")  # Probe now proves compositor unlocked.
+          try:
+            control.request("lock")
+          except ValueError:
+            pass  # Immediate acknowledgement may precede the asynchronous proof.
+          await_log("EXPLICIT_LOCK_RECOVERY_PASS")
+          process.wait(timeout=3)
+      finally:
+        if process.poll() is None:
+          process.terminate()  # Offscreen only: never acquired a compositor lock.
+          process.wait(timeout=5)
+
   def test_owner_lease_survives_real_quickshell_exec(self):
     if not shutil.which("quickshell"):
       self.skipTest("Quickshell is unavailable")
@@ -323,6 +514,7 @@ class HostProcessTests(unittest.TestCase):
           main_env = dict(env, OMARCHY_LOCK_HOST="1")
           main = subprocess.run(["quickshell", "-n", "-p", str(base / "shell"), "--no-color"], env=main_env, capture_output=True, text=True, timeout=12)
           self.assertIn("MAIN_LOCK_ISOLATION_PASS", main.stdout + main.stderr)
+          self.assertIn("BROKER_READINESS_PASS", main.stdout + main.stderr)
           self.assertNotIn("MAIN_LOCK_ISOLATION_FAIL", main.stdout + main.stderr)
           self.assertIsNone(process.poll(), "broker restart must not stop host")
           with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid):

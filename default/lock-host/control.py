@@ -102,16 +102,67 @@ def role_pid(role):
   return pid
 
 
-def unit_pid():
-  result = subprocess.run(["/usr/bin/systemctl", "--user", "show", UNIT, "--property=MainPID", "--value"],
+def reviewed_unit():
+  result = subprocess.run(["/usr/bin/systemctl", "--user", "show", UNIT, "--property=MainPID",
+                           "--property=FragmentPath", "--property=DropInPaths", "--all"],
                           capture_output=True, text=True, timeout=1, check=True)
-  return int(result.stdout.strip())
+  lines = result.stdout.splitlines()
+  data = dict(line.split("=", 1) for line in lines)
+  if len(data) != len(lines) or set(data) != {"MainPID", "FragmentPath", "DropInPaths"}:
+    raise ValueError("incomplete lock-host unit identity")
+  if data["FragmentPath"] != "/usr/lib/systemd/user/" + UNIT or data["DropInPaths"]:
+    raise ValueError("lock host requires the reviewed packaged unit without drop-ins")
+  pid = int(data["MainPID"])
+  if pid < 0:
+    raise ValueError("invalid lock-host unit PID")
+  return pid
+
+
+def unit_pid():
+  return reviewed_unit()
 
 
 def checked_peer(connection):
   pid, uid, _gid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
   if uid != os.getuid() or pid != role_pid("host") or pid != unit_pid():
     raise ValueError("untrusted lock-host peer")
+
+
+def context():
+  # Lock IPC never guesses a session from the newest socket or caller env
+  # alone. A stripped TTY/SSH context is explicitly unsupported. Bind both
+  # supplied endpoints to the same live system compositor and live owner.
+  selected = mode()
+  runtime, instance = paths()
+  display = os.environ["WAYLAND_DISPLAY"]
+  if not display:
+    raise ValueError("lock IPC requires the current Wayland display")
+  display_path = Path(display) if display.startswith("/") else runtime / display
+  if selected == "host":
+    pid = role_pid("host")
+    if pid != unit_pid():
+      raise ValueError("trusted host is not the actual unit owner")
+    owner_env = dict(entry.split(b"=", 1) for entry in Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if b"=" in entry)
+    if owner_env.get(b"HYPRLAND_INSTANCE_SIGNATURE") != os.fsencode(instance):
+      raise ValueError("owner belongs to another compositor instance")
+    owner_display = os.fsdecode(owner_env.get(b"WAYLAND_DISPLAY", b""))
+    owner_path = Path(owner_display) if owner_display.startswith("/") else runtime / owner_display
+    if not owner_display or owner_path.resolve() != display_path.resolve():
+      raise ValueError("caller display does not match the selected lock owner")
+  # Generic owner death must not prevent querying/recovering its compositor
+  # failsafe. The two verified compositor peers still bind that route exactly.
+  peers = []
+  for path in (display_path, runtime / "hypr" / instance / ".socket.sock"):
+    with socket.socket(socket.AF_UNIX) as connection:
+      connection.settimeout(0.7)
+      connection.connect(str(path))
+      peer_pid, uid, _gid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+      if uid != os.getuid() or Path(f"/proc/{peer_pid}/exe").resolve() != Path("/usr/bin/Hyprland").resolve():
+        raise ValueError("lock IPC compositor peer is not trusted")
+      peers.append(peer_pid)
+  if peers[0] != peers[1]:
+    raise ValueError("signature and display belong to different compositors")
+  return selected
 
 
 def request(method):
@@ -130,8 +181,8 @@ def request(method):
       raise ValueError("invalid host snapshot")
     initial = validate_status(json.loads(data))
     if method == "lock":
-      if not initial["ready"]:
-        raise ValueError("lock host is not ready")
+      # Explicit requests can re-arm an exhausted bounded orphan check. Send
+      # even while unready; the reply must still prove requested/secure.
       connection.sendall(b'{"method":"lock"}\n')
       data = stream.readline(8193)
       if not data.endswith(b"\n") or len(data) > 8192:
@@ -160,6 +211,8 @@ def run(role, command):
   selected = mode(initialize=True)
   if role == "host" and selected != "host":
     return 0
+  if role == "host" and unit_pid() != os.getpid():
+    raise ValueError("trusted host must launch as the reviewed unit MainPID")
   actual_role = "broker" if role == "shell" and selected == "host" else role
   lease = "broker.lock" if actual_role == "broker" else "owner.lock"
   fd = os.open(session_path(lease), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -204,14 +257,14 @@ def stranded(own_pid):
 
 
 def inspect_stranded(own_pid):
-  result = subprocess.run([os.environ["OMARCHY_PATH"] + "/bin/omarchy-hyprland-session-locked"])
-  if result.returncode != 0:
-    return result.returncode if result.returncode in (1, 2) else 2
   try:
     if own_pid != role_pid("host") or own_pid != unit_pid() or mode() != "host":
       return 2
   except (OSError, ValueError, KeyError, subprocess.SubprocessError):
     return 2
+  result = subprocess.run([os.environ["OMARCHY_PATH"] + "/bin/omarchy-hyprland-session-locked"])
+  if result.returncode != 0:
+    return result.returncode if result.returncode in (1, 2) else 2
   try:
     broker = role_pid("broker")
   except (OSError, ValueError, KeyError):
@@ -247,14 +300,7 @@ def setup(action):
     raise ValueError("refusing ownership change while the trusted host is unready")
   if subprocess.run([os.environ["OMARCHY_PATH"] + "/bin/omarchy-hyprland-session-locked"]).returncode != 1:
     raise ValueError("compositor is locked or undetermined")
-  unit = subprocess.run(["/usr/bin/systemctl", "--user", "show", UNIT, "--property=FragmentPath", "--value"],
-                        capture_output=True, text=True, timeout=2, check=True).stdout.strip()
-  if unit != "/usr/lib/systemd/user/" + UNIT:
-    raise ValueError("install the reviewed packaged unit; user replacement units are not overwritten")
-  overrides = subprocess.run(["/usr/bin/systemctl", "--user", "show", UNIT, "--property=DropInPaths", "--value"],
-                             capture_output=True, text=True, timeout=2, check=True).stdout.strip()
-  if overrides:
-    raise ValueError("review/remove custom unit drop-ins before staging an owner change")
+  reviewed_unit()  # Same manifest proof used at launch, peer and recovery boundaries.
   subprocess.run(["/usr/bin/systemctl", "--user", action, UNIT], timeout=5, check=True)
   path = preference()
   if action == "enable":
@@ -272,6 +318,8 @@ def main():
     return setup(args[0])
   if action == "mode":
     print(mode(initialize=args == ["--initialize"]))
+  elif action == "context" and not args:
+    print(context())
   elif action in ("run-shell", "run-host") and not args:
     root = os.environ["OMARCHY_PATH"]
     host = action == "run-host"

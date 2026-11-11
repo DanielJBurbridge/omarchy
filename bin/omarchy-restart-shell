@@ -39,6 +39,12 @@ fi
 # A trusted auth host has a distinct config and service lifetime. Restart only
 # the plugin-bearing desktop; never kill/relock its independent active owner.
 if (( !host_owned )) && omarchy-hyprland-session-locked; then
+  # A failed lock query in an unsupported TTY/stale context must not be
+  # mistaken for a dead owner and authorise killing an active lock client.
+  OMARCHY_PATH="$session_omarchy_path" "$session_omarchy_path/bin/omarchy-lock-host" context >/dev/null 2>&1 || {
+    echo "Refusing locked desktop restart without a validated graphical session context." >&2
+    exit 1
+  }
   locking=$(OMARCHY_PATH="$session_omarchy_path" OMARCHY_SHELL_IPC_TIMEOUT=0.5s omarchy-shell lock status 2>/dev/null |
     jq -r '.secure or .requested' 2>/dev/null)
   if [[ $locking == "true" ]]; then
