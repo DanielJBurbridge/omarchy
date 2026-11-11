@@ -164,8 +164,14 @@ if omarchy-cmd-present omarchy-power-ally; then
   fi
   report 'Other power controls' 'independent burst, CPU frequency, SMT, fan curves, bypass and thermal API unavailable'
 fi
-report 'Power activation review' 'held pending reviewed source-policy, cap and termination-restore corrections; no activation offered'
-report 'Input activation review' 'held pending reviewed lock-state and overlay-ownership corrections; no activation offered'
+report 'Power activation review' 'held pending independent Manager package, dependency and artifact review; no activation offered'
+report 'Input source review' 'cleared with actual-lock and ownership corrections; physical acceptance remains unverified'
+if omarchy-cmd-present omarchy-setup-rog-ally-input && omarchy-cmd-present omarchy-hw-rog-ally-input && \
+  [[ $(pacman -Q omarchy-rog-ally-input 2>/dev/null) == "omarchy-rog-ally-input 1.0.2-1" ]]; then
+  report 'Input setup eligibility' 'reviewed companion 1.0.2-1 installed; explicit terminal setup only'
+else
+  report 'Input setup eligibility' 'matching runtime helpers and reviewed companion 1.0.2-1 required; no activation attempted'
+fi
 module 'Input' omarchy-setup-rog-ally-input
 module 'Power' omarchy-setup-rog-ally-power
 module 'Display' omarchy-display-rog-ally

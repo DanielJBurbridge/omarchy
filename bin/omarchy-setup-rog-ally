@@ -16,6 +16,12 @@ if ! omarchy-hw-rog-ally; then
 fi
 
 row() { printf '%s\t%s\t%s' "$1" "$2" "$3"; }
+reviewed_input_installed() {
+  local companion
+  # This setup boundary requires the exact companion reviewed with the runtime.
+  companion=$(pacman -Q omarchy-rog-ally-input 2>/dev/null) || return 1
+  [[ $companion == "omarchy-rog-ally-input 1.0.2-1" ]]
+}
 choose() {
   local status
   if selection=$(omarchy-menu-select "$@" -- --width 620); then
@@ -31,10 +37,10 @@ while true; do
   # Backend setup commands are optional increments. Never invoke an absent
   # command or silently install a different backend in its place.
   if omarchy-cmd-present omarchy-setup-rog-ally-input && omarchy-cmd-present omarchy-hw-rog-ally-input; then
-    options+=("$(row '' 'Controller input' 'Readiness or safe disable; activation is held for upstream integration review')")
+    options+=("$(row '' 'Controller input' 'Reviewed companion setup, readiness and disable; keep touch or USB keyboard recovery')")
   fi
   if omarchy-cmd-present omarchy-setup-rog-ally-power && omarchy-cmd-present omarchy-power-ally; then
-    options+=("$(row '󰁹' 'Power setup' 'Readiness and rollback; activation held pending reviewed power corrections')")
+    options+=("$(row '󰁹' 'Power setup' 'Readiness and rollback; independent Manager package review still required')")
   fi
   if omarchy-cmd-present omarchy-setup-gaming-session; then
     options+=("$(row '' 'Gaming session' 'Authenticated session preference, rendering, desktop recovery')")
@@ -51,12 +57,37 @@ while true; do
   case "$selection" in
     'Status') omarchy-hw-rog-ally-status --menu ;;
     'Controller input')
-      choose 'InputPlumber — keep a touch or USB keyboard recovery route' \
-        "$(row '󰋖' 'Input readiness' 'Shareable package, service, composite and capability summary')" \
-        "$(row '󰁯' 'Disable input integration' 'Disable before removing companion or restoring an old owner')" \
-        "$(row '󰌑' 'Back' 'No changes')"
+      input_options=("$(row '󰋖' 'Input readiness' 'Shareable package, service, composite and capability summary')")
+      if reviewed_input_installed; then
+        input_options+=("$(row '' 'Enable reviewed input' 'Explicit opt-in with installed companion 1.0.2-1; no packages installed')")
+      fi
+      input_options+=("$(row '󰋖' 'Input setup requirements' 'Matching runtime + reviewed companion 1.0.2-1; visible terminal and recovery input')"
+        "$(row '󰁯' 'Disable input integration' 'Disable before removing companion or restoring an old owner')"
+        "$(row '󰌑' 'Back' 'No changes')")
+      choose 'InputPlumber — keep a touch or USB keyboard recovery route' "${input_options[@]}"
       case "$selection" in
         'Input readiness') omarchy-hw-rog-ally-status --menu ;;
+        'Enable reviewed input')
+          choose 'Enable reviewed InputPlumber in a visible terminal?' \
+            "$(row '' 'Enable input now' 'Keep touch or USB keyboard available; backend refuses competing owners')" \
+            "$(row '󰌑' 'Back' 'No changes')"
+          if [[ $selection == 'Enable input now' ]]; then
+            if omarchy-cmd-present omarchy-setup-rog-ally-input && omarchy-cmd-present omarchy-hw-rog-ally-input && reviewed_input_installed; then
+              omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --enable
+              exit
+            else
+              choose 'Input prerequisites changed — nothing enabled' \
+                "$(row '󰌑' 'Back' 'Install matching runtime and reviewed companion 1.0.2-1 before retrying')"
+            fi
+          fi
+          ;;
+        'Input setup requirements')
+          choose 'Reviewed input setup requirements' \
+            "$(row '󰋖' 'Matching packages' 'Install matching reviewed runtime + companion 1.0.2-1; setup installs no packages')" \
+            "$(row '󰌾' 'Recovery input' 'Keep touch or a USB keyboard available before changing controller ownership')" \
+            "$(row '󰁯' 'Rollback order' 'Disable integration before companion removal or restoring the prior owner')" \
+            "$(row '󰌑' 'Back' 'Follow docs/rog-ally-input.md for dependency installation and rollback')"
+          ;;
         'Disable input integration') omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --disable; exit ;;
       esac
       ;;

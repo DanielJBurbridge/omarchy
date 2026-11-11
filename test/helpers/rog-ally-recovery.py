@@ -10,7 +10,14 @@ with tempfile.TemporaryDirectory(prefix='ally-recovery-') as temp:
     root = pathlib.Path(temp)
     stubs = {
         'omarchy-hw-rog-ally': '[[ ${ALLY:-1} == 1 ]]',
-        'pacman': '''if [[ $2 == steam ]]; then printf 'steam %s\\n' "${VERSION:-1.0-1}"; else exit 1; fi''',
+        'pacman': '''case "$2" in
+  steam) printf 'steam %s\\n' "${VERSION:-1.0-1}" ;;
+  omarchy-rog-ally-input)
+    [[ -n ${INPUT_PACKAGE:-} && ! -f $TEST_ROOT/input-package-removed ]] || exit 1
+    printf 'omarchy-rog-ally-input %s\\n' "$INPUT_PACKAGE"
+    ;;
+  *) exit 1 ;;
+esac''',
         'systemctl': '''printf 'LoadState=%s\\nActiveState=%s\\n' "${LOAD:-loaded}" "${ACTIVE:-active}"''',
         'busctl': 'printf "%s\\n" "${BUS:-b false}"',
         'findmnt': 'echo btrfs',
@@ -29,6 +36,9 @@ exit "${POWER_ERROR:-0}"''',
 read -r count < "$TEST_ROOT/count"
 printf '%s\\n' "$((count+1))" > "$TEST_ROOT/count"
 line=$(sed -n "$((count+1))p" "$TEST_ROOT/choices")
+if [[ $line == 'Enable input now' && ${INPUT_PACKAGE_CHANGED:-0} == 1 ]]; then
+  touch "$TEST_ROOT/input-package-removed"
+fi
 case "$line" in CANCEL) exit 1;; ERROR) exit 2;; esac
 for option in "${@:2}"; do
   [[ $option == -- ]] && break
@@ -51,6 +61,7 @@ exit 93''',
     # A hang guard, not a performance assertion: real probes have cumulative
     # timeouts, and the nine-stream build host can be heavily scheduled.
     def run(command, *args, choices=('CANCEL',), **overrides):
+        (root / 'input-package-removed').unlink(missing_ok=True)
         (root / 'input-calls').write_text('')
         (root / 'power-calls').write_text('')
         (root / 'menus').write_text('')
@@ -153,15 +164,32 @@ exit 93''',
     for overrides in ({'INPUT_ERROR': '1'}, {'INPUT_STATE': 'invalid SECRET', 'INPUT_CAPABILITIES': 'invalid SECRET'}):
         result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b true', **overrides)
         assert result.returncode == 0 and 'missing, ambiguous or unreadable' in result.stdout and 'SECRET' not in result.stdout, result
-    assert 'Enable reviewed input' not in (root / 'menus').read_text()
-    assert 'activation offered' in result.stdout
-    print('PASS held input retains disable/readiness without exposing activation or private paths')
+    assert 'Input source review\tcleared' in result.stdout and 'Input activation review' not in result.stdout
+    for version in ('', '1.0.0-1', '1.0.1-1', '1.0.2-2', '1.0.3-1', '1.0.2-1 invalid'):
+        result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE=version)
+        assert result.returncode == 0 and not (root / 'actions').read_text(), (version, result)
+        assert 'Enable reviewed input' not in (root / 'menus').read_text(), version
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
+    assert result.returncode == 0 and (root / 'actions').read_text() == 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-input --enable\n', result
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
+    assert result.returncode == 0 and not (root / 'actions').read_text(), result
+    result = run('omarchy-setup-rog-ally', choices=('Controller input', 'Enable reviewed input', 'Enable input now', 'Back', 'Close'), INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1', INPUT_PACKAGE_CHANGED='1')
+    assert result.returncode == 0 and not (root / 'actions').read_text(), result
+    assert 'prerequisites changed' in (root / 'menus').read_text()
+    result = run('omarchy-setup-rog-ally', INPUT_PACKAGE='1.0.2-1')
+    assert result.returncode == 0 and 'Controller input' not in (root / 'menus').read_text() and not (root / 'actions').read_text(), result
+    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', INPUT_PACKAGE='1.0.2-1')
+    assert 'reviewed companion 1.0.2-1 installed; explicit terminal setup only' in result.stdout
+    result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', INPUT_PACKAGE='1.0.1-1')
+    assert 'matching runtime helpers and reviewed companion 1.0.2-1 required' in result.stdout
+    print('PASS reviewed input activation requires installed 1.0.2-1, explicit confirmation and unchanged prerequisites; disable/status stay available')
     for choice, expected in (
         ('Roll back power backend', 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-power --rollback\n'),
     ):
         result = run('omarchy-setup-rog-ally', choices=('Power setup', choice), POWER_TOOLS='1')
         assert result.returncode == 0 and (root / 'actions').read_text() == expected, result
         assert 'Configure reviewed power backend' not in (root / 'menus').read_text()
+        assert 'Desktop power panel' not in (root / 'menus').read_text()
     result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b true')
     assert result.returncode == 0 and '15 W; selectable 5..25' in result.stdout and 'firmware default' in result.stdout, result
     assert 'SECRET' not in result.stdout and 'Power activation review' in result.stdout
