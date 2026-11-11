@@ -470,7 +470,34 @@ class SetupTests(unittest.TestCase):
     def test_active_hhd_instance_blocks_before_privileged_work(self):
         self.run_setup(True)
 
-    def run_setup(self, ally):
+    @unittest.skipIf(os.getuid() == 0, "setup deliberately requires a desktop user")
+    def test_enable_rejects_unreviewed_companion_before_unit_or_state_work(self):
+        for companion, package_exit in [
+            ("", 1), ("", 0),
+            ("omarchy-rog-ally-input 1.0.2-1", 0),
+            ("omarchy-rog-ally-input 1.0.3-2", 0),
+            ("omarchy-rog-ally-input 1.0.4-1", 0),
+            ("omarchy-rog-ally-input 1.0.3-1", 1),
+            ("another-package 1.0.3-1", 0),
+            ("omarchy-rog-ally-input", 0),
+            ("omarchy-rog-ally-input  1.0.3-1", 0),
+            ("omarchy-rog-ally-input 1.0.3-1 extra", 0),
+            ("omarchy-rog-ally-input 1.0.3-1\nother 1.0.3-1", 0),
+        ]:
+            with self.subTest(companion=companion, package_exit=package_exit):
+                calls = self.run_setup(True, companion, package_exit, rejected_package=True)
+                self.assertEqual(calls, ["pacman -Q omarchy-rog-ally-input"],
+                                 "rejected package must stop before dependency, unit, privilege or state work")
+
+    @unittest.skipIf(os.getuid() == 0, "setup deliberately requires a desktop user")
+    def test_disable_does_not_require_the_reviewed_companion(self):
+        calls = self.run_setup(True, "omarchy-rog-ally-input 1.0.2-1", action="--disable")
+        self.assertFalse(any(call.startswith("pacman ") for call in calls))
+        self.assertIn("systemctl --user disable --now omarchy-rog-ally-input.service", calls)
+        self.assertIn("privilege systemctl stop inputplumber.service", calls)
+
+    def run_setup(self, ally, companion="omarchy-rog-ally-input 1.0.3-1", package_exit=0,
+                  action="--enable", rejected_package=False):
         root = Path(module.__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as scratch:
             directory = Path(scratch)
@@ -478,21 +505,43 @@ class SetupTests(unittest.TestCase):
             # the running hhd@ instance and must prevent its own system writes.
             commands = {
                 "omarchy-hw-rog-ally": f"exit {0 if ally else 1}",
-                "pacman": "printf 'inputplumber 0.84.0-1\\n'",
+                "pacman": '''printf 'pacman %s\\n' "$*" >>"$SETUP_CALL_LOG"
+if [[ $2 == "omarchy-rog-ally-input" ]]; then
+  printf '%s\\n' "$SETUP_COMPANION"
+  exit "$SETUP_PACKAGE_EXIT"
+else
+  printf 'inputplumber 0.84.0-1\\n'
+fi''',
                 "vercmp": "echo 0",
-                "systemctl": "printf 'hhd@player.service loaded active running Handheld Daemon\\n'",
-                "sudo": "echo UNEXPECTED_PRIVILEGE; exit 90",
+                "systemctl": '''printf 'systemctl %s\\n' "$*" >>"$SETUP_CALL_LOG"
+printf 'hhd@player.service loaded active running Handheld Daemon\\n' ''',
+                # Record privileged intent without executing the nested command.
+                "sudo": '''printf 'privilege %s\\n' "$*" >>"$SETUP_CALL_LOG"''',
             }
             for name, body in commands.items():
                 path = directory / name
                 path.write_text("#!/bin/bash\n" + body + "\n")
                 path.chmod(0o755)
-            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}"}
-            result = subprocess.run([str(root / "bin/omarchy-setup-rog-ally-input"), "--enable"],
+            log = directory / "calls"
+            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                   "SETUP_CALL_LOG": str(log), "SETUP_COMPANION": companion,
+                   "SETUP_PACKAGE_EXIT": str(package_exit)}
+            result = subprocess.run([str(root / "bin/omarchy-setup-rog-ally-input"), action],
                                     env=env, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 1)
-            self.assertNotIn("UNEXPECTED_PRIVILEGE", result.stdout + result.stderr)
-            self.assertIn("competing input owners" if ally else "only for ASUS", result.stderr)
+            calls = log.read_text().splitlines() if log.exists() else []
+            self.assertEqual(result.returncode, 0 if action == "--disable" else 1, result.stderr)
+            if action == "--enable":
+                self.assertFalse(any(call.startswith("privilege ") for call in calls))
+                if rejected_package:
+                    self.assertEqual(calls, ["pacman -Q omarchy-rog-ally-input"],
+                                     "unreviewed companion reached unit/dependency work")
+                    self.assertTrue(result.stderr.strip())
+                else:
+                    self.assertIn("competing input owners" if ally else "only for ASUS", result.stderr)
+                if ally and not rejected_package:
+                    self.assertTrue(any(call.startswith("systemctl ") for call in calls),
+                                    "exact reviewed companion must reach the existing owner guard")
+            return calls
 
 
 unittest.main()
