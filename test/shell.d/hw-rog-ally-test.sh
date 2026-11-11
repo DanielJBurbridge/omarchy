@@ -314,3 +314,77 @@ if note=$(OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
 fi
 [[ $note == *"Install the reviewed wvkbd"* ]] || fail "keyboard setup accepts the short Ally product with RC71L board" "$note"
 pass "keyboard setup accepts the short Ally product with RC71L board"
+
+# Power-button routing must never suspend a desktop whose lock failed, or
+# replace the ordinary laptop/desktop power menu. The existing sleep-lock
+# suite exercises secure-lock IPC; this exercises the caller's decision.
+power_omarchy="$test_tmp/power-omarchy"
+mkdir -p "$power_omarchy/bin" "$test_tmp/runtime"
+cat >"$power_omarchy/bin/omarchy-system-sleep-lock" <<'SH'
+#!/bin/bash
+echo lock >>"$PKG_LOG"
+exit "${FAKE_LOCK_RESULT:-0}"
+SH
+cat >"$stub/omarchy-menu" <<'SH'
+#!/bin/bash
+echo "menu $*" >>"$PKG_LOG"
+SH
+cat >"$stub/systemctl" <<'SH'
+#!/bin/bash
+echo "systemctl $*" >>"$PKG_LOG"
+SH
+cat >"$stub/omarchy-sleep-disabled" <<'SH'
+#!/bin/bash
+exit "${FAKE_SLEEP_DISABLED:-1}"
+SH
+cat >"$stub/omarchy-toggle-enabled" <<'SH'
+#!/bin/bash
+[[ $1 == "suspend-off" ]] && exit "${FAKE_SUSPEND_OFF:-1}"
+exit 1
+SH
+chmod +x "$power_omarchy/bin/omarchy-system-sleep-lock" "$stub/omarchy-menu" \
+  "$stub/systemctl" "$stub/omarchy-sleep-disabled" "$stub/omarchy-toggle-enabled"
+
+run_power_button() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    XDG_RUNTIME_DIR="$test_tmp/runtime" OMARCHY_PATH="$power_omarchy" \
+    PKG_LOG="$pkg_log" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-system-power-button"
+}
+
+for product in "ROG Strix G16" "ROG Ally X RC72LA"; do
+  write_dmi "$vendor" "$product" ""
+  : >"$pkg_log"
+  run_power_button
+  [[ $(<"$pkg_log") == "menu toggle system" ]] || fail "power button preserves $product power menu"
+done
+pass "non-RC71L power buttons retain the existing system menu"
+
+write_dmi "$vendor" "ROG Ally" "RC71L"
+: >"$pkg_log"
+run_power_button
+[[ $(<"$pkg_log") == $'lock\nsystemctl suspend' ]] || fail "RC71L locks before requesting suspend"
+pass "RC71L power button locks before requesting suspend"
+
+: >"$pkg_log"
+if FAKE_LOCK_RESULT=1 run_power_button; then
+  fail "a failed lock cancels the power-button suspend"
+fi
+[[ $(<"$pkg_log") == "lock" ]] || fail "a failed lock never reaches systemctl"
+pass "failed desktop lock cancels suspend"
+
+: >"$pkg_log"
+FAKE_SLEEP_DISABLED=0 run_power_button
+FAKE_SUSPEND_OFF=0 run_power_button
+[[ $(<"$pkg_log") == $'menu toggle system\nmenu toggle system' ]] || fail "sleep-disabled settings prevent button suspend"
+pass "RC71L honours disabled suspend settings"
+
+: >"$pkg_log"
+(
+  flock 9
+  run_power_button
+) 9>"$test_tmp/runtime/omarchy-power-button.lock"
+[[ ! -s $pkg_log ]] || fail "overlapping power-button events are ignored"
+pass "overlapping power-button events cannot race the desktop lock"
