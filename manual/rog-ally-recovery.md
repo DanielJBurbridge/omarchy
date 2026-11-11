@@ -4,7 +4,9 @@ For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld*
 
 ## Controller input
 
-The initial INPUT revision is held by integration for lock-state and overlay-ownership corrections. This setup therefore offers readiness and disable access, without an activation or profile-change action. Keep normal native input until a corrected revision is reviewed and explicitly released.
+INPUT's source corrections have passed review. **Controller input > Enable reviewed input** appears only when matching runtime helpers and the reviewed `omarchy-rog-ally-input 1.0.2-1` companion are installed. It requires an explicit confirmation and opens the existing setup in a visible terminal. Opening setup or checking status never enables it or installs packages. Earlier companions and unreviewed newer versions are refused; use the reviewed release's matching package build.
+
+Keep touch or a USB keyboard available before enabling InputPlumber. The backend setup refuses competing input owners; it does not remove them. Readiness and disable stay available even when activation prerequisites are missing. A source-review result or installed package does not establish physical controller acceptance.
 
 Disable an already configured integration before removing its companion or restoring another owner. If InputPlumber was installed for this increment, remove it before restoring the old owner: removing the companion also removes its opt-in guard, leaving upstream udev activation possible. Keep touch or a USB keyboard available and follow the input component's exact installation and rollback instructions.
 
@@ -12,7 +14,7 @@ The shareable report shows composite readability, known profile name, intercepti
 
 ## Power readiness and rollback
 
-The initial POWER revision is held for source-policy, cap and termination-restore corrections. **Power setup** currently offers per-control readiness, the existing desktop panel and the delivered rollback route, without activation. Normal generic power remains in place until integration reviews and releases a corrected opt-in revision.
+POWER source corrections have passed review, but activation remains held pending independent review of the standalone Manager recipe, dependencies and built artifact. **Power setup** offers per-control readiness and rollback, without configuration/takeover or a writable power-panel action. Normal generic power remains in place until that separate review clears.
 
 The report lists only controls the running Manager backend can actually read. Missing TDP support stays unavailable; an installed package or older watt reading does not prove the required performance-profile/asus-armoury API. Charge `-1` is shown as the firmware default. Conflicts and policy errors suppress control values. Independent burst watts, CPU frequency limits, SMT, fan curves, bypass and thermal telemetry are unavailable in this backend API.
 
