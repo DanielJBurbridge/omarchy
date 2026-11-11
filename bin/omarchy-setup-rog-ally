@@ -30,6 +30,9 @@ while true; do
   options=("$(row '󰋖' 'Status' 'Packages, services, recovery readiness and unverified device checks')")
   # Backend setup commands are optional increments. Never invoke an absent
   # command or silently install a different backend in its place.
+  if omarchy-cmd-present omarchy-display-rog-ally; then
+    options+=("$(row '󰍹' 'Display and touch layout' 'Inspect actual modes or choose the optional touch preset')")
+  fi
   options+=("$(row '' 'Game software' 'Steam, other launchers and optional compatibility tools')"
     "$(row '' 'Desktop keyboard' 'Review and install the optional wvkbd AUR package')"
     "$(row '󰋊' 'Game libraries' 'Mount an existing microSD or USB filesystem; never format')"
@@ -38,6 +41,23 @@ while true; do
   choose 'ROG Ally handheld setup' "${options[@]}"
   case "$selection" in
     'Status') omarchy-hw-rog-ally-status --menu ;;
+    'Display and touch layout')
+      choose 'Display and touch layout' \
+        "$(row '󰋖' 'Display status' 'Read advertised capabilities and actual touchscreen names')" \
+        "$(row '' 'Apply touch preset' 'Optional 1.5x internal scale and larger bar; preserves original backups')" \
+        "$(row '󰁯' 'Restore touch preset' 'Restore the preset backup; later layout edits may need review')" \
+        "$(row '󰌑' 'Back' 'No changes')"
+      display_args=()
+      case "$selection" in
+        'Display status') display_args=(status) ;;
+        'Apply touch preset') display_args=(touch-preset) ;;
+        'Restore touch preset') display_args=(touch-preset reset) ;;
+      esac
+      if (( ${#display_args[@]} > 0 )); then
+        omarchy-launch-floating-terminal-with-presentation omarchy-display-rog-ally "${display_args[@]}"
+        exit
+      fi
+      ;;
     'Game software')
       game_options=("$(row '' 'Game installers' 'Open the existing Steam and launcher installers')")
       if omarchy-cmd-present omarchy-install-gaming-tools; then

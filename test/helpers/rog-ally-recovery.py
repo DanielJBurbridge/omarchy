@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='ally-recovery-') as temp:
         'systemctl': '''printf 'LoadState=%s\\nActiveState=%s\\n' "${LOAD:-loaded}" "${ACTIVE:-active}"''',
         'busctl': 'printf "%s\\n" "${BUS:-b false}"',
         'findmnt': 'echo btrfs',
-        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools ]]',
+        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools || ${DISPLAY_TOOLS:-0} == 1 && $1 == omarchy-display-rog-ally ]]',
         'checkupdates': '''printf '%s\\n' 'private-repo-package 1 -> 2'; exit "${UPDATE_STATUS:-0}"''',
         'omarchy-menu-select': '''printf '%s\\n' "$@" >> "$TEST_ROOT/menus"
 read -r count < "$TEST_ROOT/count"
@@ -110,3 +110,7 @@ exit 93''',
     result = run('omarchy-setup-rog-ally', choices=('Game software', 'Compatibility tools'), TOOLS='1')
     assert result.returncode == 0 and (root / 'actions').read_text() == 'omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-tools compatibility\n', result
     print('PASS optional delivered tools are offered only when their command exists')
+    for choice, args in (('Display status', 'status'), ('Apply touch preset', 'touch-preset'), ('Restore touch preset', 'touch-preset reset')):
+        result = run('omarchy-setup-rog-ally', choices=('Display and touch layout', choice), DISPLAY_TOOLS='1')
+        assert result.returncode == 0 and (root / 'actions').read_text() == f'omarchy-launch-floating-terminal-with-presentation omarchy-display-rog-ally {args}\n', result
+    print('PASS delivered display actions use fixed arguments and explicit preset rollback')

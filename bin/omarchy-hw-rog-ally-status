@@ -94,6 +94,7 @@ for unit in hhd handheld-daemon; do
 done
 report 'InputPlumber readiness' "$(bus_ready --system org.shadowblip.InputPlumber)"
 report 'SteamOS Manager readiness' "$(bus_ready --user com.steampowered.SteamOSManager1)"
+module 'Display' omarchy-display-rog-ally
 module 'Game tools' omarchy-install-gaming-tools
 module 'Dedicated session' omarchy-setup-gaming-session
 module 'Touch keyboard' omarchy-setup-rog-ally-keyboard

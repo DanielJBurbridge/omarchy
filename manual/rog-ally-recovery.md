@@ -6,6 +6,10 @@ For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld*
 
 **Desktop keyboard > Configure reviewed keyboard** configures an already installed, reviewed wvkbd 0.21-1 without installing a package. The separate AUR action requires reviewing that package's source first. When wvkbd is installed, **Toggle desktop keyboard** shows or hides it. The delivered touch integration also adds the optional Keyboard bar control and `Super + Ctrl + Y`; reload/login may be needed for the binding. This keyboard belongs to the desktop; the greeter, lock screen and Steam gaming keyboard have separate owners. Automatic text-field activation is unavailable while Fcitx owns the input-method slot.
 
+## Display and touch layout
+
+When the display command is installed, **Display and touch layout** offers local display status, an optional 1.5× internal scale with a larger bar, and restoration of the preset's original backup. Apply the preset deliberately and check the layout on the device. Use status to identify the actual built-in touchscreen before configuring touch mapping through the display command. The setup does not choose a touchscreen for you or enable HDR on the internal SDR panel.
+
 ## Games and compatibility tools
 
 **Game software > Game installers** opens the existing Steam and launcher installation menu. When the delivered gaming-tools command is installed, this picker also offers optional UMU/Protontricks/Winetricks, ProtonPlus, MangoHud, GOverlay and Sunshine. These are explicit installations; they do not replace existing runners or prefixes. Sunshine host input permissions and actual streaming acceptance remain separate. GameMode is excluded from this handheld picker because its power writes would compete with the Ally power owner.
