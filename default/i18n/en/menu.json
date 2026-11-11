@@ -1310,6 +1310,10 @@
   "update.password.user": {
     "label": "User"
   },
+  "setup.rog-ally": {
+    "label": "ROG Ally Handheld",
+    "description": "Setup, status, game libraries, updates and recovery"
+  },
   "setup.gaming": {
     "label": "Gaming",
     "description": "Steam, first sign-in, controller and touch setup"
