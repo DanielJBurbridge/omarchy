@@ -74,6 +74,7 @@ bash "$test_tmp/setup" enable --allow-root-plugins >"$test_tmp/output" 2>&1
 mv "$test_tmp/replacement-marker" "$marker"
 bash "$test_tmp/setup" disable >"$test_tmp/output" 2>&1
 [[ -f $marker ]] || fail "disable preserves a debug marker replaced by another owner"
+[[ ! -e $HOME/.local/state/omarchy/decky/debug-marker ]] || fail "disable retires stale marker ownership"
 pass "Decky rollback removes only the marker this activation created"
 
 rm "$marker"
