@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 
 from gi.repository import Gio, GLib
@@ -21,6 +22,7 @@ OBJECTS = "org.freedesktop.DBus.ObjectManager"
 PROFILE_DIR = Path("/usr/share/omarchy-rog-ally-input/profiles")
 NAME = "ASUS ROG Ally"
 MODES = ("desktop", "gamepad", "dualsense")
+DEFAULT_PROFILE = "/usr/share/inputplumber/profiles/default.yaml"
 
 
 class API:
@@ -29,8 +31,10 @@ class API:
 
     def call(self, path, interface, method, signature=None, args=(), destination=BUS):
         parameters = GLib.Variant(signature, args) if signature else None
+        flags = (Gio.DBusCallFlags.NO_AUTO_START if destination == BUS
+                 else Gio.DBusCallFlags.NONE)
         return self.bus.call_sync(destination, path, interface, method, parameters,
-                                  None, Gio.DBusCallFlags.NONE, 5000, None).unpack()
+                                  None, flags, 5000, None).unpack()
 
     def properties(self, path, interface=COMPOSITE):
         return self.call(path, PROPERTIES, "GetAll", "(s)", (interface,))[0]
@@ -74,6 +78,22 @@ class API:
                 and props.get("Type") == "wayland"
                 and props.get("Active", False) and not props.get("LockedHint", True))
 
+    def desktop_unlocked(self):
+        # LockedHint is advisory: Omarchy's actual lock is WlSessionLock.
+        # Query the trusted lock service and compositor only at state/action
+        # boundaries, never on an idle timer. Unknown or a crashed locker fails
+        # closed, including a compositor-held lock surviving a shell restart.
+        try:
+            lock = subprocess.run(["omarchy-shell", "lock", "isLocked"],
+                                  capture_output=True, text=True, timeout=3)
+            if lock.returncode != 0 or lock.stdout.strip() != "false":
+                return False
+            compositor = subprocess.run(["omarchy-hyprland-session-locked"],
+                                        capture_output=True, timeout=3)
+            return compositor.returncode == 1
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
 
 def current_mode(properties):
     name = properties.get("ProfileName", "")
@@ -81,6 +101,16 @@ def current_mode(properties):
         if name == f"Omarchy Ally {mode}":
             return mode
     return "custom"
+
+
+def owns_profile(properties, bootstrap=False):
+    if properties.get("InterceptMode") != 0:
+        return False
+    mode = current_mode(properties)
+    if mode in MODES:
+        return properties.get("ProfilePath") == str(PROFILE_DIR / f"{mode}.yaml")
+    return (bootstrap and properties.get("ProfileName") == "Default"
+            and properties.get("ProfilePath") == DEFAULT_PROFILE)
 
 
 def desktop_session():
@@ -107,13 +137,15 @@ class Bridge:
         self.devices = set()
         self.preferred = "desktop"
         self.allowed = False
+        self.locked = None  # Actual lock producer has not supplied a snapshot.
         self.pressed = set()
 
     def refresh_session(self):
-        allowed = self.api.active(self.session)
+        allowed = (self.locked is False and self.api.active(self.session)
+                   and self.api.desktop_unlocked())
         if allowed != self.allowed:
             owned = {path for path in self.devices
-                     if current_mode(self.api.properties(path)) in MODES}
+                     if owns_profile(self.api.properties(path))}
             if self.allowed:
                 for path in owned:
                     mode = current_mode(self.api.properties(path))
@@ -122,20 +154,31 @@ class Bridge:
             self.allowed = allowed
             self.pressed.clear()
             for path in owned:
-                self.api.load(path, self.preferred if allowed else "gamepad")
+                # Recheck just before writing; an overlay may have taken over.
+                if owns_profile(self.api.properties(path)):
+                    self.api.load(path, self.preferred if allowed else "gamepad")
+        elif not allowed:
+            # An overlay may release interception after the lock transition.
+            # Reconcile only our desktop profile; never change its owner.
+            for path in self.devices:
+                properties = self.api.properties(path)
+                if owns_profile(properties) and current_mode(properties) == "desktop":
+                    self.api.load(path, "gamepad")
 
     def discover(self):
+        self.refresh_session()
         found = set(self.api.devices())
         for path in found - self.devices:
-            self.api.load(path, self.preferred if self.allowed else "gamepad")
-            # Without an overlay consumer, PASS would swallow Guide and leave
-            # the controller intercepted. Start with normal game delivery.
-            self.api.intercept(path, 0)
+            if owns_profile(self.api.properties(path), bootstrap=True):
+                self.api.load(path, self.preferred if self.allowed else "gamepad")
+            # Discovery never clears interception or replaces an overlay's
+            # custom profile. Claim only our own profile or upstream bootstrap.
         self.devices = found
 
     def event(self, target, action, value):
-        # Recheck logind at the action boundary, including a lock signal race.
-        if not self.allowed or not self.api.active(self.session):
+        # Recheck the real lock, including a signal still waiting in this loop.
+        if (not self.allowed or self.locked is not False
+                or not self.api.active(self.session) or not self.api.desktop_unlocked()):
             return
         owner = None
         for path in self.devices:
@@ -145,7 +188,7 @@ class Bridge:
         if owner is None:
             return
         properties = self.api.properties(owner)
-        if properties.get("InterceptMode") != 0:
+        if not owns_profile(properties):
             # An overlay owns interception until it restores normal delivery.
             return
         key = (target, action)
@@ -170,10 +213,102 @@ class Bridge:
         # Do not overwrite a profile subsequently selected by another owner.
         for path in self.devices:
             try:
-                if current_mode(self.api.properties(path)) == "desktop":
+                properties = self.api.properties(path)
+                if owns_profile(properties) and current_mode(properties) == "desktop":
                     self.api.load(path, "gamepad")
             except GLib.Error as error:
                 print(f"Ally cleanup: {error}", file=sys.stderr, flush=True)
+
+
+class LockMonitor:
+    """Read-only AUTH stream: snapshot/changes; a dead peer means unknown."""
+
+    def __init__(self, bridge):
+        self.bridge = bridge
+        self.path = str(Path(os.environ["XDG_RUNTIME_DIR"]) /
+                        f"omarchy-lock-{os.environ['HYPRLAND_INSTANCE_SIGNATURE']}.sock")
+        self.connection = None
+        self.connecting = False
+        self.replaced = False
+        self.cancel = Gio.Cancellable.new()
+        self.client = Gio.SocketClient.new()
+        # Subscribe before connecting so creation/replacement during startup
+        # cannot leave a missing producer mistaken for an unlocked desktop.
+        self.monitor = Gio.File.new_for_path(str(Path(self.path).parent)).monitor_directory(
+            Gio.FileMonitorFlags.WATCH_MOVES, None)
+        self.monitor.connect("changed", self.changed)
+        self.connect()
+
+    def changed(self, _monitor, file, other_file, _event):
+        if any(item and item.get_path() == self.path for item in (file, other_file)):
+            if self.connection is not None or self.connecting:
+                self.replaced = True
+            else:
+                self.connect()
+
+    def connect(self):
+        if self.connection is None and not self.connecting and not self.cancel.is_cancelled():
+            self.connecting = True
+            self.client.connect_async(Gio.UnixSocketAddress.new(self.path), self.cancel,
+                                      self.connected)
+
+    def connected(self, client, result):
+        self.connecting = False
+        try:
+            connection = client.connect_finish(result)
+            if connection.get_socket().get_credentials().get_unix_user() != os.getuid():
+                connection.close(None)
+                raise ValueError("lock stream is not owned by this user")
+            self.connection = connection
+            self.replaced = False
+            self.stream = Gio.DataInputStream.new(connection.get_input_stream())
+            self.stream.read_line_async(GLib.PRIORITY_DEFAULT, self.cancel, self.read)
+        except (GLib.Error, ValueError):
+            self.lost()
+
+    def snapshot(self, line):
+        message = json.loads(line)
+        locked = message.get("locked") if isinstance(message, dict) else None
+        if type(locked) is not bool:
+            raise ValueError("invalid lock-state snapshot")
+        self.bridge.locked = locked
+        self.bridge.refresh_session()
+
+    def read(self, stream, result):
+        try:
+            line, _size = stream.read_line_finish_utf8(result)
+            if line is None:
+                self.lost()
+                return
+            self.snapshot(line)
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, self.cancel, self.read)
+        except (GLib.Error, ValueError):
+            self.lost()
+
+    def lost(self):
+        reconnect = self.replaced
+        self.replaced = False
+        self.bridge.locked = None
+        if self.connection:
+            try:
+                self.connection.close(None)
+            except GLib.Error:
+                pass
+            self.connection = None
+        try:
+            self.bridge.refresh_session()
+        except GLib.Error as error:
+            print(f"Ally lock-state loss: {error}", file=sys.stderr, flush=True)
+        # A replacement can be announced while the old peer is still alive.
+        # Reconnect once for that event; failed connects never start a timer.
+        if reconnect:
+            self.connect()
+
+    def stop(self):
+        self.cancel.cancel()
+        self.monitor.cancel()
+        if self.connection:
+            self.connection.close(None)
 
 
 def watch(api):
@@ -181,6 +316,7 @@ def watch(api):
         raise ValueError("watch requires the Hyprland desktop session")
     bridge = Bridge(api, api.session())
     bridge.refresh_session()
+    lock_monitor = LockMonitor(bridge)
 
     def guarded(callback):
         def run(*args):
@@ -202,6 +338,11 @@ def watch(api):
     def session_changed(*_args):
         bridge.refresh_session()
 
+    def profile_changed(_bus, _sender, _path, _iface, _member, parameters, _data):
+        interface, _changed, _invalidated = parameters.unpack()
+        if interface == COMPOSITE:
+            bridge.refresh_session()
+
     api.bus.signal_subscribe(BUS, OBJECTS, None, ROOT, None,
                              Gio.DBusSignalFlags.NONE, guarded(objects_changed), None)
     api.bus.signal_subscribe(BUS, "org.shadowblip.Input.DBusDevice", "InputEvent",
@@ -209,6 +350,8 @@ def watch(api):
     api.bus.signal_subscribe("org.freedesktop.login1", PROPERTIES, "PropertiesChanged",
                              bridge.session, None, Gio.DBusSignalFlags.NONE,
                              guarded(session_changed), None)
+    api.bus.signal_subscribe(BUS, PROPERTIES, "PropertiesChanged", None, None,
+                             Gio.DBusSignalFlags.NONE, guarded(profile_changed), None)
     # Service restarts and hotplug are events, not periodic rediscovery.
     def owner_vanished(*_args):
         bridge.devices.clear()
@@ -222,6 +365,7 @@ def watch(api):
     try:
         loop.run()
     finally:
+        lock_monitor.stop()
         bridge.cleanup()
 
 
@@ -245,10 +389,12 @@ def main(args):
     props = api.properties(path)
     if action in (*MODES, "toggle"):
         mode = ("gamepad" if current_mode(props) == "desktop" else "desktop") if action == "toggle" else action
-        if mode == "desktop" and not (desktop_session() and api.active(api.session())):
+        if mode == "desktop" and not (desktop_session() and api.active(api.session())
+                                       and api.desktop_unlocked()):
             raise ValueError("desktop mode requires the active unlocked Hyprland session")
+        if props.get("InterceptMode") != 0:
+            raise ValueError("an overlay owns input interception; close it before changing profile")
         api.load(path, mode)
-        api.intercept(path, 0)
         print(f"Requested {mode}; verify current profile with status.")
     elif action == "intercept":
         api.intercept(path, 2 if args[1] == "all" else 0)

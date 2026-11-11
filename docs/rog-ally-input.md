@@ -12,7 +12,7 @@ The central `omarchy-hw-rog-ally` predicate gates setup and the service. Upstrea
 
 ## Build and install
 
-The companion manifest is [`pkg/rog-ally-input/PKGBUILD`](../pkg/rog-ally-input/PKGBUILD). It builds from the reviewed checkout, with no fetched source, install scriptlet, automatic service start or user configuration writes. Install it alongside the Omarchy build containing the new `bin/` commands; `omarchy-dev-pkg-test` can build the normal Omarchy packages from the integrated checkout. `omarchy dev link` alone does not publish these fixed system files.
+The companion manifest is [`pkg/rog-ally-input/PKGBUILD`](../pkg/rog-ally-input/PKGBUILD). It builds from the reviewed checkout, with no fetched source, install scriptlet, automatic service start or user configuration writes. Install it alongside the Omarchy build containing the new `bin/` commands and AUTH's read-only lock producer (`887626c5d798da6420334c4bbe96a43934d277cf`); `omarchy-dev-pkg-test` can build the normal Omarchy packages from the integrated checkout. `omarchy dev link` alone does not publish these fixed system files. Companion 1.0.1 replaces 1.0.0's incomplete lock/overlay lifecycle guards; do not deploy 1.0.0.
 
 Before installation, save package versions, `systemctl is-active inputplumber.service`, `systemctl is-enabled inputplumber.service`, any existing `/etc/inputplumber` configuration and competing owner states outside Git. An existing unowned `50-rog_ally.yaml` causes a pacman file conflict: review and back it up instead of forcing an overwrite. On upgrade pacman preserves local device edits through its backup handling; review `.pacnew` files.
 
@@ -25,9 +25,9 @@ cd pkg/rog-ally-input
 sudo systemctl mask --runtime inputplumber.service
 omarchy-pkg-add inputplumber
 makepkg --cleanbuild
-pacman -Qip omarchy-rog-ally-input-1.0.0-1-any.pkg.tar.zst
-bsdtar -tf omarchy-rog-ally-input-1.0.0-1-any.pkg.tar.zst
-sudo pacman -U ./omarchy-rog-ally-input-1.0.0-1-any.pkg.tar.zst
+pacman -Qip omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
+bsdtar -tf omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
+sudo pacman -U ./omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
 sudo systemctl daemon-reload
 sudo systemctl unmask --runtime inputplumber.service
 omarchy-setup-rog-ally-input --enable
@@ -75,7 +75,9 @@ The desktop keyboard chord targets TOUCH's optional RC71L+wvkbd Super+Ctrl+Y bin
 
 Short/long distinctions come from upstream `ally_type1.yaml`, using firmware/kernel F16, F20/Ctrl+Alt+Delete, Prog1/F19 and F17 events. No userspace hold timer guesses the duration. Both firmware variants and the absence of an unwanted short action on a long press need physical checks. Do not bind those raw keys globally.
 
-The bridge watches D-Bus ObjectManager/device events and logind session changes. It selects the named RC71L composite, never assumes device number zero, and rejects input signals from other virtual devices. Only an active, unlocked Hyprland session launches desktop actions. Lock/inactive transitions release the desktop profile into gamepad mode, then restore the selected profile on return. On normal bridge shutdown desktop mode returns to gamepad. Service restart and device reappearance trigger discovery without polling.
+The bridge watches D-Bus ObjectManager/device events, logind session changes and AUTH's one-way `$XDG_RUNTIME_DIR/omarchy-lock-$HYPRLAND_INSTANCE_SIGNATURE.sock` stream. The stream supplies an initial JSON line `{"locked":true|false}` and actual lock-request/compositor-secure transitions. Missing, malformed or disconnected state blocks desktop input. A same-user peer check and socket EOF provide producer identity/liveness; no saved file can leave an old `false` behind after shell death. The canonical `omarchy-shell lock isLocked` and compositor lock helper are also checked at state/action boundaries, catching a pending lock event or compositor-held lock surviving a shell restart. Logind `LockedHint` alone is insufficient for Omarchy's lock. There are no idle queries or polling timer.
+
+Only an active, unlocked Hyprland session launches desktop actions. Lock/inactive transitions release an owned desktop profile into gamepad mode, then restore the selected profile on return. Normal bridge shutdown also releases owned desktop input. Every automatic lifecycle write requires interception mode zero and both an exact shipped profile name and its package-owned path; a name match alone does not grant ownership. Discovery can also claim the exact upstream Default bootstrap profile when interception is zero. Restart, hotplug, lock, unlock and shutdown leave another overlay's interception/custom profile intact and never reset interception. When an overlay releases interception while locked, a D-Bus property event releases any now-owned desktop profile. Service/device reappearance triggers discovery without polling. Physical lock and controller acceptance remains separate from these source checks.
 
 Profile validation uses the upstream DeviceProfile and CompositeDevice schemas. In 0.84.0 the generated DeviceProfile schema omits `mouse.wheel`, although upstream's own mouse profile uses it and the Rust `MouseCapability.wheel`/`translate_button_to_wheel` implementation supports it. Validate that field against the Rust direction values (`up`, `down`, `left`, `right`); do not substitute `button: WheelUp`, which does not emit a scroll event in this version.
 
@@ -84,6 +86,8 @@ SESSION calls `omarchy-hw-rog-ally-input gamepad` before direct DRM Gamescope la
 ## Capabilities and limits
 
 `status` prints JSON with `Name`, `ProfileName`, `ProfilePath`, `TargetDevices` (D-Bus object paths) and numeric `InterceptMode`. `capabilities` prints actual `Capabilities`, `TargetCapabilities`, `OutputCapabilities` and `SourceDevicePaths`. Both fail if the RC71L composite is missing or ambiguous. Capture these results in the private acceptance log; source paths can contain device identifiers. Service activation or a recognised HID node alone does not prove working input.
+
+All InputPlumber D-Bus calls use `NO_AUTO_START`. Status/capability reads do not activate a missing backend, including when it disappears after a readiness check. Setup explicitly starts the backend; other commands fail closed until it is running. A mode command refuses active overlay interception; only the explicit `intercept none` command clears it.
 
 - **Gyro:** the upstream profile uses `bmi323-imu` and its RC71L mount matrix. Xbox Elite has no motion output; select `dualsense` and configure Steam Input gyro per game. Verify sensor presence, axes and orientation on the device.
 - **Rumble:** upstream evdev force feedback supplies the RC71L motors, including translation from DS5 rumble. Test both targets. RC71L does not gain adaptive/haptic triggers.
