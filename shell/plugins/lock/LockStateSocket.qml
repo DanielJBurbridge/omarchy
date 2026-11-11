@@ -38,9 +38,10 @@ SocketServer {
       function onStateChanged() { connection.publish() }
     }
 
-    // Subscribers only read. Unsolicited lines close the connection; they
+    // Subscribers only read. Unsolicited bytes close the connection; they
     // never form a request protocol beside the existing authentication IPC.
     parser: SplitParser {
+      splitMarker: ""
       onRead: connection.connected = false
     }
   }

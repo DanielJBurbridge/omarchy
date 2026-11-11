@@ -67,8 +67,8 @@ ShellRoot {
           check(root.first.length === 3 && root.first[2].locked === true, "lock request pushes true to first subscriber")
           check(root.second.length === 2 && root.second[1].locked === true, "broadcast reaches second subscriber")
           root.producer.stateChanged()
-          // No inbound command is permitted, even one that looks like state.
-          firstClient.write('{"locked":false}\n')
+          // Even an unterminated byte must close a read-only subscriber.
+          firstClient.write("x")
           firstClient.flush()
         } else if (root.step === 5) {
           check(root.locked && root.first.length === 3 && root.second.length === 2, "duplicate transition and inbound bytes cannot alter state")
