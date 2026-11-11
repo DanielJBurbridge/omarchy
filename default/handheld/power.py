@@ -100,7 +100,7 @@ class Manager:
     def call(self, connection, bus, path, interface, method, args, signature=None):
         result = connection.call_sync(bus, path, interface, method, args,
                                       self.GLib.VariantType.new(signature) if signature else None,
-                                      self.Gio.DBusCallFlags.NONE, 5000, None)
+                                      self.Gio.DBusCallFlags.NO_AUTO_START, 5000, None)
         return result.unpack()
 
     def get(self, suffix, prop):

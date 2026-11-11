@@ -58,6 +58,17 @@ spec = importlib.util.spec_from_file_location('ally_power', Path(os.environ['ROO
 power = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(power)
 
+# Exercise the real Gio call flag without connecting to any bus or service.
+from gi.repository import Gio, GLib
+from types import SimpleNamespace
+calls = []
+client = power.Manager.__new__(power.Manager)
+client.Gio, client.GLib = Gio, GLib
+connection = SimpleNamespace(call_sync=lambda *args: (calls.append(args), GLib.Variant('()', ()))[1])
+client.call(connection, 'test.unowned.Service', '/test', 'test.Interface', 'Read', None)
+assert calls[0][6] == Gio.DBusCallFlags.NO_AUTO_START, 'held readiness must not activate a daemon'
+print('ok - held Manager reads use real Gio NO_AUTO_START without a live bus')
+
 def check(description, condition):
     if not condition:
         raise AssertionError(description)

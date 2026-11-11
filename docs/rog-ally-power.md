@@ -1,16 +1,34 @@
 # Original ROG Ally power integration
 
-This is opt-in source support for ASUS RC71L only, behind `omarchy-hw-rog-ally`. It does not establish installed or physical acceptance. Ordinary laptops/desktops keep power-profiles-daemon (PPD). No feature worker installs, restarts or changes the live Ally: the integration/rollout owner performs the steps below serially.
+This is experimental source support for ASUS RC71L only, behind `omarchy-hw-rog-ally`. Activation is blocked by the package review below. It does not establish installed or physical acceptance. Ordinary laptops/desktops keep power-profiles-daemon (PPD). No feature worker installs, restarts or changes the live Ally.
+
+## Package review hold
+
+**Do not install unchanged `steamos-manager 26.4.1-3`, even as an inactive prerequisite.** The completed independent source/recipe review rejected it for this integration; its install/upgrade scriptlet enables a root service for the next boot. Client guards and a matching version string do not establish package approval. No remediated package, binary artifact, dependency closure or RC71L capability probe has been accepted.
+
+The reviewed immutable CachyOS recipe is commit `ab15ca2048159897015eb0ac90eac8c756b86e7a`, PKGBUILD SHA256 `4cc9005e13cddf708f86bec2ad2dfb9effe1d249de65f5b95d4b6e85c999e403`, with upstream commit `a0d399defebd60db30ba38325d9cf47dbda49bee`. The review found these blockers:
+
+- Root daemon startup/hotplug manages InputPlumber targets and enables a PlayStation inhibitor by default, conflicting with INPUT ownership.
+- Broad RootManager system-bus access lacks caller/session/Polkit authorisation for privileged setters, including login policy. Restricting the Omarchy client cannot protect direct calls.
+- The mandatory networking helper is absent from the configured repositories and carries out-of-scope privileged Wi-Fi/NetworkManager behaviour. Removing its dependency requires removing both root and user Wi-Fi paths first.
+- Activation scriptlets and login-manager payload prevent safe inactive installation and can contaminate a setup-time ownership receipt.
+- Public sustained-limit readback cannot prove restoration of the sequentially changed SPL/SPPT/FPPT limits. All three require typed capture, bounded application, verified readback and restoration before takeover can be accepted.
+
+`omarchy-setup-rog-ally-power --configure-reviewed-package` now refuses before package queries, service changes or state writes. The existing `--rollback` action is retained for legacy receipts, but does not prove complete three-limit restoration or service ownership before package installation. Keep such a receipt and resolve its limitations through a reviewed recovery plan before changing owners.
+
+POWER owns a bounded prerequisite input-management opt-out patch, immutable source/patch/Cargo.lock manifest and power-only interface/authorisation/transaction design. That opt-out alone is not a security or power-only fix. `omarchy-steamos-manager-power` is a reserved future identity only; no version or artifact is approved. Full builds and deployment wait for an agreed remediated design. The remaining sections document the experimental client and earlier proposed API, not an approved installation procedure.
+
+The finite proposal, exact remaining code/API blockers and all-three-limit contract are in [SteamOS Manager power-only remediation](rog-ally-manager-remediation.md). Its typed snapshot schema and isolated input opt-out patch are preparation artifacts, not executable installation guidance. The client carries frozen47e's `NO_AUTO_START` correction unchanged from central commit `67e8829d5dbf92f86e90e9428aeca5ecbb36d6d9`.
 
 ## Backend and package boundary
 
-Use **one SteamOS Manager**, not PowerStation, HHD/Adjustor, asusctl or custom sysfs writers alongside it. The checked [CachyOS standalone recipe](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/master/handheld/steamos-manager/PKGBUILD) packages `steamos-manager 26.4.1-3`, MIT, from upstream tag `v26.4.1`, commit `a0d399defebd60db30ba38325d9cf47dbda49bee`. Review the complete recipe, dependency closure and patches when building the standalone package for Omarchy. Do not add CachyOS repositories, install `cachyos-handheld` wholesale, install `jupiter-hw-support`, or copy their login/autologin policy.
+The experimental client targets one SteamOS Manager power owner. PowerStation, HHD/Adjustor, asusctl or custom sysfs writers must not run alongside it. The rejected [CachyOS standalone recipe](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/ab15ca2048159897015eb0ac90eac8c756b86e7a/handheld/steamos-manager/PKGBUILD) packages `steamos-manager 26.4.1-3`, MIT, from upstream tag `v26.4.1`, commit `a0d399defebd60db30ba38325d9cf47dbda49bee`. Do not build/install it for this rollout. Do not add CachyOS repositories, install `cachyos-handheld` wholesale, install `jupiter-hw-support`, or copy their login/autologin policy.
 
 The [RC71L device profile](https://github.com/evlaV/steamos-manager/blob/a0d399defebd60db30ba38325d9cf47dbda49bee/data/devices/rog-ally-series.toml) selects `asus-wmi` platform profiles and `asus-armoury` firmware attributes. The live audit's existing 30/43/53 W readings do **not** prove this newer firmware-attribute API exists. A missing interface is a concrete kernel/backend limit to report, not permission to fall back to another writer or replace the kernel.
 
-Package-owned fixed-system files come from the reviewed standalone Manager package: `/usr/lib/steamos-manager`, its `steamosctl` client, device/platform data, system and user `steamos-manager.service`, and D-Bus activation/policy files. Review `pacman -Ql steamos-manager` before installation and preserve package ownership; `omarchy dev link` does not deploy them. The power client adds no system D-Bus or Polkit permissions. Upstream Manager's system policy is broad and must be included in the package review. Omarchy calls only its documented public **session** API, never the private RootManager API.
+The rejected package's predicted fixed-system payload includes `/usr/lib/steamos-manager`, its `steamosctl` client, device/platform data, system and user `steamos-manager.service`, and D-Bus activation/policy files. This is source-manifest evidence, not an inspected binary archive. A future remediated package needs its own reviewed manifest; `omarchy dev link` cannot deploy fixed-system files. The power client adds no system D-Bus or Polkit permissions and calls the documented public **session** API. That client choice does not remedy unauthorised direct RootManager access.
 
-The existing Omarchy package must include `bin/omarchy-power-ally`, `bin/omarchy-setup-rog-ally-power`, `default/handheld/power.py`, `default/handheld/omarchy-ally-power.service`, the changed profile helpers and `shell/plugins/panels/power/`. Its existing recursive source packaging should cover these paths; verify the built package manifest before rollout. Python/PyGObject (`python-gobject`) is already in Omarchy's base package set. The user unit is copied from the packaged default during explicit setup, with no new fixed-system override.
+The experimental Omarchy runtime paths are `bin/omarchy-power-ally`, `bin/omarchy-setup-rog-ally-power`, `default/handheld/power.py`, `default/handheld/omarchy-ally-power.service`, the changed profile helpers and `shell/plugins/panels/power/`. Their presence is not activation clearance. Python/PyGObject (`python-gobject`) is already in Omarchy's base package set. The held setup does not copy or enable the policy unit.
 
 ## Public API and capability contract
 
@@ -31,17 +49,13 @@ Manager's [firmware-attribute implementation](https://github.com/evlaV/steamos-m
 
 `omarchy-power-ally status` returns JSON with `backend`, `configured`, `source` (`ac`/`battery`), `controls` keyed by `profile`, `tdp`, `boost`, `governor`, `gpu-level`, `gpu-clock`, `charge`, and `unavailable` reasons. Each control has `available`, then `value`, `choices` or `min`/`max`, or an explicit `reason`. `conflicts` lists active competing services. Top-level `error` marks unavailable state/failed policy restoration; consumers must not reuse stale values. Existing UPower battery watts in the panel remain battery flow, not APU telemetry.
 
-## Installation and rollback (rollout owner only)
+## Installation blocked; legacy rollback
 
-1. Record package versions, kernel/BIOS, `systemctl status power-profiles-daemon steamos-manager`, corresponding user-unit states, `omarchy-power-ally status`, and read-only `asus-armoury` capability evidence. Back up user configuration and preserve package rollback artifacts. Do not publish serials or personal information.
-2. Build/review/install the standalone Manager package and updated Omarchy package through the integration owner's normal signed/package process. Check that neither brings a login policy, kernel change or extra power writer. A missing package artifact is a deployment blocker; this source does not fetch or execute an AUR recipe automatically.
-3. From a visible terminal run `omarchy-setup-rog-ally-power --configure-reviewed-package`. This validates the exact reviewed package identity, refuses active competing writers, records service states, masks/stops PPD, enables system/user Manager, captures original readable settings and seeds separate AC/DC preferences. It then enables `omarchy-ally-power.service` for this user. No autologin, login-manager or power-button policy changes occur here. If setup partially fails, retain its receipt and run rollback rather than manually stacking writers.
-4. Inspect `omarchy-power-ally status` and `journalctl --user -u omarchy-ally-power.service`. Open the existing desktop panel with `omarchy-shell shell toggle omarchy.power`. Capture and inspect the running UI for clipping, focus, correct readback and unavailable state.
-5. Roll back with `omarchy-setup-rog-ally-power --rollback` from a terminal. It stops the policy listener, restores original readable settings through Manager and verifies readback before removing the opt-in marker, then restores the prior service/PPD states. If hardware restoration fails it stops with the receipt and marker retained; resolve that failure before restoring a different writer. Receipt/preferences remain under `${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power/`. Restore the prior reviewed Omarchy package if source rollback is also needed. Do not remove Manager while other sessions depend on it.
+There is no approved installation or takeover procedure. Keep PPD and the current input/session owners unchanged. A future procedure must resolve the package blockers, inspect the actual remediated archive/dependencies, record service ownership before any install script can change it, capture every touched hardware limit, and obtain the sole rollout owner's RC71L capability evidence. Do not infer approval from the experimental API tests below.
 
-Setup is repeatable without replacing the first rollback receipt or existing preferences. The unit uses the installed `/usr/bin/omarchy-power-ally`; a source link alone is insufficient. The original receipt is tied to the first takeover; archive it before deliberately taking a new baseline after a later rollback.
+For a previously recorded setup only, `omarchy-setup-rog-ally-power --rollback` stops the policy listener and attempts restoration of original publicly readable settings before returning recorded service/PPD states. Receipt/preferences remain under `${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power/`. A failed restoration retains the receipt/marker; do not stack another writer. Reconnect AC for an original recorded limit above 25 W.
 
-Takeover disables PPD globally on this RC71L; power preferences and the event listener belong to the configured user. Configure another user explicitly before expecting their desktop to restore power preferences. Rollback of an original AC limit above 25 W requires reconnecting AC; it fails safely on battery and retains the receipt/marker rather than bypassing the battery ceiling.
+This legacy route does not capture SPPT/FPPT individually and may have recorded Manager's already-enabled state after its installation scriptlet. Successful public readback therefore does not prove full hardware or pre-install service restoration. Preserve the receipt/package backups and use a reviewed recovery plan for those gaps. Do not remove a Manager package while another session depends on it, or restore the rejected activation code as a rollback of this guard.
 
 ## Policy, controls and session contracts
 
@@ -57,13 +71,7 @@ The panel offers 48-pixel touch targets, profile choices, 10/15/25 W presets wit
 
 TERM/INT/HUP handling is installed before the first startup power mutation. A signal during the initial setters or child launch enters the same restoration path; repeated handled signals during cleanup do not interrupt it. Original signal handlers are reinstated after cleanup, including failed launch and restoration failures.
 
-Desktop route is `omarchy-shell shell toggle omarchy.power`. The Hyprland panel does not cross into Gamescope. Gaming uses Steam's QAM and the **same Manager session API**, with the input Guide/South proposal provisional until exercised. SESSION must start the user Manager and policy units inside its authenticated gaming session (it does not start `graphical-session.target`), and stop only the units it started when handing back; call the exact commands below once, not once per Steam child:
-
-```bash
-systemctl --user start steamos-manager.service omarchy-ally-power.service
-# On session teardown, only if these were not active before entry:
-systemctl --user stop omarchy-ally-power.service steamos-manager.service
-```
+Desktop route is `omarchy-shell shell toggle omarchy.power`. The Hyprland panel does not cross into Gamescope. The proposed Steam QAM/Guide+South route and Manager API compatibility remain unverified. No session should start the rejected backend. A future restricted backend needs a revised authenticated-session lifecycle contract before SESSION may acquire its units; the earlier full-Manager start/stop proposal is held along with package activation.
 
 The setup's opt-in marker must gate that power-policy unit. No shortcut, Steam QAM watt slider, gaming lifecycle or resume behaviour is physically accepted until rollout evidence establishes it. OGUI is not installed by this increment; if Steam QAM does not use Manager on this device, gaming overlay acceptance remains blocked and must be reported, not replaced with a desktop panel claim.
 
