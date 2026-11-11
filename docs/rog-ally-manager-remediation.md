@@ -2,6 +2,8 @@
 
 Status: bounded design and an **unbuilt prerequisite patch**, not a deployable backend. Stock `steamos-manager 26.4.1-3` remains **NO-INSTALL**, including inactive installation. No package, signature, firmware capability, server authorisation, full rollback or hardware acceptance is established here. Frozen integration `47e0e976f47c86edf9962d0debde9b571fadc385` and its live rollout are unchanged.
 
+The next bounded [session authority decision and private-bus denial proof](rog-ally-power-authority.md) keeps production grants denied: the target supervisor has no verified logind binding, and normal desktop login bypasses it. Root-relayed current-performance firmware-path readability is recorded there without implying verified units, outside-profile capture or any authority/takeover acceptance.
+
 ## Decision and immutable evidence
 
 Keep Manager as a reuse candidate, but require a separate power-only build/API before takeover. Removing install payload or changing a D-Bus allow rule cannot repair the current root authority and incomplete state contract. This increment deliberately does not produce a PKGBUILD that appears installable. `omarchy-steamos-manager-power` is a reserved name, with **no accepted identity, version or artifact**.

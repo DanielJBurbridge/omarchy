@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "status": "source analysis and private-bus denials only; target registrar NOT verified; production grants DENIED",
+  "session_sources_sha256": {
+    "c52affb7bd94aca48f4a1a218596d15716012a0f": {
+      "bin/omarchy-session-start": "39776ef20b15eb69a4d1a28ecbb160508ae4947bc0ef145f2cf62e192727c94d",
+      "default/gaming/wayland-sessions/omarchy-handheld.desktop": "c67074bd3f640453e7d975c5bfdd8eabb601b2071159d65cc2a3c905c170203e",
+      "default/gaming/wayland-sessions/omarchy-gamescope.desktop": "d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef",
+      "default/wayland-sessions/omarchy.desktop": "0a4b9feeecd8822b708281d4c1c98f66421cf1769ff79a1a3b4f25af62886641"
+    },
+    "63b49c8fec2c540d5fca74610596c91075892313": {
+      "bin/omarchy-session-start": "39776ef20b15eb69a4d1a28ecbb160508ae4947bc0ef145f2cf62e192727c94d",
+      "default/gaming/wayland-sessions/omarchy-handheld.desktop": "c67074bd3f640453e7d975c5bfdd8eabb601b2071159d65cc2a3c905c170203e",
+      "default/gaming/wayland-sessions/omarchy-gamescope.desktop": "d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef",
+      "default/wayland-sessions/omarchy.desktop": "0a4b9feeecd8822b708281d4c1c98f66421cf1769ff79a1a3b4f25af62886641"
+    },
+    "47e0e976f47c86edf9962d0debde9b571fadc385": {
+      "bin/omarchy-session-start": "39776ef20b15eb69a4d1a28ecbb160508ae4947bc0ef145f2cf62e192727c94d",
+      "default/gaming/wayland-sessions/omarchy-handheld.desktop": "c67074bd3f640453e7d975c5bfdd8eabb601b2071159d65cc2a3c905c170203e",
+      "default/gaming/wayland-sessions/omarchy-gamescope.desktop": "d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef",
+      "default/wayland-sessions/omarchy.desktop": "0a4b9feeecd8822b708281d4c1c98f66421cf1769ff79a1a3b4f25af62886641"
+    },
+    "78e8e7eda6b107d2834f39ecc7defe574060d09c": {
+      "bin/omarchy-session-start": "39776ef20b15eb69a4d1a28ecbb160508ae4947bc0ef145f2cf62e192727c94d",
+      "default/gaming/wayland-sessions/omarchy-handheld.desktop": "c67074bd3f640453e7d975c5bfdd8eabb601b2071159d65cc2a3c905c170203e",
+      "default/gaming/wayland-sessions/omarchy-gamescope.desktop": "d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef",
+      "default/wayland-sessions/omarchy.desktop": "0a4b9feeecd8822b708281d4c1c98f66421cf1769ff79a1a3b4f25af62886641"
+    }
+  },
+  "session_comparison": "four relevant files identical across all four commits",
+  "sddm": {
+    "repository": "https://github.com/sddm/sddm",
+    "tag": "v0.21.0",
+    "commit": "63780fcd79f1dbf81a30eef48c28c699ab15aded",
+    "source_sha256": {
+      "src/helper/HelperApp.cpp": "f76f31ffd91e56da17e52eaffe6baa0d8373ec158d7d43b6af85aeadbff78ba4",
+      "src/helper/backend/PamBackend.cpp": "4394cd77ac5561b03cd1f09f4d5969ce782eb1b263abe357697352f3905e2440",
+      "src/helper/backend/PamHandle.cpp": "9c8fa811e9ebcd73dba8f90f14dfc73402e73850ad8c77649b49472982ba5c2c",
+      "src/helper/Backend.cpp": "64c87d9f51a1a284feb07e8951499f6790ce4d15ff69e0daf266785bfd04e05e",
+      "src/helper/UserSession.cpp": "1d051dfc2de68ff921fbd0cda20f96afe6a0c843c505fdcc46e666feed905532"
+    },
+    "limits": "upstream source for installed version; installed package patch set and target configuration not proved"
+  },
+  "sigil_read_only": {
+    "versions": {
+      "sddm": "0.21.0-7",
+      "uwsm": "0.27.1-1",
+      "systemd": "262.1-1",
+      "dbus": "1.16.2-2",
+      "polkit": "128-1"
+    },
+    "sha256": {
+      "/usr/share/uwsm/modules/uwsm/main.py": "7dd6363244c101c7a0e7641684e29b6a13905e98f9fc3a4c81421e536a976c72",
+      "/usr/lib/uwsm/signal-handler.sh": "c086816ed7764335f9188ee63c0e9a18c35e162d62d51df74b796aa9fc22d10a",
+      "/usr/share/sddm/scripts/wayland-session": "ced779e62d8d87096e1af6db9d3ac823d4b519e7bd07ac8a56cf7fbb64c196ae",
+      "/etc/pam.d/sddm": "d7394292a65ae463926c2c3d2cb4e67bbfeb20995450c8e4c92fe5a28e7c4254",
+      "/etc/pam.d/system-login": "7272120f0ee937cbe6ba0a6e748ea234ab6799e1e2966c83ee85f97d9f254fd9",
+      "/usr/share/dbus-1/interfaces/org.freedesktop.login1.Manager.xml": "eab81e7d6c723880d6737d707f111362031c54756edf2d33890cb77eec668588",
+      "/usr/share/dbus-1/interfaces/org.freedesktop.login1.Session.xml": "75ce5a1569975b01e3b1aefeef8b6b7d3e10f88d9e16797388a374eb2404896f",
+      "/usr/share/dbus-1/interfaces/org.freedesktop.login1.Seat.xml": "f143ccd7f27dbc564317f60563d7d3d1087433ef7aede2a2ba246c87cc5a0731"
+    },
+    "limits": "local Sigil files only; no live session query/registration, no target proof"
+  },
+  "target_session_binding_verified": false,
+  "target_firmware_evidence": "Root relayed current-performance raw three-attribute readability only; no unit/outside-performance/authority/takeover acceptance",
+  "fixture": "authority-denial.py",
+  "fixture_limits": [
+    "real unprivileged private dbus-daemon broker PID/UID and unique-name loss",
+    "missing/unprivileged trusted-looking service owner rejected",
+    "no fake positive logind or Polkit service, no grant issuance",
+    "no PIDFD acceptance, SDDM target binding, active/inactive/resume grant lifecycle or hardware proof",
+    "fixture power method signatures deliberately reduced to a token for denial; not production wire ABI"
+  ],
+  "fixture_sha256": "9b82a5fd9ecf806f9ccbc9ccf9d7dcdad6e0da0744a59b28dd497057e5ada818"
+}
