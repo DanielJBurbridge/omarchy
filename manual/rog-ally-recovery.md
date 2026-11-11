@@ -4,11 +4,27 @@ For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld*
 
 ## Controller input
 
-When the input integration commands are installed, **Controller input** offers explicit enable/disable, a desktop pointer profile and Xbox or optional DualSense gamepad profiles. The reviewed companion and InputPlumber must already be installed together; setup never installs or starts a backend from the status report. Keep touch or a USB keyboard available while changing input ownership. Choose the target before launching a game because profile changes disconnect the previous controller.
+The initial INPUT revision is held by integration for lock-state and overlay-ownership corrections. This setup therefore offers readiness and disable access, without an activation or profile-change action. Keep normal native input until a corrected revision is reviewed and explicitly released.
 
-Enable refuses competing controller owners. Disable this integration before removing its companion or restoring another owner. If InputPlumber was installed for this increment, remove it before restoring the old owner: removing the companion also removes its opt-in guard, leaving upstream udev activation possible. Follow the input component's installation and rollback instructions rather than removing files manually.
+Disable an already configured integration before removing its companion or restoring another owner. If InputPlumber was installed for this increment, remove it before restoring the old owner: removing the companion also removes its opt-in guard, leaving upstream udev activation possible. Keep touch or a USB keyboard available and follow the input component's exact installation and rollback instructions.
 
 The shareable report shows composite readability, known profile name, interception state and advertised capability counts. It omits raw device names, paths and source identifiers. These software results do not prove gyro, rumble, buttons or pointer behaviour.
+
+## Power readiness and rollback
+
+The initial POWER revision is held for source-policy, cap and termination-restore corrections. **Power setup** currently offers per-control readiness, the existing desktop panel and the delivered rollback route, without activation. Normal generic power remains in place until integration reviews and releases a corrected opt-in revision.
+
+The report lists only controls the running Manager backend can actually read. Missing TDP support stays unavailable; an installed package or older watt reading does not prove the required performance-profile/asus-armoury API. Charge `-1` is shown as the firmware default. Conflicts and policy errors suppress control values. Independent burst watts, CPU frequency limits, SMT, fan curves, bypass and thermal telemetry are unavailable in this backend API.
+
+If rolling back a previously configured backend, reconnect AC if the recorded original limit exceeds the battery ceiling. Use the delivered rollback before removing Manager or restoring a different power owner; failed readback must be resolved first.
+
+## Dedicated gaming session
+
+When the session command is installed, **Gaming session** offers the delivered persistent desktop/gaming/last preference, one-shot choices, rendering and optional overlay controls. The matching main runtime and `omarchy-gaming-session` registration companion are both required. Choose **Omarchy (session preference)** at password sign-in for those preferences to apply; the original **Omarchy (Hyprland uwsm)** entry remains the independent recovery route. No autologin is enabled.
+
+**Launch gaming session** asks you to save work and fully exit Steam first; it then uses the managed-session launcher, which closes desktop applications. An unmanaged desktop or missing dependencies are refused. In gaming, save before using Steam's **Switch to Desktop** or **Exit Steam**. This is a separate session, so returning ends the gaming session's games/downloads; it preserves library and save files.
+
+Render size, requested FPS cap and spatial filter affect game presentation, not the physical panel mode. The optional overlay requires MangoHud/mangoapp tools. **Reset session preferences** confirms before clearing preferences, render/overlay settings and the recovery latch; it preserves Steam data and logs. Session registration, an actual game, physical controls, return-to-desktop and failure recovery still require rollout acceptance.
 
 ## Desktop keyboard
 

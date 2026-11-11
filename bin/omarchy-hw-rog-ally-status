@@ -79,7 +79,7 @@ module() {
 }
 
 report 'Hardware' 'original ROG Ally RC71L'
-for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'Input companion:omarchy-rog-ally-input' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Trusted keyboard:qt6-virtualkeyboard' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
+for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'Session companion:omarchy-gaming-session' 'InputPlumber:inputplumber' 'Input companion:omarchy-rog-ally-input' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Trusted keyboard:qt6-virtualkeyboard' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
   report "${spec%%:*} package" "$(package "${spec#*:}")"
 done
 for unit in inputplumber powerstation power-profiles-daemon; do
@@ -125,7 +125,49 @@ if omarchy-cmd-present omarchy-hw-rog-ally-input; then
 else
   report 'Input composite' 'integration command not delivered in this installation'
 fi
-report 'SteamOS Manager readiness' "$(bus_ready --user com.steampowered.SteamOSManager1)"
+manager_ready=$(bus_ready --user com.steampowered.SteamOSManager1)
+report 'SteamOS Manager readiness' "$manager_ready"
+if omarchy-cmd-present omarchy-power-ally; then
+  report 'Manager system service' "$(service steamos-manager.service)"
+  report 'Manager user service' "$(service steamos-manager.service --user)"
+  report 'Power policy service' "$(service omarchy-ally-power.service --user)"
+  if [[ $manager_ready == 'API present;'* ]]; then
+    if power_json=$(timeout 15 omarchy-power-ally status 2>/dev/null) && \
+      power_summary=$(jq -er '
+        def number: type == "number" and . >= -1 and . <= 100000 and floor == .;
+        def value($key):
+          .value as $v
+          | if $key == "charge" and $v == -1 then "firmware default"
+            elif $key == "boost" and ($v == 0 or $v == 1) then (if $v == 1 then "enabled" else "disabled" end)
+            elif ($v | number) then ($v | tostring) + (if $key == "tdp" then " W" elif $key == "gpu-clock" then " MHz" elif $key == "charge" then "%" else "" end)
+            elif (["quiet","balanced","performance","low-power","power-saver","powersave","schedutil","ondemand","conservative","userspace","auto","low","high","manual","profile_standard","profile_min_sclk","profile_min_mclk","profile_peak"] | index($v)) != null then $v
+            else "readable (value omitted)" end;
+        def limits:
+          if (.min | number) and (.max | number) then "; selectable " + (.min|tostring) + ".." + (.max|tostring) else "" end;
+        if type != "object" or (.controls | type != "object") then error("schema")
+        elif .error != null then ["Power controls", "unavailable or policy error; values not used"]
+        elif (.conflicts | type == "array" and length > 0) then ["Power controls", "blocked by competing owner; resolve ownership before setup"]
+        else
+          ["Power source", (if .source == "ac" then "AC" elif .source == "battery" then "battery" else "unknown" end)],
+          ["Power opt-in", (if .configured == true then "configured; physical operation unverified" else "not configured" end)],
+          (["profile","tdp","boost","governor","gpu-level","gpu-clock","charge"][] as $key
+            | .controls[$key] as $c
+            | ["Power " + $key, (if $c.available == true then ($c | value($key)) + ($c | limits) + "; backend readback, physical effect unverified" else "unavailable from backend; inspect local capability reason" end)])
+        end | @tsv
+      ' <<< "$power_json" 2>/dev/null); then
+      while IFS=$'\t' read -r label detail; do report "$label" "$detail"; done <<< "$power_summary"
+    else
+      report 'Power controls' 'unreadable or policy error; no prior values reused'
+    fi
+  else
+    report 'Power controls' 'not probed because the Manager API has no readable owner'
+  fi
+  report 'Other power controls' 'independent burst, CPU frequency, SMT, fan curves, bypass and thermal API unavailable'
+fi
+report 'Power activation review' 'held pending reviewed source-policy, cap and termination-restore corrections; no activation offered'
+report 'Input activation review' 'held pending reviewed lock-state and overlay-ownership corrections; no activation offered'
+module 'Input' omarchy-setup-rog-ally-input
+module 'Power' omarchy-setup-rog-ally-power
 module 'Display' omarchy-display-rog-ally
 module 'Game tools' omarchy-install-gaming-tools
 module 'Dedicated session' omarchy-setup-gaming-session

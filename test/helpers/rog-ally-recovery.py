@@ -14,13 +14,16 @@ with tempfile.TemporaryDirectory(prefix='ally-recovery-') as temp:
         'systemctl': '''printf 'LoadState=%s\\nActiveState=%s\\n' "${LOAD:-loaded}" "${ACTIVE:-active}"''',
         'busctl': 'printf "%s\\n" "${BUS:-b false}"',
         'findmnt': 'echo btrfs',
-        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools || ${DISPLAY_TOOLS:-0} == 1 && $1 == omarchy-display-rog-ally || ${DECKY_TOOLS:-0} == 1 && $1 == omarchy-*-gaming-decky || ${INPUT_TOOLS:-0} == 1 && $1 == omarchy-*-rog-ally-input ]]',
+        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools || ${DISPLAY_TOOLS:-0} == 1 && $1 == omarchy-display-rog-ally || ${DECKY_TOOLS:-0} == 1 && $1 == omarchy-*-gaming-decky || ${INPUT_TOOLS:-0} == 1 && $1 == omarchy-*-rog-ally-input || ${POWER_TOOLS:-0} == 1 && ($1 == omarchy-power-ally || $1 == omarchy-setup-rog-ally-power) || ${SESSION_TOOLS:-0} == 1 && $1 == omarchy-setup-gaming-session ]]',
         'omarchy-hw-rog-ally-input': '''printf '%s\\n' "$1" >> "$TEST_ROOT/input-calls"
 [[ ${INPUT_ERROR:-0} == 0 ]] || exit 9
 case "$1" in
   status) printf '%s\\n' "$INPUT_STATE" ;;
   capabilities) printf '%s\\n' "$INPUT_CAPABILITIES" ;;
 esac''',
+        'omarchy-power-ally': '''echo status >> "$TEST_ROOT/power-calls"
+printf '%s\\n' "$POWER_STATE"
+exit "${POWER_ERROR:-0}"''',
         'checkupdates': '''printf '%s\\n' 'private-repo-package 1 -> 2'; exit "${UPDATE_STATUS:-0}"''',
         'omarchy-menu-select': '''printf '%s\\n' "$@" >> "$TEST_ROOT/menus"
 read -r count < "$TEST_ROOT/count"
@@ -34,20 +37,22 @@ for option in "${@:2}"; do
 done
 exit 93''',
     }
-    for command in ('omarchy-launch-floating-terminal-with-presentation', 'omarchy-menu', 'omarchy-drive-game-library'):
+    for command in ('omarchy-launch-floating-terminal-with-presentation', 'omarchy-menu', 'omarchy-drive-game-library', 'omarchy-shell'):
         stubs[command] = 'printf "%s\\n" "${0##*/} $*" >> "$TEST_ROOT/actions"'
     for name, body in stubs.items():
         path = root / name
         path.write_text('#!/bin/bash\n' + body + '\n')
         path.chmod(0o755)
     input_state = json.dumps({'Name': 'SECRET', 'ProfilePath': '/private/SECRET', 'ProfileName': 'Omarchy Ally desktop', 'TargetDevices': ['/SECRET'], 'InterceptMode': 0})
+    power_state = json.dumps({'configured': True, 'source': 'battery', 'controls': {'tdp': {'available': True, 'value': 15, 'min': 5, 'max': 25}, 'charge': {'available': True, 'value': -1}, 'profile': {'available': True, 'value': 'SECRET'}}, 'conflicts': []})
     input_capabilities = json.dumps({'Capabilities': ['SECRET'], 'OutputCapabilities': ['SECRET'], 'SourceDevicePaths': ['/private/SECRET']})
-    env = dict(os.environ, PATH=f'{root}:{repo}/bin:' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(repo), TEST_ROOT=temp, INPUT_STATE=input_state, INPUT_CAPABILITIES=input_capabilities)
+    env = dict(os.environ, PATH=f'{root}:{repo}/bin:' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(repo), TEST_ROOT=temp, INPUT_STATE=input_state, INPUT_CAPABILITIES=input_capabilities, POWER_STATE=power_state)
 
     # A hang guard, not a performance assertion: real probes have cumulative
     # timeouts, and the nine-stream build host can be heavily scheduled.
     def run(command, *args, choices=('CANCEL',), **overrides):
         (root / 'input-calls').write_text('')
+        (root / 'power-calls').write_text('')
         (root / 'menus').write_text('')
         (root / 'actions').write_text('')
         (root / 'count').write_text('0\n')
@@ -136,11 +141,7 @@ exit 93''',
     assert result.returncode == 0 and not (root / 'actions').read_text(), result
     print('PASS optional Decky install, explicit activation and cancellation stay separate')
     for choice, command in (
-        ('Enable reviewed input', 'omarchy-setup-rog-ally-input --enable'),
         ('Disable input integration', 'omarchy-setup-rog-ally-input --disable'),
-        ('Desktop pointer profile', 'omarchy-hw-rog-ally-input desktop'),
-        ('Xbox gamepad profile', 'omarchy-hw-rog-ally-input gamepad'),
-        ('DualSense profile', 'omarchy-hw-rog-ally-input dualsense'),
     ):
         result = run('omarchy-setup-rog-ally', choices=('Controller input', choice), INPUT_TOOLS='1')
         assert result.returncode == 0 and (root / 'actions').read_text() == f'omarchy-launch-floating-terminal-with-presentation {command}\n', result
@@ -152,4 +153,48 @@ exit 93''',
     for overrides in ({'INPUT_ERROR': '1'}, {'INPUT_STATE': 'invalid SECRET', 'INPUT_CAPABILITIES': 'invalid SECRET'}):
         result = run('omarchy-hw-rog-ally-status', INPUT_TOOLS='1', BUS='b true', **overrides)
         assert result.returncode == 0 and 'missing, ambiguous or unreadable' in result.stdout and 'SECRET' not in result.stdout, result
-    print('PASS delivered input setup/profile verbs and redacted composite/capability readiness')
+    assert 'Enable reviewed input' not in (root / 'menus').read_text()
+    assert 'activation offered' in result.stdout
+    print('PASS held input retains disable/readiness without exposing activation or private paths')
+    for choice, expected in (
+        ('Roll back power backend', 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-power --rollback\n'),
+        ('Desktop power panel', 'omarchy-shell shell toggle omarchy.power\n'),
+    ):
+        result = run('omarchy-setup-rog-ally', choices=('Power setup', choice), POWER_TOOLS='1')
+        assert result.returncode == 0 and (root / 'actions').read_text() == expected, result
+        assert 'Configure reviewed power backend' not in (root / 'menus').read_text()
+    result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b true')
+    assert result.returncode == 0 and '15 W; selectable 5..25' in result.stdout and 'firmware default' in result.stdout, result
+    assert 'SECRET' not in result.stdout and 'Power activation review' in result.stdout
+    payload = json.loads(power_state)
+    payload['controls']['tdp'] = {'available': False, 'reason': 'SECRET missing asus-armoury'}
+    result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b true', POWER_STATE=json.dumps(payload))
+    assert 'Power tdp\tunavailable from backend' in result.stdout and '15 W' not in result.stdout and 'SECRET' not in result.stdout
+    payload['conflicts'] = ['SECRET']
+    result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b true', POWER_STATE=json.dumps(payload))
+    assert 'blocked by competing owner' in result.stdout and 'SECRET' not in result.stdout
+    payload['conflicts'] = []
+    payload['error'] = 'SECRET stale values'
+    result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b true', POWER_STATE=json.dumps(payload))
+    assert 'values not used' in result.stdout and '15 W' not in result.stdout and 'SECRET' not in result.stdout
+    result = run('omarchy-hw-rog-ally-status', POWER_TOOLS='1', BUS='b false')
+    assert result.returncode == 0 and not (root / 'power-calls').read_text()
+    print('PASS held power reports actual controls/default charge, rejects stale/conflicting values and never autoactivates')
+    for steps, args in (
+        (('Session status',), 'status'),
+        (('Default gaming',), 'default gaming'),
+        (('Default desktop',), 'default desktop'),
+        (('Default last session',), 'default last'),
+        (('Next login gaming',), 'next gaming'),
+        (('Next login desktop',), 'next desktop'),
+        (('Clear next login override',), 'next clear'),
+        (('Render settings', '720p', '40', 'fsr'), 'display 720p 40 fsr'),
+        (('Gaming overlay', 'Enable gaming overlay'), 'overlay on'),
+        (('Reset session preferences', 'Reset session settings'), 'reset'),
+    ):
+        result = run('omarchy-setup-rog-ally', choices=('Gaming session', *steps), SESSION_TOOLS='1')
+        assert result.returncode == 0 and (root / 'actions').read_text() == f'omarchy-launch-floating-terminal-with-presentation omarchy-setup-gaming-session {args}\n', result
+    for steps in (('Reset session preferences', 'Back', 'Close'), ('Launch gaming session', 'Back', 'Close')):
+        result = run('omarchy-setup-rog-ally', choices=('Gaming session', *steps), SESSION_TOOLS='1')
+        assert result.returncode == 0 and not (root / 'actions').read_text(), result
+    print('PASS delivered session preferences/render/overlay dispatch and cancelled reset/logout guards')
