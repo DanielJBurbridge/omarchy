@@ -1,0 +1,5 @@
+# Reuse the same RC71L boundary as setup; do not grant every keyboard access
+# for KEY_F16 or copy other handhelds' scancode remaps from upstream's hwdb.
+ACTION=="remove", GOTO="omarchy_rog_ally_power_button_end"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{OMARCHY_POWER_BUTTON}=="1", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{STEAMOS_POWER_BUTTON}="1", TAG+="uaccess"
+LABEL="omarchy_rog_ally_power_button_end"

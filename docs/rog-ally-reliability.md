@@ -18,6 +18,38 @@ o.rebind("XF86PowerOff", "Power menu", { menu = "system" }, { locked = true })
 
 The rollout owner backs up that file before editing it and reloads Hyprland after the override. Removing that override restores the packaged policy. Leave the logind ignore setting and ordinary sleep-lock service intact.
 
+## Gaming power button (R01, R02)
+
+Use the maintained [Valve powerbuttond v4.2](https://gitlab.steamos.cloud/holo/powerbuttond/-/tree/v4.2), commit `9392e68883fdb0c40bc01ab39ae75c83a541e413`, under BSD-2-Clause. [CachyOS currently packages 4.2-1](https://packages.cachyos.org/package/cachyos/x86_64/steamos-powerbuttond). The upstream daemon reads input events and forwards Steam's short/long power-press URIs; Steam decides the gaming action. The unmodified daemon blocks waiting for input and does not poll hardware or suspend the system itself. No archived ShadowBlip power daemon is used.
+
+The reviewed companion recipe is `packaging/rog-ally-powerbutton/PKGBUILD`. It builds the pinned upstream source and installs only these files:
+
+| Installed path | Purpose |
+| --- | --- |
+| `/usr/bin/steamos-powerbuttond` | Unmodified upstream daemon |
+| `/usr/share/licenses/omarchy-rog-ally-powerbutton/LICENSE` | Upstream BSD notice |
+| `/usr/lib/udev/hwdb.d/70-omarchy-rog-ally-power-button.hwdb` | Mark KEY_POWER candidates using complete capability tokens |
+| `/usr/lib/udev/rules.d/70-omarchy-rog-ally-power-button.rules` | Grant active-seat access and enable discovery only when `/usr/bin/omarchy-hw-rog-ally` succeeds |
+
+It does not install upstream's global input access/scancode overrides or the `gamescope-session.service.wants` link. It conflicts with separately installed Steam power-button daemon packages; resolve an existing handler deliberately rather than enabling both. InputPlumber must leave the real power button to this owner; no KEY_POWER mapping to an additional suspend action. No input-group membership is required.
+
+Build in a disposable package directory as an ordinary user after reviewing the recipe and installing its build dependencies. The sole rollout owner installs the built main package with the usual reviewed local-package workflow (`sudo pacman -U /path/to/omarchy-rog-ally-powerbutton-4.2-1-x86_64.pkg.tar.zst`); no repository replacement is needed. Record the artifact hash and package version. After installing the coordinated Omarchy runtime helper and the companion, update/reload the udev database/rules and retrigger the existing input devices once so the active seat receives the access tag:
+
+```bash
+sudo systemd-hwdb update
+sudo udevadm control --reload
+sudo udevadm trigger --action=change --subsystem-match=input --sysname-match='event*'
+sudo udevadm settle
+```
+
+These commands are rollout instructions, not actions executed by this source worker. Check the physical power-button event's `STEAMOS_POWER_BUTTON=1` property and active-seat ACL afterwards. Do not chmod input devices or give all users access. The program check preserves the central model predicate, including the short `ROG Ally` product with an RC71L board; a laptop or Ally X must not receive this policy.
+
+SESSION calls `omarchy-launch-gaming-powerbutton` inside the Steam child wrapper after Gamescope supplies `DISPLAY`, with `XDG_CURRENT_DESKTOP=gamescope` and no `HYPRLAND_INSTANCE_SIGNATURE`. The helper runs the daemon in the foreground under the same exclusion lock used by the desktop button. SESSION owns its background PID, kill/wait on Steam exit and enclosing `omarchy-gamescope-$XDG_SESSION_ID.scope`. Neither this helper nor a global systemd unit starts on the desktop. If the optional companion is absent, SESSION must skip starting the helper and report button handling unavailable. If the daemon exits early, inspect device access and its journal/log instead of claiming a working button. Gamescope does not start UWSM or `graphical-session.target`; the desktop lock monitor starts with the returned desktop session.
+
+Gaming acceptance: after installing SESSION and this companion together, press briefly in Steam and in a real game, check exactly one requested action, resume into the same game, then hold briefly to inspect Steam's power menu. Keep this distinct from firmware's emergency power-off hold. Return to desktop and confirm no daemon remains in the gaming scope and the desktop lock-before-suspend path works. Repeat session entry/exit and Steam failure recovery; no orphan handler may remain. Suspend from Steam does not prove a trusted desktop-style gaming lock; record the gaming authentication/resume behaviour separately and preserve the ordinary authenticated desktop login and lock policy.
+
+Rollback: leave gaming through its normal return action, verify the session scope stopped the daemon, then remove the optional companion with `omarchy-pkg-drop omarchy-rog-ally-powerbutton`. Rebuild/reload the hwdb using the commands above. Old udev properties/tags may remain for already enumerated devices until replug or the next normal boot; do not treat a change event as proof every old seat ACL was removed. Sign out to release active-seat access, and check properties/ACLs after the next normal boot. Do not stop logind or restart the active desktop. Removing this package disables gaming button handling; use Steam's on-screen power menu while diagnosing. The desktop override described earlier independently restores its menu policy.
+
 ## Acceptance owned by the rollout thread
 
 Record the exact release commit, kernel, BIOS revision (no serial numbers), package versions and installed configuration/backups outside Git. Never publish Wi-Fi names, Bluetooth addresses or personal game/library details from diagnostic output.
@@ -29,7 +61,24 @@ Record the exact release commit, kernel, BIOS revision (no serial numbers), pack
 5. Compare speakers, headphone insert/remove, microphone capture, USB/HDMI and Bluetooth outputs before and after suspend. Select an output explicitly, keep a playing stream running, then unplug/replug and dock/undock. Check the chosen profile/route and recording still work, and the fallback returns to speakers when appropriate. Preserve user choices and WirePlumber state.
 6. Wi-Fi: confirm association and real traffic before and after resume, without a NetworkManager restart. Bluetooth: pair an external controller and headset using the existing panel, then check reconnect, audio and actual input after resume without restarting BlueZ. Never infer success from `Powered=true` or `Connected=true` alone.
 7. Controllers (I14–I16): test USB insertion/removal, Bluetooth disconnect/reconnect and suspend with both an external controller and the built-in controller. Check actual input, one virtual controller per intended device, stable player ordering, then a two-player game. Controller enumeration alone cannot establish local multiplayer or reconnect success.
-8. P16: compare the selected power backend's readback on battery, AC, AC unplugged during sleep and AC reattached during sleep. POWER owns restoration and AC/DC policy; RELIABILITY adds no competing sysfs writer. DISPLAY owns dock/display recovery; RECOVERY owns firmware status/update instructions. Do not flash firmware during this acceptance run.
+8. P16: compare the selected power backend's readback on battery, AC, AC unplugged during sleep and AC reattached during sleep. POWER owns the nonprivileged `omarchy-ally-power.service` listener for logind resume, UPower AC/DC events and Manager owner restart; it reapplies saved settings through SteamOS Manager's public session API. Check actual Manager readback and the listener's journal after each transition. Battery TDP is capped at 25 W and AC at 30 W, intersected with firmware capability; missing `asus-armoury` remains explicitly unavailable. RELIABILITY adds no competing sysfs writer or fallback power daemon. DISPLAY owns dock/display recovery; RECOVERY owns firmware status/update instructions. Do not flash firmware during this acceptance run.
+
+Useful read-only evidence for the rollout owner's private before/after logs:
+
+```bash
+uname -r
+pacman -Q linux-firmware alsa-ucm-conf pipewire wireplumber networkmanager bluez inputplumber omarchy-rog-ally-powerbutton
+wpctl status -n
+pactl --format=json list cards
+pactl --format=json list sinks
+pactl --format=json list sources
+pactl get-default-sink
+pactl get-default-source
+nmcli -f DEVICE,TYPE,STATE device status
+systemctl --user status omarchy-sleep-lock.service omarchy-ally-power.service
+```
+
+An absent package/unit is an explicit observation, not a reason to install a kernel or enable a second power owner. In the actual active session, retain the audio node names, active card profiles, available ports and default sink/source across each transition. Bluetooth node names and NetworkManager output may identify private devices; do not publish the raw logs. Check real traffic against an endpoint that worked before suspend, and record game/headset/controller operation separately. Capture only the relevant journal interval with `journalctl -b --since '<baseline time>' -u NetworkManager -u bluetooth` and the corresponding kernel and user-service interval when a failure is reproduced.
 
 ## Audio and reconnect evidence (R02, R04–R10, D07)
 
