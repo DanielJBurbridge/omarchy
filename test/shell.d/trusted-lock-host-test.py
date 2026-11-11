@@ -336,7 +336,7 @@ class HostProcessTests(unittest.TestCase):
         (base / "shell" / module).symlink_to(ROOT / "shell" / module)
       shutil.copy(ROOT / "test/shell.d/fixtures/trusted-lock-host/recovery.qml", base / "shell/lock-host.qml")
       helper = base / "bin/omarchy-lock-host"
-      helper.write_text('#!/bin/bash\n[[ $1 == "stranded" ]] || exit 2\necho probe >>"$OMARCHY_AUTH_PROBE_FILE.calls"\nexit "$(<"$OMARCHY_AUTH_PROBE_FILE")"\n')
+      helper.write_text('#!/bin/bash\n[[ $1 == "stranded" ]] || exit 2\necho probe >>"$OMARCHY_AUTH_PROBE_FILE.calls"\nresult=$(<"$OMARCHY_AUTH_PROBE_FILE")\nif [[ $result == "SIGHUP" ]]; then kill -HUP "$$"; fi\nexit "$result"\n')
       helper.chmod(0o755)
       helper = base / "bin/fprintd-list"
       helper.write_text('#!/bin/bash\necho no\n')
@@ -374,6 +374,12 @@ class HostProcessTests(unittest.TestCase):
             control.request("lock")  # Unknown/competing proof cannot claim success.
           await_log("RECOVERY_REARMED")
           await_log("RECOVERY_SECOND_EXHAUSTED")
+          status.write_text("SIGHUP\n")
+          with self.assertRaises(ValueError):
+            control.request("lock")
+          await_log("RECOVERY_CRASH_REARMED")
+          await_log("RECOVERY_CRASH_EXHAUSTED")
+          self.assertIn("ORPHAN_PROBE_EXIT code=1 status=1", log.read_text())
           status.write_text("1\n")  # Probe now proves compositor unlocked.
           try:
             control.request("lock")
@@ -381,6 +387,8 @@ class HostProcessTests(unittest.TestCase):
             pass  # Immediate acknowledgement may precede the asynchronous proof.
           await_log("EXPLICIT_LOCK_RECOVERY_PASS")
           process.wait(timeout=3)
+          self.assertIn("ORPHAN_PROBE_EXIT code=1 status=0", log.read_text())
+          print(log.read_text(), end="")
       finally:
         if process.poll() is None:
           process.terminate()  # Offscreen only: never acquired a compositor lock.

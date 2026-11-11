@@ -27,18 +27,30 @@ fi
 # that reports the lock secure or in progress is worth preserving.
 relock=0
 host_owned=0
+if omarchy-hyprland-session-locked; then
+  compositor_state=0
+else
+  compositor_state=$?
+fi
+case $compositor_state in
+  0 | 1) ;; # Proven locked or unlocked; every other result is unknown.
+  *)
+    echo "Refusing desktop restart: compositor lock state is unknown." >&2
+    exit 1
+    ;;
+esac
 if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && [[ $("$session_omarchy_path/bin/omarchy-lock-host" mode 2>/dev/null) == "host" ]]; then
   host_state=$("$session_omarchy_path/bin/omarchy-lock-host" status 2>/dev/null) || host_state=
   if [[ $(jq -r '.owner == "trusted-host"' <<<"$host_state" 2>/dev/null) == "true" ]]; then
     host_owned=1
-  elif omarchy-hyprland-session-locked; then
+  elif (( compositor_state == 0 )); then
     echo "Refusing desktop restart while the trusted lock owner cannot be validated." >&2
     exit 1
   fi
 fi
 # A trusted auth host has a distinct config and service lifetime. Restart only
 # the plugin-bearing desktop; never kill/relock its independent active owner.
-if (( !host_owned )) && omarchy-hyprland-session-locked; then
+if (( !host_owned && compositor_state == 0 )); then
   # A failed lock query in an unsupported TTY/stale context must not be
   # mistaken for a dead owner and authorise killing an active lock client.
   OMARCHY_PATH="$session_omarchy_path" "$session_omarchy_path/bin/omarchy-lock-host" context >/dev/null 2>&1 || {

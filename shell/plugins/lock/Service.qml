@@ -787,10 +787,11 @@ Item {
     command: root.trustedHost
       ? ["bash", "-c", "omarchy-lock-host stranded \"$PPID\""]
       : ["bash", "-c", "omarchy-hyprland-session-lock-stranded \"$PPID\""]
-    onExited: function(exitCode) {
+    onExited: function(exitCode, exitStatus) {
       // Only a definitive locked/unlocked proof resolves readiness. Unknown,
       // failed exec or a killed probe must never mean an unlocked compositor.
-      if (exitCode !== 0 && exitCode !== 1) return
+      // The installed Process API uses QProcess::ExitStatus (NormalExit=0).
+      if (exitStatus !== 0 || (exitCode !== 0 && exitCode !== 1)) return
 
       root.strandedLockResolved = true
 
