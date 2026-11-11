@@ -198,3 +198,25 @@ with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, XDG_STATE_HOME
         check('TERM during ' + phase + ' removes override', not (power.state_dir() / 'game.json').exists())
         check('TERM during ' + phase + ' restores signal handler', signal.getsignal(signal.SIGTERM) == previous_term)
 PY
+
+# The rejected Manager package must never reach takeover, even when installed.
+setup_tmp=$(mktemp -d)
+trap 'rm -rf "$setup_tmp"' EXIT
+mkdir -p "$setup_tmp/bin" "$setup_tmp/home"
+printf '#!/bin/bash\nexit 0\n' >"$setup_tmp/bin/omarchy-hw-rog-ally"
+for command in pacman sudo systemctl busctl omarchy-power-ally; do
+  cat >"$setup_tmp/bin/$command" <<'SH'
+#!/bin/bash
+printf '%s\n' "$0 $*" >>"$SETUP_CALLS"
+if [[ ${0##*/} == "pacman" ]]; then echo 'steamos-manager 26.4.1-3'; else exit 97; fi
+SH
+done
+chmod +x "$setup_tmp/bin/"*
+if HOME="$setup_tmp/home" XDG_STATE_HOME="$setup_tmp/home/state" XDG_CONFIG_HOME="$setup_tmp/home/config" \
+  SETUP_CALLS="$setup_tmp/calls" PATH="$setup_tmp/bin:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-power" --configure-reviewed-package >"$setup_tmp/output" 2>&1; then
+  fail "power setup refuses the rejected Manager package"
+fi
+[[ ! -s $setup_tmp/calls && ! -e $setup_tmp/home/state && ! -e $setup_tmp/home/config ]] ||
+  fail "power setup hold precedes package, service and state work" "$(cat "$setup_tmp/calls" 2>/dev/null)"
+pass "power setup rejects takeover before package queries, service changes or state writes"
