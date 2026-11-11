@@ -43,7 +43,7 @@ while true; do
   options=("$play" "$(row '󰍹' "$(omarchy-i18n gaming.desktopMode)" "$(omarchy-i18n gaming.preserveDownloads)")")
   if omarchy-cmd-present omarchy-toggle-desktop-keyboard && omarchy-cmd-present wvkbd-mobintl; then
     options+=("$(row '' "$(omarchy-i18n gaming.desktopKeyboard)" "$(omarchy-i18n gaming.keyboardToggle)")")
-  elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-asus-rog && omarchy-hw-match 'ROG Ally.*RC71L'; then
+  elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-rog-ally; then
     options+=("$(row '' "$(omarchy-i18n gaming.installKeyboard)" "$(omarchy-i18n gaming.keyboardAur)")")
   fi
   options+=("$(row '󰋖' "$(omarchy-i18n gaming.help)" "$(omarchy-i18n gaming.helpTopics)")" "$(row '󰅖' "$(omarchy-i18n gaming.close)" "$(omarchy-i18n gaming.closeHelp)")")
