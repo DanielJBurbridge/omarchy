@@ -72,6 +72,93 @@ class BridgeTests(unittest.TestCase):
         self.bridge.event("/dbus7", "omarchy_menu", 1)
         self.assertEqual(len(self.launched), 2)
 
+    def canonical_unavailable_snapshot(self):
+        self.transport.real_locked = True
+        monitor = module.LockMonitor.__new__(module.LockMonitor)
+        monitor.bridge = self.bridge
+        monitor.snapshot('{"locked": false}')
+        self.assertIs(self.bridge.locked, False)
+        self.assertFalse(self.bridge.allowed)
+        self.transport.real_locked = False
+
+    def test_owned_action_recovers_after_canonical_without_a_new_frame(self):
+        self.canonical_unavailable_snapshot()
+        self.assertEqual(self.transport.mode, "gamepad")
+        self.bridge.event("/dbus7", "omarchy_power", 1)
+        self.assertTrue(self.bridge.allowed)
+        self.assertIs(self.bridge.locked, False)
+        self.assertEqual(self.transport.mode, "desktop")
+        self.assertEqual(self.launched, [["omarchy-shell", "shell", "toggle", "omarchy.power"]])
+        original = list(self.transport.loads)
+        self.bridge.event("/dbus7", "omarchy_power", 1)
+        self.assertEqual(len(self.launched), 1, "duplicate press must stay suppressed after recovery")
+        self.assertEqual(self.transport.loads, original)
+        self.bridge.event("/dbus7", "omarchy_power", 0)
+        self.assertEqual(len(self.launched), 1, "release never launches an action")
+        self.bridge.event("/dbus7", "omarchy_power", 1)
+        self.assertEqual(len(self.launched), 2)
+
+    def test_recovery_boundary_cannot_take_another_input_owner(self):
+        self.canonical_unavailable_snapshot()
+        original = list(self.transport.loads)
+        properties = self.transport.properties
+        cases = [
+            ("external target", "/external", {}),
+            ("custom", "/dbus7", {"ProfileName": "Custom layout"}),
+            ("forged name", "/dbus7", {"ProfileName": "Omarchy Ally gamepad", "ProfilePath": "/tmp/custom.yaml"}),
+            ("unclaimed bootstrap", "/dbus7", {"ProfileName": "Default", "ProfilePath": module.DEFAULT_PROFILE}),
+            ("unowned", "/dbus7", {"ProfileName": None, "ProfilePath": None}),
+            *((f"intercept {mode}", "/dbus7", {"InterceptMode": mode}) for mode in (1, 2, 3)),
+        ]
+        for name, target, changed in cases:
+            with self.subTest(name=name):
+                self.transport.properties = lambda path: {**properties(path), **changed}
+                self.bridge.event(target, "omarchy_mode", 1)
+                self.bridge.event(target, "omarchy_power", 1)
+                self.assertEqual(self.launched, [])
+                self.assertEqual(self.transport.loads, original)
+                self.assertEqual(self.transport.intercepts, [])
+                self.assertFalse(self.bridge.allowed)
+
+    def test_recovery_boundary_requires_real_unlock_and_active_session(self):
+        self.canonical_unavailable_snapshot()
+        original = list(self.transport.loads)
+        for locked, active in ((True, True), (None, True), (False, False)):
+            with self.subTest(locked=locked, active=active):
+                self.bridge.locked = locked
+                self.transport.allowed = active
+                self.bridge.event("/dbus7", "omarchy_power", 1)
+                self.assertEqual(self.launched, [])
+                self.assertEqual(self.transport.loads, original)
+                self.assertFalse(self.bridge.allowed)
+        self.bridge.locked = False
+        self.transport.allowed = True
+        self.transport.desktop_unlocked = lambda: module.API.desktop_unlocked(self.transport)
+        completed = subprocess.CompletedProcess
+        for lock, compositor in (("true", 1), ("unknown", 1), ("false", 0), ("false", 2)):
+            with self.subTest(lock=lock, compositor=compositor):
+                with patch.object(module.subprocess, "run", side_effect=[
+                    completed([], 0, lock), completed([], compositor)
+                ]):
+                    self.bridge.event("/dbus7", "omarchy_power", 1)
+                self.assertEqual(self.launched, [])
+                self.assertEqual(self.transport.loads, original)
+                self.assertFalse(self.bridge.allowed)
+        for error in (OSError("canonical unavailable"), subprocess.TimeoutExpired("lock query", 3)):
+            with self.subTest(error=type(error).__name__):
+                with patch.object(module.subprocess, "run", side_effect=error):
+                    self.bridge.event("/dbus7", "omarchy_power", 1)
+                self.assertEqual(self.launched, [])
+                self.assertEqual(self.transport.loads, original)
+                self.assertFalse(self.bridge.allowed)
+        def failed_active(_session):
+            raise module.GLib.Error("logind unavailable")
+        self.transport.active = failed_active
+        self.bridge.event("/dbus7", "omarchy_power", 1)
+        self.assertFalse(self.bridge.allowed)
+        self.assertIs(self.bridge.locked, False, "backend errors must not invalidate the healthy lock stream")
+        self.assertEqual(self.launched, [])
+
     def test_mode_and_lock_transition(self):
         self.bridge.event("/dbus7", "omarchy_mode", 1)
         self.assertEqual(self.transport.mode, "gamepad")

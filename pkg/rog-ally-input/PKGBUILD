@@ -1,6 +1,6 @@
 # Build locally from a reviewed Omarchy checkout; no network sources or scriptlet.
 pkgname=omarchy-rog-ally-input
-pkgver=1.0.2
+pkgver=1.0.3
 pkgrel=1
 pkgdesc='Optional original ROG Ally RC71L InputPlumber profiles and session bridge'
 arch=('any')

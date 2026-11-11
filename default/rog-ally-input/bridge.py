@@ -185,9 +185,7 @@ class Bridge:
         self.devices = found
 
     def event(self, target, action, value):
-        # Recheck the real lock, including a signal still waiting in this loop.
-        if (not self.allowed or self.locked is not False
-                or not self.api.active(self.session) or not self.api.desktop_unlocked()):
+        if self.locked is not False:
             return
         owner = None
         for path in self.devices:
@@ -199,6 +197,21 @@ class Bridge:
         properties = self.properties(owner)
         if not owns_profile(properties):
             # An overlay owns interception until it restores normal delivery.
+            return
+        # A false frame can arrive before canonical lock/compositor readiness.
+        # Reconcile at the next owned action, even if that frame left allowed
+        # false. External/overlay events must never trigger profile restoration.
+        try:
+            self.refresh_session()
+        except GLib.Error as error:
+            self.allowed = False
+            self.pressed.clear()
+            print(f"Ally input state: {error}", file=sys.stderr, flush=True)
+            return
+        if not self.allowed:
+            return
+        properties = self.properties(owner)
+        if not owns_profile(properties):
             return
         key = (target, action)
         if value <= 0:
