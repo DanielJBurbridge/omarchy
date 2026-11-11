@@ -140,36 +140,45 @@ class Bridge:
         self.locked = None  # Actual lock producer has not supplied a snapshot.
         self.pressed = set()
 
+    def properties(self, path):
+        try:
+            return self.api.properties(path)
+        except GLib.Error:
+            # A composite can disappear between its removal signal and this
+            # callback. It owns no readable profile; keep the lock feed alive.
+            return {}
+
     def refresh_session(self):
         allowed = (self.locked is False and self.api.active(self.session)
                    and self.api.desktop_unlocked())
         if allowed != self.allowed:
             owned = {path for path in self.devices
-                     if owns_profile(self.api.properties(path))}
+                     if owns_profile(self.properties(path))}
             if self.allowed:
                 for path in owned:
-                    mode = current_mode(self.api.properties(path))
+                    mode = current_mode(self.properties(path))
                     if mode in MODES:
                         self.preferred = mode
             self.allowed = allowed
             self.pressed.clear()
             for path in owned:
                 # Recheck just before writing; an overlay may have taken over.
-                if owns_profile(self.api.properties(path)):
+                if owns_profile(self.properties(path)):
                     self.api.load(path, self.preferred if allowed else "gamepad")
         elif not allowed:
             # An overlay may release interception after the lock transition.
             # Reconcile only our desktop profile; never change its owner.
             for path in self.devices:
-                properties = self.api.properties(path)
+                properties = self.properties(path)
                 if owns_profile(properties) and current_mode(properties) == "desktop":
                     self.api.load(path, "gamepad")
 
     def discover(self):
-        self.refresh_session()
         found = set(self.api.devices())
+        self.devices.intersection_update(found)
+        self.refresh_session()
         for path in found - self.devices:
-            if owns_profile(self.api.properties(path), bootstrap=True):
+            if owns_profile(self.properties(path), bootstrap=True):
                 self.api.load(path, self.preferred if self.allowed else "gamepad")
             # Discovery never clears interception or replaces an overlay's
             # custom profile. Claim only our own profile or upstream bootstrap.
@@ -182,12 +191,12 @@ class Bridge:
             return
         owner = None
         for path in self.devices:
-            if target in self.api.properties(path).get("DbusDevices", []):
+            if target in self.properties(path).get("DbusDevices", []):
                 owner = path
                 break
         if owner is None:
             return
-        properties = self.api.properties(owner)
+        properties = self.properties(owner)
         if not owns_profile(properties):
             # An overlay owns interception until it restores normal delivery.
             return
@@ -213,7 +222,7 @@ class Bridge:
         # Do not overwrite a profile subsequently selected by another owner.
         for path in self.devices:
             try:
-                properties = self.api.properties(path)
+                properties = self.properties(path)
                 if owns_profile(properties) and current_mode(properties) == "desktop":
                     self.api.load(path, "gamepad")
             except GLib.Error as error:
@@ -272,7 +281,13 @@ class LockMonitor:
         if type(locked) is not bool:
             raise ValueError("invalid lock-state snapshot")
         self.bridge.locked = locked
-        self.bridge.refresh_session()
+        try:
+            self.bridge.refresh_session()
+        except GLib.Error as error:
+            # Backend/logind failures do not invalidate the producer's frame.
+            # Keep reading its state, but deny actions until reconciliation.
+            self.bridge.allowed = False
+            print(f"Ally input state: {error}", file=sys.stderr, flush=True)
 
     def read(self, stream, result):
         try:

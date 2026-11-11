@@ -144,6 +144,35 @@ class BridgeTests(unittest.TestCase):
                 self.assertEqual(self.transport.loads, original)
                 self.assertEqual(self.transport.intercepts, [])
 
+    def test_vanished_composite_does_not_break_lock_or_rediscovery(self):
+        properties = self.transport.properties
+        def existing(path):
+            if path not in self.transport.found:
+                raise module.GLib.Error("UnknownObject")
+            return properties(path)
+        self.transport.properties = existing
+        self.transport.found = []
+        self.bridge.locked = True
+        self.bridge.refresh_session()
+        self.bridge.discover()
+        self.assertEqual(self.bridge.devices, set())
+        self.transport.found = ["/CompositeDevice9"]
+        self.bridge.discover()
+        self.bridge.locked = False
+        self.bridge.refresh_session()
+        self.assertTrue(self.bridge.allowed)
+        self.assertEqual(self.transport.loads[-1], ("/CompositeDevice9", "desktop"))
+
+    def test_backend_failure_does_not_invalidate_a_real_lock_snapshot(self):
+        def failed_load(*_):
+            raise module.GLib.Error("UnknownObject during profile change")
+        self.transport.load = failed_load
+        monitor = module.LockMonitor.__new__(module.LockMonitor)
+        monitor.bridge = self.bridge
+        monitor.snapshot('{"locked": true}')
+        self.assertIs(self.bridge.locked, True)
+        self.assertFalse(self.bridge.allowed)
+
     def test_discovery_claims_only_our_paths_or_upstream_bootstrap(self):
         for name, path in (("Custom layout", "/tmp/custom.yaml"),
                            ("Omarchy Ally desktop", "/tmp/imitation.yaml")):

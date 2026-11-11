@@ -25,9 +25,9 @@ cd pkg/rog-ally-input
 sudo systemctl mask --runtime inputplumber.service
 omarchy-pkg-add inputplumber
 makepkg --cleanbuild
-pacman -Qip omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
-bsdtar -tf omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
-sudo pacman -U ./omarchy-rog-ally-input-1.0.1-1-any.pkg.tar.zst
+pacman -Qip omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
+bsdtar -tf omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
+sudo pacman -U ./omarchy-rog-ally-input-1.0.2-1-any.pkg.tar.zst
 sudo systemctl daemon-reload
 sudo systemctl unmask --runtime inputplumber.service
 omarchy-setup-rog-ally-input --enable
