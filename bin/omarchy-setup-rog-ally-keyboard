@@ -16,6 +16,8 @@ Install-reviewed-aur installs wvkbd from AUR if it is missing
 Review the current AUR PKGBUILD before running: it builds third-party source.
 This flag confirms the AUR installation choice, not a pinned package version.
 Does not start the keyboard, change input permissions or enable a service.
+Adds a visible Keyboard button to the bar when the Omarchy shell is running.
+Super+Ctrl+Y toggles it after Hyprland reload or next login.
 HELP
     exit 0
     ;;
@@ -57,4 +59,13 @@ else
   install -m 644 "$OMARCHY_PATH/default/omarchy/applications/Desktop Keyboard.desktop" "$launcher"
   update-desktop-database "$apps"
 fi
-echo 'Desktop Keyboard is available in the app launcher. Tap it to show or hide.'
+# Keep user placement and all unrelated bar settings. No shell restart or
+# offline config rewrite: a stopped shell can place the widget at next setup.
+if omarchy-shell -q shell ping >/dev/null 2>&1; then
+  omarchy-shell shell rescanPlugins >/dev/null
+  omarchy-bar put omarchy.desktop-keyboard --section right
+else
+  echo 'Bar is not running; rerun this setup in the desktop to add its Keyboard button.'
+fi
+echo 'Desktop Keyboard is available in Apps. Tap Keyboard in the bar to show or hide.'
+echo 'Super+Ctrl+Y becomes available after Hyprland reload or next login.'

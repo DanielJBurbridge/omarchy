@@ -11,15 +11,19 @@ Usage: omarchy-toggle-desktop-keyboard [toggle|show|hide|stop]
 
 Show a bottom overlay keyboard without resizing desktop windows.
 Toggle is the default; show/hide are idempotent. Stop releases the process.
-Requires optional wvkbd 0.21 or newer and a Wayland desktop session.
+Requires optional wvkbd 0.21 or newer and a Hyprland desktop session.
 Install it through the optional ROG Ally keyboard setup after reviewing AUR.
 No automatic startup, input-device permissions or system service is needed.
 
-Open Desktop Keyboard from Apps; there is no swipe-up gesture or automatic
+Tap Desktop Keyboard in the bar or open it from Apps. On a configured RC71L,
+Super+Ctrl+Y also toggles it. There is no swipe-up gesture or automatic
 text-field activation. Tap the bottom-left keyboard symbol to change layouts:
 full has Ctrl/Esc/arrows; special has Alt, Sup (Super) and AltGr. Abc returns
 to letters. The keyboard symbol changes layouts; it does not hide the keyboard.
-Open Desktop Keyboard again to toggle visibility, or run this command with hide.
+Cmp plus a letter opens accents; Cmp plus Space opens the layout index.
+Modifiers are one-shot; the keyboard uses its own layouts, not the physical
+keyboard's layout setting. Tap the bar button again to hide, or use hide.
+Steam owns its keyboard in Gaming Mode; this command never starts Steam.
 HELP
     exit 0
     ;;
@@ -29,6 +33,11 @@ esac
 (( $# <= 1 )) || { echo 'Too many arguments; use --help.' >&2; exit 2; }
 
 fail() { echo "Desktop keyboard: $*" >&2; exit 1; }
+if [[ $action == "show" || $action == "toggle" ]]; then
+  desktop=${XDG_CURRENT_DESKTOP:-}
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && ${desktop,,} != *gamescope* ]] ||
+    fail 'show it in the Hyprland desktop; use the Steam keyboard in Gaming Mode.'
+fi
 [[ -n ${WAYLAND_DISPLAY:-} && -n ${XDG_RUNTIME_DIR:-} ]] || fail 'run inside your Wayland desktop session.'
 [[ -d $XDG_RUNTIME_DIR && -O $XDG_RUNTIME_DIR ]] || fail 'runtime directory is not owned by this user.'
 # Separate state for independent Wayland sessions; never signal by process name.
@@ -83,9 +92,10 @@ else
   # Refuse older builds rather than starting an unexpectedly exclusive surface.
   flags=$("$binary" --help 2>&1) || fail 'cannot read wvkbd options.'
   [[ $flags == *--non-exclusive* && $flags == *--wayland-layer* ]] || fail 'wvkbd 0.21 or newer is required.'
-  # These dimensions are logical surface units: at scale 2, 180 becomes 360px.
+  # Six rows in full: 44 logical units per row, before upstream key borders.
+  # At scale 2, 264 becomes 528px; no global display or physical keymap change.
   # Both orientations are explicit. No auto input-method or focus stealing.
-  nohup "$binary" -H 180 -L 180 --non-exclusive --wayland-layer overlay \
+  nohup "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
     -l full,special --landscape-layers full,special \
     --no-popup >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
