@@ -296,3 +296,21 @@ run_gaming_invitation guided 1
 [[ $(<"$pkg_log") == *"--exec omarchy-setup-gaming" ]] ||
   fail "the Ally invitation uses Gaming Setup when available"
 pass "first-login invitation is hardware-gated, once-only and independently usable"
+
+# The keyboard setup must accept the same board-only identity as hardware setup.
+# Stop at the missing reviewed package so this never installs or configures it.
+cat >"$stub/pacman" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$stub/pacman"
+write_dmi "$vendor" "ROG Ally" "RC71L"
+if note=$(OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  HOME="$home" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+  fail "keyboard setup stops before configuring a missing reviewed package"
+fi
+[[ $note == *"Install the reviewed wvkbd"* ]] || fail "keyboard setup accepts the short Ally product with RC71L board" "$note"
+pass "keyboard setup accepts the short Ally product with RC71L board"

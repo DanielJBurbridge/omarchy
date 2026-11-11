@@ -23,7 +23,7 @@ HELP
   *) echo 'Review the AUR package first; use --help.' >&2; exit 2 ;;
 esac
 (( $# == 1 )) || exit 2
-if ! omarchy-hw-asus-rog || ! omarchy-hw-match 'ROG Ally.*RC71L'; then
+if ! omarchy-hw-rog-ally; then
   echo 'This optional setup is for ASUS ROG Ally RC71L.' >&2
   exit 1
 fi
