@@ -63,7 +63,7 @@ Item {
   ShellIpc {
     target: "lock"
     function lock(): string { if (!requestProcess.running) requestProcess.running = true; return "pending" }
-    function isLocked(): string { return root.state.locked ? "true" : "false" }
+    function isLocked(): string { return root.state.ready === true && root.state.locked === false ? "false" : "true" }
     function status(): string { return JSON.stringify(root.state) }
   }
 }

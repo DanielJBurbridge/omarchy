@@ -42,8 +42,11 @@ fi
 
 # The opted-in authentication owner survives desktop-shell crashes/restarts.
 # Read selection only: status must never initialise a mode or start the host.
-if [[ $1 == "lock" && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
-  lock_mode=$("$OMARCHY_PATH/bin/omarchy-lock-host" mode 2>/dev/null || true)
+if [[ $1 == "lock" ]]; then
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] ||
+    fail "Lock IPC requires the current graphical session signature and Wayland display"
+  lock_mode=$("$OMARCHY_PATH/bin/omarchy-lock-host" context 2>/dev/null) ||
+    fail "Lock IPC cannot validate this graphical session context"
   if [[ $lock_mode == "host" ]]; then
     if (( $# == 2 )) && [[ $2 == "lock" || $2 == "status" || $2 == "isLocked" ]]; then
       if result=$("$OMARCHY_PATH/bin/omarchy-lock-host" "$2"); then

@@ -63,6 +63,7 @@ Item {
   readonly property bool videoBackground: Util.isVideoPath(backgroundPath)
   property bool strandedLock: false
   property bool strandedLockResolved: false
+  property bool pendingHostLockRequest: false
   readonly property bool ownerReady: passwordPamConfigured && strandedLockResolved
   onOwnerReadyChanged: publishState()
 
@@ -141,6 +142,19 @@ Item {
     strandedLock = false
     logEvent("lock-stranded: recovering")
     beginLock()
+  }
+
+  function requestHostLock() {
+    if (currentlyLocked()) { noteSleepRequested(); return }
+    if (ownerReady) { beginLock(); return }
+    pendingHostLockRequest = true
+    // Only a new explicit lock request re-arms an exhausted startup budget.
+    // Requests during the same check do not extend it. Unknown/other lockers
+    // remain conservative; no lock surface starts until the proofs resolve.
+    if (passwordPamConfigured && !strandedLockRetryTimer.running && !strandedLockCheckProc.running) {
+      strandedLockRetryTimer.rearm()
+      checkStrandedLock()
+    }
   }
 
   function refreshBackground() {
@@ -224,6 +238,7 @@ Item {
       return false
     }
 
+    pendingHostLockRequest = false
     resetAuthenticationState()
     lockRequested = true
     armBlankTimer()
@@ -490,12 +505,7 @@ Item {
     id: controlSocket
     active: root.trustedHost
     readStatus: function() { return root.snapshot() }
-    onLockRequested: {
-      if (root.passwordPamConfigured && root.strandedLockResolved) {
-        if (root.currentlyLocked()) root.noteSleepRequested()
-        else root.beginLock()
-      }
-    }
+    onLockRequested: root.requestHostLock()
     onListening: readyFile.setText(JSON.stringify({pid: Quickshell.processId, started: Date.now()}) + "\n")
   }
   FileView {
@@ -778,14 +788,18 @@ Item {
       ? ["bash", "-c", "omarchy-lock-host stranded \"$PPID\""]
       : ["bash", "-c", "omarchy-hyprland-session-lock-stranded \"$PPID\""]
     onExited: function(exitCode) {
-      // No output to read the lock off yet.
-      if (exitCode === 2) return
+      // Only a definitive locked/unlocked proof resolves readiness. Unknown,
+      // failed exec or a killed probe must never mean an unlocked compositor.
+      if (exitCode !== 0 && exitCode !== 1) return
 
       root.strandedLockResolved = true
 
       // A lock taken while this was in flight is this shell's own.
       root.strandedLock = exitCode === 0 && !root.currentlyLocked()
       root.recoverStrandedLock()
+      // Dispatch pending explicit intent only from a completed fresh proof,
+      // never from a transient readiness binding during PAM config reload.
+      if (root.trustedHost && root.pendingHostLockRequest && root.ownerReady && !root.currentlyLocked()) root.beginLock()
     }
   }
 

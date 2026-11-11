@@ -24,7 +24,20 @@ dispatch_log="$test_tmp/dispatch.log"
 ipc_log="$test_tmp/ipc.log"
 runtime_dir="$test_tmp/runtime"
 mkdir -p "$restart_root/shell" "$restart_bin" "$runtime_dir" "$restart_root/default/lock-host"
-cp "$ROOT/bin/omarchy-lock-host" "$restart_bin/"
+chmod 700 "$runtime_dir"
+# This fixture tests restart policy; native context identity is covered by
+# trusted-lock-host-test, rather than pretending these sleep/qs stubs are Qt.
+export HYPRLAND_INSTANCE_SIGNATURE=restart-fixture WAYLAND_DISPLAY=wayland-fixture
+cat >"$restart_bin/omarchy-lock-host" <<'SH'
+#!/bin/bash
+if [[ $1 == "context" ]]; then
+  [[ ${OMARCHY_TEST_CONTEXT_VALID:-1} == "1" ]] || exit 1
+  echo shell
+else
+  exec /usr/bin/python3 -I "$OMARCHY_PATH/default/lock-host/control.py" "$@"
+fi
+SH
+chmod +x "$restart_bin/omarchy-lock-host"
 cp "$ROOT/default/lock-host/control.py" "$restart_root/default/lock-host/"
 touch "$restart_root/shell/shell.qml"
 ln -s "$ROOT/bin/omarchy-shell" "$restart_bin/omarchy-shell"
@@ -230,6 +243,14 @@ locked_error=$(PATH="$restart_bin:$PATH" \
 [[ ! -s $restart_log ]] || fail "locked restart does not stop or launch Quickshell"
 pass "restart preserves the shell while its lock is active"
 
+locked_error=$(PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
+  OMARCHY_TEST_CONTEXT_VALID=0 OMARCHY_TEST_SESSION_LOCKED=1 OMARCHY_TEST_QS_STATE="$restart_state" \
+  OMARCHY_TEST_QS_LOG="$restart_log" OMARCHY_TEST_SESSION_PATH="$restart_root" \
+  "$ROOT/bin/omarchy-restart-shell" 2>&1) && fail "unsupported lock context must refuse restart"
+[[ $locked_error == "Refusing locked desktop restart without a validated graphical session context." ]] || fail "unsupported lock context is not mistaken for orphan recovery" "$locked_error"
+[[ ! -s $restart_log ]] || fail "unsupported lock context must not kill an active owner"
+pass "unsupported lock context refuses restart before killing any lock client"
+
 # A LOCK session without an active locker — dead shell or a crash-handler
 # relaunch holding no lock — is the failsafe: restart must proceed,
 # re-acquire the session lock, and wait for it to report secure.
@@ -338,7 +359,7 @@ pass "restart stops a worktree's shell and leaves other Quickshell configs alone
 cat >"$restart_bin/omarchy-lock-host" <<'SH'
 #!/bin/bash
 case $1 in
-  mode) echo host ;;
+  mode|context) echo host ;;
   status)
     [[ ${OMARCHY_TEST_HOST_VALID:-0} == "1" ]] || exit 1
     echo '{"protocol":1,"owner":"trusted-host","ready":true,"locked":true,"requested":true,"secure":true}' ;;
