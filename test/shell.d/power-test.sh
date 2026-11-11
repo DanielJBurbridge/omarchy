@@ -49,6 +49,7 @@ JS
 ROOT="$ROOT" python3 -B <<'PY'
 import importlib.util
 import os
+import signal
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -146,4 +147,54 @@ with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, XDG_STATE_HOME
             raise AssertionError('missing game must fail')
     check('failed game launch restores current source profile', backend.values['PerformanceProfile'] == 'quiet')
     check('failed game launch removes its override', not (power.state_dir() / 'game.json').exists())
+    # Explicit target source is distinct from the currently connected source.
+    backend.battery = False
+    power.remember(backend, 'profile', 'balanced', 'ac')
+    power.remember(backend, 'profile', 'quiet', 'battery')
+    policy = power.load('preferences.json')
+    check('plugged-in battery preference does not overwrite AC', policy['ac']['profile'] == 'balanced' and policy['battery']['profile'] == 'quiet')
+    backend.battery = True
+    power.remember(backend, 'profile', 'performance', 'ac')
+    check('unplugged AC preference does not overwrite battery', power.load('preferences.json')['battery']['profile'] == 'quiet')
+    count = len(backend.writes)
+    check('invalid source rejected before mutation', rejects(lambda: power.remember(backend, 'profile', 'balanced', 'invalid')))
+    check('invalid source never reaches setter', len(backend.writes) == count)
+    # Profile-only policy must bound the watts that performance mode exposes.
+    power.save('preferences.json', {'ac': {'profile': 'performance'}, 'battery': {'profile': 'performance'}})
+    backend.battery = False
+    backend.values['TdpLimit'] = 30
+    power.restore(backend)
+    backend.battery = True
+    result = power.restore(backend)
+    check('profile-only AC to battery restore bounds existing 30W to 25W', result['controls']['tdp']['value'] == 25)
+    backend.battery = False
+    backend.values['TdpLimit'] = 35
+    power.write_control(backend, 'profile', 'performance')
+    check('performance selection also bounds current AC watts', backend.values['TdpLimit'] == 30)
+    backend.battery = True
+    backend.values['TdpLimit'] = 30
+    backend.clamp = True
+    check('failed profile safety write is explicitly reported', rejects(lambda: power.write_control(backend, 'profile', 'performance')))
+    backend.clamp = False
+    # Deliver a real TERM during startup mutations, before a child exists.
+    power.save('preferences.json', {'battery': {'profile': 'quiet'}})
+    for phase in ('setter', 'launch'):
+        backend.values['PerformanceProfile'] = 'quiet'
+        backend.values['TdpLimit'] = 12
+        actual_set = backend.set
+        signalled = []
+        def terminate_set(suffix, prop, signature, value):
+            actual_set(suffix, prop, signature, value)
+            if prop == 'PerformanceProfile' and value == 'performance' and not signalled:
+                signalled.append(True)
+                os.kill(os.getpid(), signal.SIGTERM)
+        def terminate_launch(*args, **kwargs):
+            os.kill(os.getpid(), signal.SIGTERM)
+            raise FileNotFoundError('missing game')
+        previous_term = signal.getsignal(signal.SIGTERM)
+        with patch.object(backend, 'set', side_effect=terminate_set if phase == 'setter' else actual_set), patch.object(power.subprocess, 'Popen', side_effect=terminate_launch):
+            check('TERM during startup ' + phase + ' is handled', rejects(lambda: power.run_game(backend, '15', ['/missing-game'])))
+        check('TERM during ' + phase + ' restores profile', backend.values['PerformanceProfile'] == 'quiet')
+        check('TERM during ' + phase + ' removes override', not (power.state_dir() / 'game.json').exists())
+        check('TERM during ' + phase + ' restores signal handler', signal.getsignal(signal.SIGTERM) == previous_term)
 PY
