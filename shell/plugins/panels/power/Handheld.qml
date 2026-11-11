@@ -27,7 +27,7 @@ Column {
       : control === "charge" ? [-1, cap.value - 5, 80, 100, cap.value + 5]
       : [cap.value - 100, cap.value + 100]
     return values.filter(function(v, i) { return ((root.control === "charge" && v === -1) || (v >= cap.min && v <= cap.max)) && values.indexOf(v) === i })
-      .map(function(v) { return { label: root.control === "charge" && v === -1 ? "Default" : String(v) + root.units, value: v } })
+      .map(function(v) { return { label: root.control === "charge" && v === -1 ? Commons.I18n.t("power.chargeDefault") : String(v) + root.units, value: v } })
   }
   signal requested(string control, string value)
   spacing: Style.space(8)
@@ -76,7 +76,7 @@ Column {
   }
   Text {
     width: parent.width
-    text: root.cap.available ? (root.control === "charge" && root.cap.value === -1 ? "Default" : String(root.cap.value) + root.units) + (root.cap.min !== undefined ? " · " + root.cap.min + "–" + root.cap.max + root.units : "")
+    text: root.cap.available ? (root.control === "charge" && root.cap.value === -1 ? Commons.I18n.t("power.chargeDefault") : String(root.cap.value) + root.units) + (root.cap.min !== undefined ? " · " + root.cap.min + "–" + root.cap.max + root.units : "")
       : root.control === "tdp" ? "Unavailable. Select performance; the kernel must expose asus-armoury TDP."
       : "Unavailable from this backend/device."
     textFormat: Text.PlainText
@@ -110,7 +110,7 @@ Column {
   }
   Text {
     width: parent.width
-    text: root.error || root.state.error || (!root.state.configured ? "Power controls need reviewed-package setup."
+    text: root.error || root.state.error || (!root.state.configured ? Commons.I18n.t("power.handheldSetupRequired")
       : (root.state.conflicts || []).length ? "Competing power writer: " + root.state.conflicts.join(", ")
       : root.busy ? "Applying; waiting for readback…" : "SteamOS Manager · " + (root.state.source || "unknown source") + "\nD-pad ↑↓ control · ←→ action · A applies")
     textFormat: Text.PlainText

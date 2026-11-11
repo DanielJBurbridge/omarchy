@@ -1,4 +1,6 @@
 {
+  "power.chargeDefault": "Default",
+  "power.handheldSetupRequired": "Power controls need reviewed-package setup.",
   "bar.desktopKeyboard": "Keyboard",
   "bar.desktopKeyboardToggle": "Show or hide desktop keyboard (Super+Ctrl+Y)",
   "agents.active": "ACTIVE",
