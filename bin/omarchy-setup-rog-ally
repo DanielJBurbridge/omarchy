@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# omarchy:summary=Open original ROG Ally setup, status, storage and recovery tools
+# omarchy:args=[--help]
+
+set -euo pipefail
+if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
+  echo 'Usage: omarchy-setup-rog-ally'
+  echo 'Choose each handheld component explicitly. Existing backend setup owns installation and rollback.'
+  exit 0
+fi
+(( $# == 0 )) || exit 2
+if ! omarchy-hw-rog-ally; then
+  echo 'Handheld setup supports the original ASUS ROG Ally RC71L only.' >&2
+  exit 1
+fi
+
+row() { printf '%s\t%s\t%s' "$1" "$2" "$3"; }
+choose() {
+  local status
+  if selection=$(omarchy-menu-select "$@" -- --width 620); then
+    selection=${selection%%$'\t'*}
+  else
+    status=$?
+    if (( status == 1 )); then exit 0; else exit "$status"; fi
+  fi
+}
+
+while true; do
+  options=("$(row '󰋖' 'Status' 'Packages, services, recovery readiness and unverified device checks')")
+  # Backend setup commands are optional increments. Never invoke an absent
+  # command or silently install a different backend in its place.
+  options+=("$(row '' 'Desktop keyboard' 'Review and install the optional wvkbd AUR package')"
+    "$(row '󰋊' 'Game libraries' 'Mount an existing microSD or USB filesystem; never format')"
+    "$(row '󰑓' 'Update and recovery' 'Normal Omarchy updates and existing system snapshots')"
+    "$(row '󰅖' 'Close' 'Leave setup without changing anything')")
+  choose 'ROG Ally handheld setup' "${options[@]}"
+  case "$selection" in
+    'Status') omarchy-hw-rog-ally-status --menu ;;
+    'Desktop keyboard')
+      choose 'Review wvkbd AUR source before installation' \
+        "$(row '' 'Install reviewed keyboard' 'Uses the existing optional AUR installer; preserves existing launcher')" \
+        "$(row '󰌑' 'Back' 'No changes')"
+      if [[ $selection == 'Install reviewed keyboard' ]]; then
+        omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-keyboard --install-reviewed-aur
+        exit
+      fi
+      ;;
+    'Game libraries') omarchy-launch-floating-terminal-with-presentation omarchy-drive-game-library --menu; exit ;;
+    'Update and recovery')
+      choose 'Update and recovery' \
+        "$(row '󰋖' 'Check updates' 'Check repository package count without installing anything')" \
+        "$(row '󰑓' 'Omarchy updates' 'Open the normal update menu; use a full system update')" \
+        "$(row '󰋊' 'Create system snapshot' 'Requires configured Snapper; excludes home and saves')" \
+        "$(row '󰁯' 'Restore system snapshot' 'Use after booting a known-good Limine snapshot; home stays unchanged')" \
+        "$(row '󰋖' 'Recovery instructions' 'Boot fallback, firmware, backups and per-component rollback')" \
+        "$(row '󰌑' 'Back' 'Return to handheld setup')"
+      case "$selection" in
+        'Check updates') omarchy-hw-rog-ally-status --menu --updates ;;
+        'Omarchy updates') omarchy-menu summon update; exit ;;
+        'Create system snapshot') omarchy-launch-floating-terminal-with-presentation omarchy-snapshot create; exit ;;
+        'Restore system snapshot')
+          choose 'Restore the root system; home and saves stay unchanged' \
+            "$(row '󰁯' 'Open snapshot restore' 'Existing Limine restore tool; review the selected snapshot before applying')" \
+            "$(row '󰌑' 'Back' 'No changes')"
+          if [[ $selection == 'Open snapshot restore' ]]; then
+            omarchy-launch-floating-terminal-with-presentation omarchy-snapshot restore
+            exit
+          fi
+          ;;
+        'Recovery instructions')
+          choose 'Recovery and backup guidance' \
+            "$(row '󰋊' 'Boot recovery' 'Choose a known-good snapshot in Limine, then run snapshot restore')" \
+            "$(row '󰌾' 'Direct boot or failed startup' 'Choose Limine from firmware boot options; keep a USB keyboard for unlock')" \
+            "$(row '󰁯' 'No automatic rollback' 'Repeated failures do not automatically select an older snapshot')" \
+            "$(row '󰋊' 'Save backups' 'Back up saves and prefixes to separate storage; root snapshots exclude home')" \
+            "$(row '󰋖' 'Firmware' 'Use LVFS/device-supported instructions; no firmware is flashed here')" \
+            "$(row '󰌑' 'Back' 'Full instructions: manual/rog-ally-recovery.md')"
+          ;;
+      esac
+      ;;
+    'Close') exit 0 ;;
+  esac
+done

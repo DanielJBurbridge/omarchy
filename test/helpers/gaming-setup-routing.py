@@ -3,6 +3,8 @@ script = pathlib.Path(os.environ['OMARCHY_TEST_ROOT']) / 'bin/omarchy-setup-gami
 with tempfile.TemporaryDirectory(prefix='haki-gaming-test-') as temp:
     root = pathlib.Path(temp)
     commands = {
+        'omarchy-hw-rog-ally': '#!/bin/bash\n[[ ${ALLY_PRESENT:-0} == 1 ]]\n',
+        'omarchy-setup-rog-ally': '#!/bin/bash\necho handheld >> "$TEST_ROOT/actions"\n',
         'omarchy-i18n': '#!/bin/bash\nvalue=$("$OMARCHY_TEST_ROOT/bin/omarchy-i18n" "$@") || exit $?\nif [[ ${TEST_TRANSLATED:-0} == 1 ]]; then printf "translated:%s\\n" "$value"; else printf "%s\\n" "$value"; fi\n',
         'omarchy-cmd-present': '#!/bin/bash\n[[ $1 == steam && $STEAM_PRESENT == 1 ]]\n',
         'omarchy-menu-select': '''#!/bin/bash
@@ -32,6 +34,7 @@ printf '%s\\tfixture subtext\\n' "$line"
         ('installed-launch', 1, ['Open Big Picture'], 0, 'bigpicture\n'),
         ('translated-launch', 1, ['Open Big Picture'], 0, 'bigpicture\n'),
         ('missing-steam', 0, ['Install Steam…'], 0, 'summon install.gaming\n'),
+        ('ally-handheld', 1, ['ROG Ally handheld'], 0, 'handheld\n'),
         ('cancel', 1, ['CANCEL'], 0, ''),
         ('desktop-return', 1, ['Desktop Mode'], 0, 'desktop\n'),
         ('shell-failure', 1, ['ERROR'], 2, ''),
@@ -46,13 +49,14 @@ printf '%s\\tfixture subtext\\n' "$line"
         (root / 'count').write_text('0\n')
         (root / 'actions').write_text('')
         (root / 'menus').write_text('')
-        env = dict(os.environ, PATH=f'{root}:' + str(script.parent) + ':' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(script.parent.parent), TEST_ROOT=temp, STEAM_PRESENT=str(present), TEST_TRANSLATED=str(int(translated)))
+        env = dict(os.environ, PATH=f'{root}:' + str(script.parent) + ':' + os.environ['PATH'], HOME=temp, OMARCHY_PATH=str(script.parent.parent), TEST_ROOT=temp, STEAM_PRESENT=str(present), TEST_TRANSLATED=str(int(translated)), ALLY_PRESENT=str(int(name == 'ally-handheld')))
         result = subprocess.run([str(script)], env=env, capture_output=True, text=True, timeout=15)
         assert result.returncode == status, (name, result)
         assert (root / 'actions').read_text() == actions, name
         menus = (root / 'menus').read_text()
         assert ('Open Big Picture' in menus) == bool(present), name
         assert ('Install Steam…' in menus) != bool(present), name
+        assert ('ROG Ally handheld' in menus) == (name == 'ally-handheld'), name
         print('PASS', name)
     result = subprocess.run([str(script), '--help'], env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True)
     assert result.returncode == 0 and 'first sign-in' in result.stdout

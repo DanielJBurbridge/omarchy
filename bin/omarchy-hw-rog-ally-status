@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# omarchy:summary=Read ROG Ally package, service and recovery readiness without personal data
+# omarchy:args=[--menu] [--updates] [--help]
+
+set -euo pipefail
+
+menu=false
+updates=false
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h)
+      echo 'Usage: omarchy-hw-rog-ally-status [--menu] [--updates]'
+      echo 'Read-only report; --updates checks repositories using a separate temporary database.'
+      echo 'Package/service presence does not prove physical operation.'
+      exit 0 ;;
+    --menu) menu=true ;;
+    --updates) updates=true ;;
+    *) exit 2 ;;
+  esac
+done
+if ! omarchy-hw-rog-ally; then
+  echo 'This report is for the original ASUS ROG Ally RC71L.' >&2
+  exit 1
+fi
+
+rows=()
+report() {
+  rows+=("$1"$'\t'"$2")
+}
+package() {
+  local value
+  # Query only named packages. Do not include machine names, paths, logs or
+  # arbitrary backend output in a report intended to be shared publicly.
+  if value=$(pacman -Q "$1" 2>/dev/null); then
+    value=${value#"$1 "}
+    if [[ $value =~ ^[0-9][0-9A-Za-z.+_:~\-]*$ ]]; then
+      printf 'installed %s' "$value"
+    else
+      printf 'installed (version unreadable)'
+    fi
+  else
+    printf 'not installed'
+  fi
+}
+service() {
+  local state load active key value
+  state=$(timeout 3 systemctl show "$1" --property=LoadState --property=ActiveState 2>/dev/null) || state=''
+  load=''; active=''
+  while IFS='=' read -r key value; do
+    case "$key" in LoadState) load=$value ;; ActiveState) active=$value ;; esac
+  done <<< "$state"
+  if [[ $load != "loaded" ]]; then
+    printf 'unavailable or unreadable'
+  else
+    case "$active" in
+      active) printf 'active; device function unverified' ;;
+      inactive|failed|activating|deactivating|reloading) printf '%s' "$active" ;;
+      *) printf 'unavailable or unreadable' ;;
+    esac
+  fi
+}
+bus_ready() {
+  local reply
+  # Query the bus daemon, not a backend method: do not activate optional daemons.
+  reply=$(busctl "$1" --timeout=2 call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s "$2" 2>/dev/null) || reply=''
+  case "$reply" in
+    'b true') printf 'API present; physical operation unverified' ;;
+    'b false') printf 'not ready (no bus owner)' ;;
+    *) printf 'unavailable or unreadable' ;;
+  esac
+}
+module() {
+  if omarchy-cmd-present "$2"; then
+    report "$1 setup" 'available; run explicitly from handheld setup'
+  else
+    report "$1 setup" 'not delivered in this installation'
+  fi
+}
+
+report 'Hardware' 'original ROG Ally RC71L'
+for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
+  report "${spec%%:*} package" "$(package "${spec#*:}")"
+done
+for unit in inputplumber powerstation power-profiles-daemon; do
+  report "$unit service" "$(service "$unit.service")"
+done
+# A known competing input owner is a recovery issue, not a reason to silently
+# stop someone else's service. Setup leaves decide ownership before changing it.
+for unit in hhd handheld-daemon; do
+  if [[ $(service "$unit.service") == active* ]]; then
+    report 'Input ownership conflict' "$unit is active; resolve before enabling InputPlumber"
+  fi
+done
+report 'InputPlumber readiness' "$(bus_ready --system org.shadowblip.InputPlumber)"
+report 'SteamOS Manager readiness' "$(bus_ready --user com.steampowered.SteamOSManager1)"
+module 'Dedicated session' omarchy-setup-gaming-session
+module 'Touch keyboard' omarchy-setup-rog-ally-keyboard
+report 'Physical acceptance' 'not established by this report; test touch, controllers, game and resume on device'
+if [[ $updates == true ]]; then
+  # checkupdates uses its own database; never pacman -Sy (a partial upgrade).
+  # A timeout or sync failure must not look like a current system.
+  update_status=0
+  pending=$(timeout 60 checkupdates --nocolor 2>/dev/null) || update_status=$?
+  case "$update_status" in
+    0)
+      count=0
+      while IFS= read -r line; do [[ -z $line ]] || (( count += 1 )); done <<< "$pending"
+      report 'Package updates' "$count pending in configured repositories; use a full Omarchy update"
+      ;;
+    2) report 'Package updates' 'no repository package updates reported; AUR and firmware not checked' ;;
+    *) report 'Package updates' 'check failed or timed out; update availability unknown' ;;
+  esac
+else
+  report 'Package updates' 'not checked offline; choose Check updates or open Update > Omarchy'
+fi
+root_fs=$(findmnt -n -o FSTYPE / 2>/dev/null) || root_fs=unknown
+if [[ $root_fs == "btrfs" ]]; then
+  report 'Root filesystem' 'Btrfs; snapshot configuration still needs checking'
+else
+  report 'Root filesystem' 'not Btrfs or unreadable; do not assume snapshot recovery'
+fi
+report 'Snapper package' "$(package snapper)"
+report 'Snapshot boot sync' "$(service limine-snapper-sync.service)"
+if [[ -r /etc/snapper/configs/root && -r /boot/limine.conf ]]; then
+  report 'Snapshot configuration' 'root config and Limine file present; create and inspect a snapshot before relying on recovery'
+else
+  report 'Snapshot configuration' 'missing or unreadable without privilege; recovery not established'
+fi
+report 'Boot recovery' 'manual Limine snapshot selection; no automatic failed-boot rollback promised'
+report 'Save backups' 'root snapshots exclude home; back up saves and prefixes separately'
+report 'Firmware' 'no scan or flash performed; availability depends on LVFS and the device'
+report 'Boot trust and encryption' 'unchanged; confirm Secure Boot and disk-unlock recovery separately'
+
+if [[ $menu == true ]]; then
+  options=()
+  for row in "${rows[@]}"; do options+=("󰋖"$'\t'"$row"); done
+  if omarchy-menu-select 'ROG Ally status — read only' "${options[@]}" -- --width 680 >/dev/null; then
+    :
+  else
+    status=$?
+    (( status == 1 )) || exit "$status"
+  fi
+else
+  printf '%s\n' "${rows[@]}"
+fi
