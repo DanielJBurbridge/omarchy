@@ -43,7 +43,15 @@ touch "$restart_root/shell/shell.qml"
 ln -s "$ROOT/bin/omarchy-shell" "$restart_bin/omarchy-shell"
 ln -s "$ROOT/bin/omarchy-launch-shell" "$restart_bin/omarchy-launch-shell"
 ln -s "$ROOT/bin/omarchy-cmd-missing" "$restart_bin/omarchy-cmd-missing"
-ln -s "$ROOT/bin/omarchy-hyprland-session-locked" "$restart_bin/omarchy-hyprland-session-locked"
+cat >"$restart_bin/omarchy-hyprland-session-locked" <<'SH'
+#!/bin/bash
+if [[ -n ${OMARCHY_TEST_PROBE_RESULT:-} ]]; then
+  exit "$OMARCHY_TEST_PROBE_RESULT"
+else
+  exec "$ROOT/bin/omarchy-hyprland-session-locked"
+fi
+SH
+chmod +x "$restart_bin/omarchy-hyprland-session-locked"
 
 cat >"$restart_bin/qs" <<'SH'
 #!/bin/bash
@@ -250,6 +258,28 @@ locked_error=$(PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIM
 [[ $locked_error == "Refusing locked desktop restart without a validated graphical session context." ]] || fail "unsupported lock context is not mistaken for orphan recovery" "$locked_error"
 [[ ! -s $restart_log ]] || fail "unsupported lock context must not kill an active owner"
 pass "unsupported lock context refuses restart before killing any lock client"
+
+# Unknown, failed and unexpected probes must not be taken for unlocked.
+# Each case owns a disposable process so a regressed kill cannot hit a real UI.
+for probe_result in 2 127 137; do
+  sleep 30 &
+  restart_pid_one=$!
+  printf '%s\n' "$restart_pid_one" >"$restart_state"
+  : >"$restart_log"
+  locked_error=$(PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
+    OMARCHY_TEST_PROBE_RESULT="$probe_result" OMARCHY_TEST_QS_STATE="$restart_state" \
+    OMARCHY_TEST_QS_LOG="$restart_log" OMARCHY_TEST_QS_ENV_LOG="$restart_env_log" \
+    OMARCHY_TEST_DISPATCH_LOG="$dispatch_log" OMARCHY_TEST_IPC_LOG="$ipc_log" \
+    OMARCHY_TEST_SESSION_PATH="$restart_root" \
+    timeout 5 "$ROOT/bin/omarchy-restart-shell" 2>&1) && fail "probe $probe_result must refuse restart"
+  [[ $locked_error == "Refusing desktop restart: compositor lock state is unknown." ]] || fail "probe $probe_result reports unknown state" "$locked_error"
+  [[ ! -s $restart_log ]] || fail "probe $probe_result must refuse before any Quickshell kill"
+  kill -0 "$restart_pid_one" 2>/dev/null || fail "probe $probe_result preserves the existing client"
+  kill "$restart_pid_one"
+  wait "$restart_pid_one" 2>/dev/null || true
+  restart_pid_one=""
+  pass "probe $probe_result refuses restart and preserves the existing client"
+done
 
 # A LOCK session without an active locker — dead shell or a crash-handler
 # relaunch holding no lock — is the failsafe: restart must proceed,
