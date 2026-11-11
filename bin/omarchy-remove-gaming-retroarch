@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Remove RetroArch, all libretro cores, and its config/saves. Leaves ~/Games/roms and ~/Games/bios alone.
+# omarchy:summary=Remove RetroArch and cores while preserving ROMs, BIOS files, settings and saves
 # omarchy:requires-sudo=true
 
 set -e
@@ -28,12 +28,4 @@ omarchy-pkg-drop \
   libretro-database-git \
   retroarch-joypad-autoconfig-git
 
-rm -rf \
-  "$HOME/.config/retroarch" \
-  "$HOME/.local/share/retroarch" \
-  "$HOME/.cache/retroarch"
-
-echo ""
-echo "RetroArch and its cores have been removed."
-echo "ROMs and BIOS files at ~/Games/roms and ~/Games/bios were left in place."
-
+echo "RetroArch and its cores removed. ROMs, BIOS files, settings and saves were kept."
