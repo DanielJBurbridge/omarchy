@@ -78,3 +78,71 @@ Moonlight is the existing client; host streaming is separate. `omarchy install g
 [Sunshine's current installation guide](https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2getting__started.html) requires its additional host setup for injected input and supplies `flatpak run --command=additional-install.sh dev.lizardbyte.app.Sunshine`. That is a separate privileged operation: the deployment owner must review the installed script's udev/service changes with INPUT before running it and record their exact files in the installation manifest. The Flatpak has no KMS capture; a direct Gamescope session cannot be advertised as a working host capture path from this installation. [Bazzite now also treats Sunshine as an optional stable Flatpak](https://docs.bazzite.gg/Advanced/sunshine/), rather than part of its base image.
 
 Acceptance still requires an actual Moonlight client, portal grant, hardware encoder, video/audio and gamepad round trip; validate the desktop and Gamescope separately. Until the extra host integration and capture path are reviewed and exercised, A10/D10 remain installed-app capability only, not end-to-end streaming parity. To roll back a package-only install, quit the app and run `flatpak uninstall --user dev.lizardbyte.app.Sunshine` without `--delete-data`. If additional host setup was performed, first use the matching upstream `remove-additional-install.sh` against the recorded manifest. Keep pairing/settings data; do not remove another installation's shared host rules.
+
+## Optional Decky integration
+
+Decky is optional third-party code. Reviewed upstream stable: v3.3.1 (27 October 2026); current AUR `decky-loader` 3.3.1-1, recipe commit `62d68aec7ffa01ce378a39150ff87ff54de77170`. Do not use the stale `decky-loader-bin` recipe. The source-built package installs a root-owned `/usr/bin/decky-loader` and `decky-loader@.service` without an enable hook. No plugin is bundled by this integration.
+
+Decky enables Steam remote debugging and runs plugins as root. Review each plugin's code and updates before installation. Power, fan, RGB and controller plugins can conflict with existing handheld owners; none is installed automatically. Decky is not a prerequisite for the POWER or INPUT features. Its compatibility with Steam updates still needs acceptance and can regress independently of Omarchy.
+
+Install the reviewed AUR recipe through the normal helper, then build/install the companion package. These are instructions for the sole deployment owner in a terminal; this source worker has not installed them:
+
+```bash
+omarchy install gaming decky --install-reviewed-aur
+cd "$OMARCHY_PATH/packages/omarchy-gaming-decky"
+makepkg --nodeps
+sudo pacman -U ./omarchy-gaming-decky-1.0.0-1-any.pkg.tar.zst
+omarchy setup gaming decky enable --allow-root-plugins
+omarchy setup gaming decky status
+```
+
+Review `PKGBUILD` before building. The first command also installs `python-installer`, omitted from the reviewed AUR build dependencies. `--nodeps` above only builds the tiny local companion; its actual dependency must be installed before `pacman -U`. Use an appropriately configured build directory when the packaged Omarchy tree is read-only: copy `PKGBUILD`, `50-omarchy.conf` and `LICENSE` together to a user-writable build directory first. No local package or AUR dependency is fetched by this companion build.
+
+Activation requires the companion, the reviewed Decky version, native Steam initialised under the current user and the package's expected `/home/USERNAME` home. It refuses a legacy `plugin_loader.service` or `~/homebrew/services/PluginLoader` rather than altering it. It refuses nonempty existing plugin directories until their contents are reviewed and moved aside, preserving them for manual migration. It reloads systemd, checks the effective service safeguards, records any newly created Steam debug marker and enables only `decky-loader@USERNAME.service`. It does not restart Steam: restart it yourself after saving work. If service startup fails, it disables the instance and cleans up the marker it created. An already-running protected instance is left alone.
+
+The AUR service uses different executable and unit names from upstream's self-updater. **Use package-managed updates and systemctl; do not use Decky's in-app updater or restart controls.** The companion sets `KEEP_SYSTEMD_SERVICE=1` and `SERVER_HOST=127.0.0.1`, makes `/usr` and `/etc` read-only to the service with `ProtectSystem=full`, and stops plugin descendants with `KillMode=control-group`. These settings prevent the known updater service-replacement route; they are not a sandbox for untrusted root plugins. Activation refuses a new upstream version until its integration is reviewed, without pinning or blocking normal package updates. Disable Decky before updating its package, then review/re-enable the new version.
+
+### Decky fixed-path manifest and rollback
+
+The companion package owns only these root-installed files, both mode 0644:
+
+| Path | Purpose |
+| --- | --- |
+| `/usr/lib/systemd/system/decky-loader@.service.d/50-omarchy.conf` | Effective service safeguards; applies only to Decky instances |
+| `/usr/share/licenses/omarchy-gaming-decky/LICENSE` | Omarchy MIT licence notice |
+
+The separate AUR package owns its executable, helper and template unit. Review its full `pacman -Ql decky-loader` manifest before installation. Runtime data belongs under `~/.local/var/opt/decky-loader`; the AUR helper initialises it and writes `.loader.version`. Omarchy's activation also uses `~/.local/state/omarchy/decky/debug-marker` (or `$XDG_STATE_HOME/omarchy/decky/debug-marker`) to record the device/inode of a marker it created at `~/.steam/steam/.cef-enable-remote-debugging`. It never removes a pre-existing marker, a replaced inode, a symlink or a nonempty marker. The systemd enable command owns the usual instance symlink in `multi-user.target.wants`.
+
+```bash
+omarchy setup gaming decky disable
+# After reviewing reverse dependencies and confirming no Decky instances remain:
+omarchy pkg drop omarchy-gaming-decky decky-loader
+sudo systemctl daemon-reload
+```
+
+Disable the instance before removing its companion, so it never runs without the safeguards. Plugins, configuration, saves and libraries remain in place. Restart Steam when ready to close its debugging endpoint. If activation did not create the Steam marker, its original owner must decide when to remove it. For a pre-existing upstream install, disable its service and preserve `~/homebrew` first; migration of plugins/settings is deliberately manual.
+
+The rollout owner should record the package versions, companion archive checksum, `systemctl cat decky-loader@USERNAME.service` and its effective environment/protection, then explicitly activate without plugins. Check it binds only loopback, confirm Decky's menu opens in the actual Steam gaming session, and verify a disable/start-failure rollback without interrupting a running game. Recheck controller/power operation with no plugin writers. These runtime checks remain pending; a package build and lifecycle fixture test are not Decky or controller acceptance.
+
+Primary sources: [pinned AUR recipe](https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=decky-loader&id=62d68aec7ffa01ce378a39150ff87ff54de77170), [packaged service](https://aur.archlinux.org/cgit/aur.git/plain/decky-loader@.service?h=decky-loader&id=62d68aec7ffa01ce378a39150ff87ff54de77170), [packaged helper](https://aur.archlinux.org/cgit/aur.git/plain/decky-loader-helper?h=decky-loader&id=62d68aec7ffa01ce378a39150ff87ff54de77170), [upstream release digests](https://github.com/SteamDeckHomebrew/decky-loader/releases/expanded_assets/v3.3.1), [updater implementation](https://github.com/SteamDeckHomebrew/decky-loader/blob/v3.3.1/backend/decky_loader/updater.py). The release source tar SHA256 is `8c102ef54c7be4b2505564850e865c124f85712e5636b164bc73134ecf0a5813`. Omarchy's companion contains original configuration only; it depends on the separately packaged upstream project and does not copy its implementation.
+
+## Inventory disposition for integration
+
+| Rows | Source disposition | Installed acceptance |
+| --- | --- | --- |
+| A01, A05-A06, A08-A09 | Existing launchers reused; reinstall/removal data preservation corrected | Existing-game, save and streaming checks pending rollout |
+| A02-A04 | Optional ProtonPlus, standalone UMU and prefix tools delivered | Runner detection and real launches pending |
+| A07 | Existing Lutris/Heroic cover prefix launchers; Faugus remains optional upstream, no redundant default | No separate Faugus parity claim |
+| A10, D10 | Optional Sunshine Flatpak delivery; host input setup needs INPUT review and capture-path acceptance | Desktop portal/encoder and Gamescope host streaming unverified |
+| A11 | Disabled Decky package delivery, reviewed companion and explicit lifecycle controls | Actual Steam menu and rollback pending |
+| A12, A14 | INPUT/POWER and RECOVERY own these rows | Refer to those owners |
+| A13, A15 | Existing prefixes/runners/libraries retained; per-game compatibility/mod guidance supplied | Save/Cloud continuity pending per game |
+| A16 | Publisher-dependent compatibility, no universal anti-cheat guarantee | Must check each intended game |
+| F01 | Existing Arch/Omarchy Mesa/Vulkan route retained; lib32 driver ordering covered | Actual rendering/encoder capabilities pending |
+| F02-F03 | Optional MangoHud/lib32, per-game presets/caps, GOverlay and diagnostics delivered | Rendered overlay, frame pacing and sensor checks pending |
+| F04 | Optional elsewhere; RC71L guard prevents competing GameMode power writes | POWER backend owns Ally policy |
+| F05-F07, F09 | Optional kernel/scheduler/repository experiments deliberately excluded; benchmark/fallback procedure supplied | No performance improvement claimed |
+| F08 | Read-only NTSync accessibility report; no forced module, permissions or runner flags | Installed kernel/runner pair must be exercised |
+| F10 | Existing zram retained; report exposes memory/I/O state | Tune only after measured pressure |
+| F11 | RELIABILITY owns audio | Refer to RELIABILITY |
+| F12 | Existing networking policy retained and reported | No latency claim without measurement |
