@@ -444,5 +444,7 @@
   "gaming.powerMenu": "Open Big Picture’s Power menu",
   "gaming.powerMenuHint": "Choose Exit Big Picture Mode",
   "gaming.steamStaysOpen": "Steam stays open",
-  "gaming.downloadsHint": "Downloads can continue in the desktop"
+  "gaming.downloadsHint": "Downloads can continue in the desktop",
+  "firstRun.rogAllyTitle": "Gaming on your ROG Ally",
+  "firstRun.rogAllyBody": "Steam is optional. Open gaming setup to review installation and controller support."
 }
