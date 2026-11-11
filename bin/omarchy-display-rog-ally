@@ -1,0 +1,218 @@
+#!/bin/bash
+
+# omarchy:summary=Configure the original ROG Ally display and inspect its presentation paths
+# omarchy:args=status | native [RATE] | touch DEVICE|reset | touch-preset [reset] | dock OUTPUT | handheld | vrr OUTPUT off|on|fullscreen | hdr OUTPUT on|off | gaming-output auto|internal|OUTPUT | gamescope-args
+# omarchy:examples=omarchy display rog ally status | omarchy display rog ally native 60 | omarchy display rog ally touch-preset
+
+set -euo pipefail
+umask 077
+
+usage() {
+  sed -n '4,6p' "$0" | sed 's/^# omarchy://'
+}
+error() { echo "$*" >&2; exit 1; }
+
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  usage
+  exit 0
+fi
+omarchy-hw-rog-ally || error 'This optional display setup is for the original ROG Ally RC71L.'
+action=${1:-status}
+shift "$(( $# > 0 ? 1 : 0 ))"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/rog-ally-display"
+if [[ $action != "status" && $action != "gamescope-args" ]]; then
+  mkdir -p "$state"
+  exec {lock_fd}>"$state/change.lock"
+  flock -n "$lock_fd" || error 'Another Ally display change is in progress.'
+fi
+
+# The only gaming-session setting owned here is physical output selection.
+# Store an external display by its EDID hash, so a dock's connector rename does
+# not hand its preference to a different screen. No forced modes or HDR.
+drm_path=${OMARCHY_DRM_PATH:-/sys/class/drm}
+if [[ $action == "gaming-output" || $action == "gamescope-args" ]]; then
+  if [[ $action == "gaming-output" ]]; then
+    (( $# == 1 )) || error 'Use gaming-output auto|internal|OUTPUT.'
+    preference=$1
+    if [[ $preference != "auto" && $preference != "internal" ]]; then
+      [[ $preference =~ ^[A-Za-z0-9._-]+$ && $preference != "FALLBACK" ]] || error 'Unsafe output name.'
+      matches=()
+      for connector in "$drm_path"/card*; do
+        [[ ${connector##*/} == card*-"$preference" && -r $connector/status ]] || continue
+        [[ $(<"$connector/status") == "connected" && -r $connector/edid ]] || continue
+        (( $(wc -c <"$connector/edid") >= 128 )) || continue
+        matches+=("$connector")
+      done
+      (( ${#matches[@]} == 1 )) || error 'Choose one connected DRM output with a readable EDID.'
+      digest=$(sha256sum "${matches[0]}/edid")
+      preference="edid:${digest%% *}"
+    fi
+    mkdir -p "$state"
+    printf '%s\n' "$preference" >"$state/gamescope-output"
+    exit 0
+  fi
+  (( $# == 0 )) || error 'gamescope-args takes no arguments; use gaming-output to select a display.'
+  preference=auto
+  [[ ! -f $state/gamescope-output ]] || preference=$(<"$state/gamescope-output")
+  [[ $preference == "auto" ]] && exit 0
+  [[ $preference == "internal" || $preference =~ ^edid:[a-f0-9]{64}$ ]] || error 'Invalid gaming output preference.'
+  outputs=()
+  for connector in "$drm_path"/card*; do
+    [[ -r $connector/status && $(<"$connector/status") == "connected" ]] || continue
+    name=${connector##*/}
+    name=${name#card*-}
+    [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || continue
+    if [[ $preference == "internal" ]]; then
+      [[ $name =~ ^(eDP|LVDS|DSI)- ]] || continue
+    else
+      [[ -r $connector/edid ]] || continue
+      (( $(wc -c <"$connector/edid") >= 128 )) || continue
+      digest=$(sha256sum "$connector/edid")
+      [[ $preference == "edid:${digest%% *}" ]] || continue
+    fi
+    outputs+=("$name")
+  done
+  if (( ${#outputs[@]} == 0 )); then
+    echo 'Preferred gaming display is disconnected; using Gamescope native output selection.' >&2
+    exit 0
+  fi
+  (( ${#outputs[@]} == 1 )) || error 'Gaming output identity is ambiguous; use automatic selection.'
+  output=${outputs[0]}
+  help=$(gamescope --help 2>&1) || error 'Cannot inspect Gamescope options.'
+  [[ $help == *"--prefer-output"* ]] || error 'This Gamescope build lacks --prefer-output.'
+  printf '%s\n' --prefer-output "$output"
+  exit 0
+fi
+
+# A reset must work with the display disabled, but needs the desktop session
+# to reload the rule. No service or shell restarts are performed here.
+if [[ $action == "touch-preset" ]]; then
+  (( $# <= 1 )) || error 'Use touch-preset [reset].'
+  hyprctl monitors all -j >/dev/null || error 'A running Hyprland desktop is required.'
+  python "$OMARCHY_PATH/default/rog-ally/touch-preset.py" "${1:-apply}"
+  exit
+fi
+monitors=$(hyprctl monitors all -j) || error 'A running Hyprland desktop is required.'
+jq -e 'type == "array"' <<<"$monitors" >/dev/null || error 'Invalid monitor response.'
+internal=$(jq -r '[.[] | select(.name | test("^(eDP|LVDS|DSI)-"))][0].name // empty' <<<"$monitors")
+[[ $internal =~ ^[A-Za-z0-9._-]+$ ]] || error 'No safe internal connector found.'
+
+monitor() {
+  [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] || error 'Unsafe output name.'
+  jq -e -c --arg name "$1" '.[] | select(.name == $name and .disabled != true and .width > 0 and .height > 0)' <<<"$monitors" || error 'Output is not active.'
+}
+apply() {
+  hyprctl eval "$1"
+}
+
+case $action in
+status)
+  (( $# == 0 )) || error 'status takes no arguments.'
+  # Whitelist fields: no serials, workspace titles or application content.
+  jq '{internalHdr: false, outputs: map({name, width, height, refreshRate, scale, transform, disabled,
+    availableModes, vrrActive: .vrr, capabilities: (.hardwareDetails // {} | {hdr, bt2020, vrrCapable}),
+    colorManagementPreset, currentFormat})}' <<<"$monitors"
+  hyprctl devices -j | jq '{touchDevices: [.touch[]?.name]}'
+  printf 'Capture tools (presence only, not a successful capture):\n'
+  for tool in omasnap gpu-screen-recorder wf-recorder gamescope; do
+    if omarchy-cmd-present "$tool"; then echo "$tool: available"; else echo "$tool: unavailable"; fi
+  done
+  # ScreenCast property query starts no capture and grants no permission.
+  if sources=$(busctl --user --timeout=3 call org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.DBus.Properties Get ss org.freedesktop.portal.ScreenCast AvailableSourceTypes 2>/dev/null); then
+    printf 'Desktop ScreenCast source mask: %s (1=monitor, 2=window, 4=virtual)\n' "$sources"
+  else
+    echo 'Desktop ScreenCast portal: unavailable (gaming sessions require their own capture path)'
+  fi
+  ;;
+native)
+  (( $# <= 1 )) || error 'Use native [RATE].'
+  requested="1920x1080${1:+@$1}"
+  # The existing helper validates the advertised mode and saves by physical
+  # monitor, retaining the current scale and arranging its neighbours.
+  omarchy-hyprland-monitor-resolution --monitor "$internal" "$requested"
+  ;;
+touch)
+  (( $# == 1 )) || error 'Use touch DEVICE|reset; status lists device names.'
+  toggles="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr"
+  if [[ $1 == "reset" ]]; then
+    rm -f "$state/touch-device" "$toggles/rog-ally-touch.lua"
+  else
+    # Keep the device name as data, never as generated Lua or shell code.
+    [[ $1 != *$'\n'* && $1 != *$'\r'* && -n $1 ]] || error 'Invalid touch device name.'
+    hyprctl devices -j | jq -e --arg name "$1" 'any(.touch[]?; .name == $name)' >/dev/null || error 'No such touch device.'
+    mkdir -p "$state" "$toggles"
+    printf '%s\n' "$1" >"$state/touch-device"
+    cp "$OMARCHY_PATH/default/hypr/toggles/rog-ally-touch.lua" "$toggles/rog-ally-touch.lua"
+  fi
+  omarchy-restart-hyprctl
+  ;;
+dock)
+  (( $# == 1 )) || error 'Use dock OUTPUT.'
+  [[ $1 != "$internal" && $1 != "FALLBACK" ]] || error 'Choose an external output.'
+  monitor "$1" >/dev/null
+  monitor "$internal" >/dev/null
+  # Extended profile keeps the touch panel usable. For three or more outputs,
+  # use the existing panel's layout rather than overlapping a third display.
+  [[ $(jq '[.[] | select(.disabled != true and .name != "FALLBACK")] | length' <<<"$monitors") == "2" ]] || error 'Enable the internal and one external screen; arrange larger setups in the monitor panel.'
+  offset=$(jq -r --arg name "$internal" '.[] | select(.name == $name) | (if .transform % 2 == 1 then .height else .width end) / .scale | round' <<<"$monitors")
+  omarchy-hyprland-monitor-layout "$internal=0x0" "$1=${offset}x0"
+  hyprctl dispatch "hl.dsp.focus({ monitor = \"$1\" })"
+  ;;
+handheld)
+  (( $# == 0 )) || error 'handheld takes no arguments.'
+  omarchy-hyprland-monitor-internal-mirror off
+  omarchy-hyprland-monitor-internal on
+  apply "hl.monitor({ output = \"$internal\", disabled = false })"
+  for (( attempt = 0; attempt < 20; attempt++ )); do
+    if hyprctl monitors -j | jq -e --arg name "$internal" 'any(.[]; .name == $name and .disabled != true and .width > 0)' >/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  (( attempt < 20 )) || error 'Internal display is not active yet; check its saved configuration.'
+  hyprctl dispatch "hl.dsp.focus({ monitor = \"$internal\" })"
+  ;;
+vrr)
+  (( $# == 2 )) || error 'Use vrr OUTPUT off|on|fullscreen.'
+  output=$(monitor "$1")
+  case $2 in off) value=0 ;; on) value=1 ;; fullscreen) value=2 ;; *) error 'Unknown VRR policy.' ;; esac
+  if (( value != 0 )); then
+    jq -e '.hardwareDetails.vrrCapable == true' <<<"$output" >/dev/null || error 'VRR capability is absent or unknown; leaving the output unchanged.'
+  fi
+  apply "hl.monitor({ output = \"$1\", vrr = $value })"
+  echo 'VRR policy requested for this desktop session; status reports active VRR separately.'
+  ;;
+hdr)
+  (( $# == 2 )) && [[ $2 == "on" || $2 == "off" ]] || error 'Use hdr OUTPUT on|off.'
+  [[ ! $1 =~ ^(eDP|LVDS|DSI)- && $1 != "FALLBACK" ]] || error 'The RC71L internal panel is SDR; choose a compatible external display.'
+  output=$(monitor "$1")
+  if [[ $2 == "on" ]]; then
+    jq -e '.hardwareDetails.hdr == true and .hardwareDetails.bt2020 == true' <<<"$output" >/dev/null || error 'External HDR/BT2020 capability is absent or unknown; leaving the output unchanged.'
+    old_cm=$(jq -r '.colorManagementPreset // "srgb"' <<<"$output")
+    [[ $old_cm =~ ^(auto|srgb|dcip3|dp3|adobe|wide|edid|hdr|hdredid)$ ]] || error 'Unknown current colour preset.'
+    depth=8
+    [[ $(jq -r '.currentFormat' <<<"$output") == *2101010 ]] && depth=10
+    apply "hl.monitor({ output = \"$1\", bitdepth = 10, cm = \"hdr\" })"
+    # The compositor additionally validates PQ support. Never force supports_hdr
+    # or supports_wide_color. A rejected request returns to the previous preset.
+    effective=0
+    # Modesetting is asynchronous. Wait only for this requested change, for at
+    # most two seconds; this is not a background monitor or idle poll.
+    for (( attempt = 0; attempt < 20; attempt++ )); do
+      if hyprctl monitors -j | jq -e --arg name "$1" 'any(.[]; .name == $name and .colorManagementPreset == "hdr" and (.currentFormat | endswith("2101010")))' >/dev/null; then
+        effective=1
+        break
+      fi
+      sleep 0.1
+    done
+    if (( ! effective )); then
+      apply "hl.monitor({ output = \"$1\", bitdepth = $depth, cm = \"$old_cm\" })"
+      error 'HDR did not become effective; requested the previous colour preset/depth. Verify the output, dock and cable.'
+    fi
+  else
+    apply "hl.monitor({ output = \"$1\", bitdepth = 8, cm = \"srgb\" })"
+  fi
+  echo 'Colour mode changed for this desktop session. Reload Hyprland to restore saved configuration.'
+  ;;
+*) usage >&2; exit 2 ;;
+esac

@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# omarchy:summary=Launch one game with a MangoHud preset, optional FPS cap or nested Gamescope overlay
+# omarchy:args=[--preset compact|detailed] [--fps 0|30|40|60|90|120] [--gamescope] -- <command...>
+# omarchy:examples=omarchy launch gaming overlay --fps 60 -- vkcube | omarchy-launch-gaming-overlay -- %command%
+
+set -euo pipefail
+
+preset=compact
+fps=0
+gamescope=false
+desktop=${XDG_CURRENT_DESKTOP:-}
+while (( $# > 0 )); do
+  case $1 in
+    --preset|--fps)
+      (( $# >= 2 )) || { echo "Missing value for $1" >&2; exit 2; }
+      if [[ $1 == "--preset" ]]; then preset=$2; else fps=$2; fi
+      shift 2
+      ;;
+    --gamescope) gamescope=true; shift ;;
+    --) shift; break ;;
+    *) echo "Expected overlay options followed by -- and the game command." >&2; exit 2 ;;
+  esac
+done
+(( $# > 0 )) || { echo "A game command is required after --." >&2; exit 2; }
+case $fps in 0|30|40|60|90|120) ;; *) echo "Unsupported FPS cap: $fps" >&2; exit 2 ;; esac
+case $preset in
+  compact) config='fps,frametime,frame_timing=0,cpu_stats=0,gpu_stats=0,battery,font_size=20,position=top-left' ;;
+  detailed) config='fps,frametime,frame_timing,cpu_stats,cpu_temp,gpu_stats,gpu_temp,ram,vram,battery,font_size=20,position=top-left' ;;
+  *) echo "Unknown overlay preset: $preset" >&2; exit 2 ;;
+esac
+
+if [[ $gamescope == "true" ]]; then
+  if omarchy-cmd-missing gamescope || omarchy-cmd-missing mangoapp; then
+    echo "Install Gamescope and MangoHud (including mangoapp) before using --gamescope." >&2
+    exit 1
+  fi
+  # mangoapp is the compositor overlay; do not also inject a layer into the game.
+  unset MANGOHUD
+  export MANGOHUD_CONFIG="$config,fps_limit=0"
+  options=(--mangoapp)
+  # Cap the game compositor, not the separate mangoapp overlay process.
+  if (( fps > 0 )); then options+=(-r "$fps"); fi
+  exec gamescope "${options[@]}" -- "$@"
+else
+  if [[ -n ${GAMESCOPE_WAYLAND_DISPLAY:-} || ${desktop,,} == *gamescope* ]]; then
+    echo "Enable --mangoapp in the Gamescope session; injecting MangoHud into a game there is unsupported." >&2
+    exit 1
+  fi
+  if omarchy-cmd-missing mangohud; then
+    echo "Install the overlay first: omarchy install gaming tools overlay" >&2
+    exit 1
+  fi
+  export MANGOHUD_CONFIG="$config,fps_limit=$fps"
+  exec mangohud "$@"
+fi

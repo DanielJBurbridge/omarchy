@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# omarchy:summary=Explicitly enable, disable or inspect package-managed Decky without installing plugins
+# omarchy:args=<status|enable --allow-root-plugins|disable>
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+if (( $# == 0 )); then
+  echo "Usage: omarchy setup gaming decky <status|enable --allow-root-plugins|disable>" >&2
+  exit 2
+fi
+action=$1
+shift
+case $action in
+  status|disable) (( $# == 0 )) || exit 2 ;;
+  enable) (( $# == 1 )) && [[ $1 == "--allow-root-plugins" ]] || {
+    echo "Activation needs --allow-root-plugins: Decky runs plugins as root and enables Steam debugging." >&2
+    exit 2
+  } ;;
+  *) echo "Unknown Decky action: $action" >&2; exit 2 ;;
+esac
+
+user=$(id -un)
+unit="decky-loader@$user.service"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/decky"
+marker="$HOME/.steam/steam/.cef-enable-remote-debugging"
+
+cleanup_marker() {
+  local identity
+  if [[ -f $state_dir/debug-marker ]]; then
+    if [[ -f $marker && ! -L $marker && ! -s $marker ]]; then
+      identity=$(stat -c '%d:%i' "$marker")
+      if [[ $identity == "$(<"$state_dir/debug-marker")" ]]; then
+        rm -- "$marker"
+      else
+        echo "Steam debug marker changed; keeping it for manual review."
+      fi
+    fi
+    # This instance is stopped. Retire stale ownership even if another owner
+    # replaced the marker, so a later inode reuse cannot authorise its removal.
+    rm -- "$state_dir/debug-marker"
+  fi
+}
+
+case $action in
+  status)
+    systemctl --no-pager status "$unit"
+    ;;
+  enable)
+    if (( EUID == 0 )); then
+      echo "Run activation as the Steam user in a terminal, not as root." >&2
+      exit 1
+    fi
+    # The reviewed package hardcodes /home/%i in the instance unit.
+    passwd_entry=$(getent passwd "$user")
+    IFS=: read -r _ _ _ _ _ account_home _ <<<"$passwd_entry"
+    if [[ $HOME != "/home/$user" || $account_home != "$HOME" ]]; then
+      echo "The reviewed Decky package needs a standard /home/$user home; no service changed." >&2
+      exit 1
+    fi
+    if ! omarchy-pkg-present omarchy-gaming-decky decky-loader; then
+      echo "Install the reviewed Decky package and omarchy-gaming-decky companion first." >&2
+      exit 1
+    fi
+    # Package integration is reviewed against this upstream API/recipe. A newer
+    # version remains visible for review, without blocking normal package updates.
+    version=$(pacman -Q decky-loader)
+    if [[ $version != "decky-loader 3.3.1-"* ]]; then
+      echo "Unreviewed Decky version: $version. Update the integration review before enabling." >&2
+      exit 1
+    fi
+    if [[ ! -d $HOME/.steam/steam ]]; then
+      echo "Open native Steam once before activation; its data directory is missing." >&2
+      exit 1
+    fi
+    legacy=$(systemctl show --property=LoadState --value plugin_loader.service)
+    if [[ $legacy != "not-found" || -e $HOME/homebrew/services/PluginLoader ]]; then
+      echo "An upstream/legacy Decky install exists. Disable and back it up before migrating; it was kept." >&2
+      exit 1
+    fi
+    sudo systemctl daemon-reload
+    environment=$(systemctl show --property=Environment --value "$unit")
+    protection=$(systemctl show --property=ProtectSystem --value "$unit")
+    kill_mode=$(systemctl show --property=KillMode --value "$unit")
+    if [[ " $environment " != *" KEEP_SYSTEMD_SERVICE=1 "* || " $environment " != *" SERVER_HOST=127.0.0.1 "* || $protection != "full" || $kill_mode != "control-group" ]]; then
+      echo "Decky companion safeguards are missing or overridden; no service started." >&2
+      exit 1
+    fi
+    if systemctl is-active --quiet "$unit"; then
+      echo "Decky is already running. No restart or Steam changes made."
+      exit 0
+    fi
+    shopt -s nullglob dotglob
+    plugin_entries=("$HOME/.local/var/opt/decky-loader/plugins/"*)
+    if (( ${#plugin_entries[@]} > 0 )); then
+      echo "Existing Decky plugins need review before activation. Back them up and move them aside; they were kept." >&2
+      exit 1
+    fi
+    mkdir -p "$state_dir"
+    if [[ ! -e $marker && ! -L $marker ]]; then
+      # Refuse a racing creation; never overwrite another owner's debug marker.
+      (set -o noclobber; : >"$marker")
+      stat -c '%d:%i' "$marker" >"$state_dir/debug-marker"
+    fi
+    if sudo systemctl enable --now "$unit"; then
+      echo "Decky enabled without plugins. Restart Steam yourself when ready."
+      echo "Keep plugin power/input writers disabled; those already have handheld owners."
+      echo "Use package updates and this command to disable; do not use Decky's in-app updater."
+    else
+      status=$?
+      if sudo systemctl disable --now "$unit"; then cleanup_marker; fi
+      exit "$status"
+    fi
+    ;;
+  disable)
+    sudo systemctl disable --now "$unit"
+    cleanup_marker
+    echo "Decky disabled. Plugin configuration and game data were kept. Restart Steam when ready."
+    ;;
+esac

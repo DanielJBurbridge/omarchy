@@ -1,0 +1,83 @@
+#!/bin/bash
+# omarchy:summary=Select the reviewed SteamOS Manager power backend on RC71L or restore its prior owner
+# omarchy:args=[--configure-reviewed-package|--rollback]
+
+set -euo pipefail
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  cat <<'HELP'
+Usage: omarchy-setup-rog-ally-power --configure-reviewed-package
+       omarchy-setup-rog-ally-power --rollback
+
+Requires the independently reviewed steamos-manager 26.4.1-3 package.
+No package/repository/kernel installation. Explicitly transfers RC71L power
+ownership from power-profiles-daemon to SteamOS Manager, masks PPD activation,
+and enables a user event listener for saved AC/DC and resume preferences.
+Refuses other active power writers. Records prior service states and settings.
+Rollback restores settings and service ownership; preferences remain backed up.
+Run from a terminal, after installing the reviewed Omarchy package (not dev link).
+HELP
+  exit 0
+fi
+(( $# == 1 )) || exit 2
+[[ $1 == "--configure-reviewed-package" || $1 == "--rollback" ]] || exit 2
+omarchy-hw-rog-ally || { echo 'This setup is for ASUS ROG Ally RC71L.' >&2; exit 1; }
+state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power"
+units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+unit="$units/omarchy-ally-power.service"
+
+if [[ $1 == "--configure-reviewed-package" ]]; then
+  [[ $(pacman -Q steamos-manager) == "steamos-manager 26.4.1-3" ]] || {
+    echo 'Install the reviewed steamos-manager 26.4.1-3 package first.' >&2; exit 1;
+  }
+  # Package-management boundary: do not build AUR code or change repositories.
+  [[ -x /usr/bin/omarchy-power-ally ]] || { echo 'Install the reviewed Omarchy package first.' >&2; exit 1; }
+  active=$(systemctl list-units --state=active --no-legend --plain powerstation.service 'hhd*.service' adjustor.service asusd.service tlp.service auto-cpufreq.service tuned.service)
+  [[ -z $active ]] || { echo "Stop the conflicting power writer before setup: $active" >&2; exit 1; }
+  if [[ $(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s com.feralinteractive.GameMode) == "b true" ]]; then
+    echo 'Stop GameMode before selecting the handheld power owner.' >&2; exit 1
+  fi
+  mkdir -p "$state" "$units"
+  # Preserve the first ownership receipt on repeated setup and after partial failure.
+  if [[ ! -f $state/ppd-enabled ]]; then
+    systemctl is-enabled power-profiles-daemon.service >"$state/ppd-enabled" || true
+    systemctl is-active power-profiles-daemon.service >"$state/ppd-active" || true
+    systemctl is-enabled steamos-manager.service >"$state/manager-enabled" || true
+    systemctl is-active steamos-manager.service >"$state/manager-active" || true
+    systemctl --user is-enabled steamos-manager.service >"$state/user-manager-enabled" || true
+    systemctl --user is-active steamos-manager.service >"$state/user-manager-active" || true
+  fi
+  if [[ -e $unit ]] && ! cmp -s "$unit" "$OMARCHY_PATH/default/handheld/omarchy-ally-power.service"; then
+    echo "Existing $unit differs; preserved. Resolve it before setup." >&2; exit 1
+  fi
+  sudo systemctl mask --now power-profiles-daemon.service
+  sudo systemctl enable --now steamos-manager.service
+  systemctl --user enable --now steamos-manager.service
+  if [[ ! -f $state/original.json ]]; then
+    omarchy-power-ally status >"$state/original.json.tmp"
+    mv "$state/original.json.tmp" "$state/original.json"
+  fi
+  install -m 644 "$OMARCHY_PATH/default/handheld/omarchy-ally-power.service" "$unit"
+  touch "$state/enabled"
+  omarchy-power-ally initialise
+  systemctl --user daemon-reload
+  systemctl --user enable --now omarchy-ally-power.service
+  omarchy-power-ally status
+else
+  [[ -r $state/ppd-enabled ]] || { echo 'No setup receipt exists.' >&2; exit 1; }
+  systemctl --user disable --now omarchy-ally-power.service || true
+  if [[ -f $state/enabled ]]; then
+    omarchy-power-ally rollback
+    rm "$state/enabled"
+  fi
+  # Do not remove or replace a unit the user has subsequently edited.
+  if cmp -s "$unit" "$OMARCHY_PATH/default/handheld/omarchy-ally-power.service"; then rm "$unit"; fi
+  systemctl --user daemon-reload
+  if [[ $(<"$state/user-manager-active") != "active" ]]; then systemctl --user stop steamos-manager.service; fi
+  if [[ $(<"$state/user-manager-enabled") != "enabled" ]]; then systemctl --user disable steamos-manager.service; fi
+  if [[ $(<"$state/manager-active") != "active" ]]; then sudo systemctl stop steamos-manager.service; fi
+  if [[ $(<"$state/manager-enabled") != "enabled" ]]; then sudo systemctl disable steamos-manager.service; fi
+  if [[ $(<"$state/ppd-enabled") != "masked" ]]; then sudo systemctl unmask power-profiles-daemon.service; fi
+  if [[ $(<"$state/ppd-enabled") == "enabled" ]]; then sudo systemctl enable power-profiles-daemon.service; fi
+  if [[ $(<"$state/ppd-active") == "active" ]]; then sudo systemctl start power-profiles-daemon.service; fi
+  echo "Previous power owner restored. Receipt and preferences kept in $state."
+fi

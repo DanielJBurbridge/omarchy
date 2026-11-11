@@ -41,8 +41,9 @@ cat >"$fake_bin/quickshell" <<'SH'
 #!/bin/bash
 
 printf '%s\n' "$*" >>"$OMARCHY_TEST_QS_LOG"
-printf 'watcher=%s popup=%s background=%s\n' \
-  "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" "${OMARCHY_STARTUP_BACKGROUND:-unset}" >>"$OMARCHY_TEST_QS_ENV_LOG"
+printf 'watcher=%s popup=%s im=%s modules=%s desktop=%s trusted=%s background=%s\n' \
+  "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" \
+  "${QT_IM_MODULE:-unset}" "${QT_IM_MODULES:-unset}" "${QT_VIRTUALKEYBOARD_DESKTOP_DISABLE:-unset}" "${OMARCHY_TRUSTED_KEYBOARD:-unset}" "${OMARCHY_STARTUP_BACKGROUND:-unset}" >>"$OMARCHY_TEST_QS_ENV_LOG"
 
 launches=$(wc -l <"$OMARCHY_TEST_QS_LOG")
 status=$(awk -v n="$launches" 'NR == n { print; found = 1 } END { if (!found) print "0" }' <<<"$OMARCHY_TEST_QS_STATUSES")
@@ -89,6 +90,12 @@ shift 2
 printf '%s\n' "$*" >>"$OMARCHY_TEST_LOGGER_LOG"
 SH
 
+cat >"$fake_bin/omarchy-hw-rog-ally" <<'SH'
+#!/bin/bash
+[[ ${OMARCHY_TEST_ALLY:-0} == "1" ]]
+SH
+chmod +x "$fake_bin/omarchy-hw-rog-ally"
+
 chmod +x "$fake_bin/quickshell" "$fake_bin/systemd-cat" "$fake_bin/hyprctl" "$fake_bin/logger"
 
 qs_log="$test_tmp/quickshell.log"
@@ -104,6 +111,7 @@ launch_shell() {
 
   PATH="$fake_bin:$PATH" \
   HOME="$launch_home" \
+  QT_IM_MODULE=fcitx QT_IM_MODULES=fcitx QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=0 \
   OMARCHY_PATH="$shell_root" \
   OMARCHY_TEST_QS_LOG="$qs_log" \
   OMARCHY_TEST_QS_ENV_LOG="$qs_env_log" \
@@ -120,7 +128,7 @@ launches() {
   wc -l <"$qs_log" | tr -d ' '
 }
 
-launch_shell '0' || fail "a clean launch succeeds"
+OMARCHY_TEST_ALLY=1 launch_shell '0' || fail "a clean launch succeeds"
 [[ $(launches) == 1 ]] || fail "a shell that exits cleanly is not relaunched" "$(<"$qs_log")"
 grep -F -- "-n -p $shell_root/shell" "$qs_log" >/dev/null || fail "the shell launches from OMARCHY_PATH"
 pass "a shell that exits cleanly is left alone"
@@ -132,6 +140,15 @@ pass "a shell that exits cleanly is left alone"
 pass "the shell launches with Quickshell's config watcher and reload popup off"
 [[ $(<"$qs_env_log") == *"background=$startup_wallpaper" ]] || fail "the shell receives the resolved wallpaper path before startup" "$(<"$qs_env_log")"
 pass "the selected wallpaper can decode as soon as Quickshell starts"
+
+[[ $(<"$qs_env_log") == *"im=fcitx modules=fcitx desktop=0 trusted=unset "* ]] ||
+  fail "Ally shell preserves caller IME while trusted keyboard activation is held" "$(<"$qs_env_log")"
+pass "Ally shell does not activate process-wide Qt Virtual Keyboard"
+
+OMARCHY_TEST_ALLY=0 launch_shell '0' || fail "ordinary desktop launch succeeds"
+[[ $(<"$qs_env_log") == *"im=fcitx modules=fcitx desktop=0 trusted=unset "* ]] ||
+  fail "ordinary hardware keeps its existing desktop IME" "$(<"$qs_env_log")"
+pass "ordinary hardware preserves its desktop input method"
 
 # Qt leaves through _exit(), so Quickshell's crash handler never relaunches it.
 launch_shell $'255\n0' || fail "a shell that died on a Wayland error is relaunched"
@@ -218,3 +235,49 @@ launch_pid=""
 [[ -f $qs_terminated ]] || fail "the running shell is signalled when the supervisor is"
 [[ $(launches) == 1 ]] || fail "the signalled shell is not relaunched" "$(<"$qs_log")"
 pass "stopping the supervisor stops the shell it is watching"
+
+# The real launcher, Quickshell and Qt input-context getter must keep an
+# unrelated QML importer away from the populated lock field. A child then
+# reports the three exact inherited values, including unset versus empty.
+if command -v quickshell >/dev/null 2>&1; then
+  context_root="$test_tmp/input-context"
+  mkdir -p "$context_root/shell" "$context_root/runtime" "$context_root/bin"
+  chmod 700 "$context_root/runtime"
+  cp "$SHELL_TEST_DIR/fixtures/lock-input-context/"*.qml "$context_root/shell/"
+  ln -s "$ROOT/shell/Ui" "$context_root/shell/Ui"
+  ln -s "$ROOT/shell/Commons" "$context_root/shell/Commons"
+  cp "$fake_bin/systemd-cat" "$fake_bin/omarchy-hw-rog-ally" "$context_root/bin/"
+  for variant in unset empty custom; do
+    context_env=()
+    case $variant in
+      unset) context_env=(-u QT_IM_MODULE -u QT_IM_MODULES -u QT_VIRTUALKEYBOARD_DESKTOP_DISABLE) ;;
+      empty) context_env=(QT_IM_MODULE= QT_IM_MODULES= QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=) ;;
+      custom) context_env=(QT_IM_MODULE=fcitx QT_IM_MODULES='fcitx;ibus' QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=0) ;;
+    esac
+    PATH="$context_root/bin:$PATH" OMARCHY_TEST_ALLY=1 HOME="$launch_home" \
+      XDG_RUNTIME_DIR="$context_root/runtime" OMARCHY_PATH="$context_root" \
+      OMARCHY_AUTH_SOURCE_ROOT="$ROOT" OMARCHY_AUTH_CHILD_RESULT="$context_root/$variant.json" \
+      OMARCHY_AUTH_EXPECT_EXPOSED=0 QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_QUICK_BACKEND=software \
+      env "${context_env[@]}" timeout 15 "$ROOT/bin/omarchy-launch-shell" >"$context_root/$variant.log" 2>&1 || {
+        cat "$context_root/$variant.log" >&2
+        fail "real launcher input-context check runs ($variant)"
+      }
+    if ! grep -q 'LOCK_INPUT_CONTEXT_TEST_PASS' "$context_root/$variant.log" || grep -q 'LOCK_INPUT_CONTEXT_TEST_FAIL' "$context_root/$variant.log"; then
+      cat "$context_root/$variant.log" >&2
+      fail "unrelated QML cannot read lock password ($variant)"
+    fi
+    for _ in {1..30}; do
+      [[ -s $context_root/$variant.json ]] && break
+      sleep 0.1
+    done
+    python3 - "$context_root/$variant.json" "$variant" <<'PY_CHILD'
+import json, sys
+keys = ['QT_IM_MODULE', 'QT_IM_MODULES', 'QT_VIRTUALKEYBOARD_DESKTOP_DISABLE']
+values = {'unset': [None, None, None], 'empty': ['', '', ''], 'custom': ['fcitx', 'fcitx;ibus', '0']}[sys.argv[2]]
+with open(sys.argv[1]) as result:
+  actual = json.load(result)
+assert actual == dict(zip(keys, values)), actual
+PY_CHILD
+    pass "unrelated importer cannot read password and real child preserves exact $variant IME environment"
+  done
+fi

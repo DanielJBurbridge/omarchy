@@ -1,0 +1,28 @@
+#!/bin/bash
+# omarchy:summary=Control the optional RC71L InputPlumber desktop and gamepad profiles
+# omarchy:args=[status|desktop|gamepad|dualsense|toggle|capabilities|intercept <none|all>|watch]
+
+set -euo pipefail
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  cat <<'HELP'
+Usage: omarchy-hw-rog-ally-input [status|desktop|gamepad|dualsense|toggle|capabilities]
+       omarchy-hw-rog-ally-input intercept <none|all>
+       omarchy-hw-rog-ally-input watch
+
+Requires the optional omarchy-rog-ally-input companion package and InputPlumber.
+Desktop: right stick pointer, A/RT left click/drag, B/LT right click,
+X middle click, bumpers scroll, Y Enter, Start Escape, Select Tab.
+Command Centre short opens Power; long toggles the desktop keyboard.
+Armoury short opens the menu; long switches desktop/gamepad mode.
+Gamepad: Xbox Elite by default; dualsense selects DS5 Edge for gyro.
+Gamepad Command Centre opens Steam; long invokes Steam keyboard.
+Armoury short invokes Steam QAM. Long switches mode only in Hyprland.
+Profiles clear held target inputs on change. Switching target disconnects it;
+choose a target before launching a game. Calibration/layouts use Steam Input.
+Intercept all routes inputs to a D-Bus overlay; always restore none on close.
+Watch is an event-driven bridge for an active, unlocked Hyprland session.
+HELP
+  exit 0
+fi
+omarchy-hw-rog-ally || { echo 'Input setup is only for the original ASUS ROG Ally RC71L.' >&2; exit 1; }
+exec python "$OMARCHY_PATH/default/rog-ally-input/bridge.py" "$@"

@@ -1,0 +1,8 @@
+#!/bin/bash
+# Steam calls this through the private gaming PATH. Never change SDDM policy.
+if (( $# == 1 )) && [[ $1 == "plasma" ]]; then
+  exec omarchy-launch-gaming-desktop
+else
+  echo 'Only Switch to Desktop is supported here; use omarchy-setup-gaming-session for preferences.' >&2
+  exit 2
+fi

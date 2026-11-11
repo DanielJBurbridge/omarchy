@@ -1,0 +1,35 @@
+#!/bin/bash
+# omarchy:summary=Switch a managed Hyprland session to standalone gaming
+# omarchy:args=[--help]
+
+set -euo pipefail
+if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
+  echo 'Save your work and exit Steam, then run omarchy-launch-gaming-session from Omarchy (session preference).'
+  exit 0
+fi
+(( $# == 0 )) || exit 2
+source "$OMARCHY_PATH/default/gaming/session.sh"
+omarchy-hw-rog-ally || { gaming_fail 'this action supports the original RC71L only.'; exit 1; }
+gaming_runtime_init
+[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] || exit 1
+if [[ ! -f $gaming_runtime/active || $(cat "$gaming_runtime/active") != "desktop" ]]; then
+  gaming_fail 'Save your work, sign out and select Omarchy (session preference) at sign-in first.'
+  omarchy-notification-send 'Gaming session' 'Sign out and select Omarchy (session preference) first.'
+  exit 1
+fi
+if pgrep -u "$UID" -x steam >/dev/null; then
+  gaming_fail 'Exit Steam first so it can start on the gaming display.'
+  omarchy-notification-send 'Gaming session' 'Exit Steam, save your work, then try again.'
+  exit 1
+fi
+if ! omarchy-cmd-present gamescope || ! omarchy-cmd-present steam; then
+  gaming_fail 'install the optional gaming session dependencies first.'
+  exit 1
+fi
+# Stop while the departing desktop still owns its Wayland connection.
+omarchy-toggle-desktop-keyboard stop
+# The worker survives desktop teardown and owns the marker through the actual
+# logout result. Submitting omarchy-system's asynchronous job is not completion.
+systemd-run --user --collect --quiet --property=Type=exec --property=RuntimeMaxSec=30s \
+  --setenv=PATH --setenv=HYPRLAND_INSTANCE_SIGNATURE --setenv=OMARCHY_PATH \
+  "$OMARCHY_PATH/default/gaming/switch.sh" "$gaming_runtime"

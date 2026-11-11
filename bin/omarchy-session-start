@@ -1,0 +1,159 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Supervise the optional authenticated handheld login session
+# omarchy:args=<preferred|gaming>
+
+set -uo pipefail
+# This is a pre-UWSM login boundary; use the canonical environment bootstrap.
+# shellcheck source=/dev/null
+source /usr/share/omarchy/default/bash/env-bootstrap
+source "$OMARCHY_PATH/default/gaming/session.sh"
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" ]] || exit 2
+
+desktop() {
+  export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
+  # UWSM intentionally removes XDG_SESSION_ID from the user manager. Carry our
+  # managed login identity through its normal environment import/cleanup.
+  if [[ -n ${gaming_runtime:-} ]]; then export OMARCHY_HANDHELD_SESSION=$XDG_SESSION_ID; fi
+  unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  uwsm start -g -1 -e -D Hyprland hyprland.desktop
+  local status=$?
+  unset OMARCHY_HANDHELD_SESSION
+  return "$status"
+}
+
+if ! omarchy-hw-rog-ally; then
+  desktop
+  exit $?
+fi
+gaming_state_init && gaming_runtime_init || exit 1
+exec 9>"$gaming_runtime/lock"
+flock -n 9 || { gaming_fail 'a managed session is already running.'; exit 1; }
+scope=omarchy-gamescope-$XDG_SESSION_ID.scope
+scope_pid='' ready_pid='' return_pid=''
+started_power_units=()
+
+stop_gaming() {
+  if [[ -n $scope_pid ]]; then
+    systemctl --user stop "$scope" || true
+    wait "$scope_pid" 2>/dev/null || true
+    scope_pid=''
+  fi
+  for child in "$ready_pid" "$return_pid"; do
+    if [[ -n $child ]]; then kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi
+  done
+  ready_pid='' return_pid=''
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return"
+  # Stop only services this gaming session acquired, policy listener first.
+  for unit in "${started_power_units[@]}"; do
+    systemctl --user stop "$unit" || true
+  done
+  started_power_units=()
+}
+cleanup() { stop_gaming; rm -f "$gaming_runtime/active" "$gaming_runtime/switch"; }
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+run_gaming() {
+  omarchy-cmd-present gamescope && omarchy-cmd-present steam || return 1
+  # A surviving desktop client would forward the startup request elsewhere.
+  if pgrep -u "$UID" -x steam >/dev/null; then
+    gaming_fail 'Steam is still running. Exit Steam before switching sessions.'
+    return 1
+  fi
+  gaming_display_args || { gaming_fail 'invalid display settings; reset them.'; return 1; }
+  # These companion integrations are optional; installed backends own their
+  # resources and a failed mode switch must not leave a half-switched session.
+  if omarchy-pkg-present omarchy-rog-ally-input; then
+    omarchy-hw-rog-ally-input gamepad || return 1
+  fi
+  local display_args=() display_output
+  if omarchy-cmd-present omarchy-display-rog-ally; then
+    display_output=$(omarchy-display-rog-ally gamescope-args) || return 1
+    if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
+  fi
+  if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
+    omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
+    gamescope_args+=(--mangoapp)
+  fi
+  if [[ -f ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power/enabled ]]; then
+    for unit in steamos-manager.service omarchy-ally-power.service; do
+      if ! systemctl --user is-active --quiet "$unit"; then
+        systemctl --user start "$unit" || return 1
+        started_power_units=("$unit" "${started_power_units[@]}")
+      fi
+    done
+  fi
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/steam-exit"
+  mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" || return 1
+  # Open read/write to make timeout include the wait for the first writer.
+  (read -r -t 60 event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
+  ready_pid=$!
+  (read -r event <> "$gaming_runtime/return" && [[ $event == "desktop" ]]) &
+  return_pid=$!
+  export OMARCHY_GAMING_RUNTIME=$gaming_runtime
+  export XDG_CURRENT_DESKTOP=gamescope XDG_SESSION_DESKTOP=gamescope
+  unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  mv -f "$gaming_state/session.log" "$gaming_state/session.previous.log" 2>/dev/null || true
+  # A scope preserves logind seat access. A user service would lose that link.
+  # Scope stop owns only this session's subtree, including games and helpers.
+  systemd-run --user --scope --quiet --collect --unit="$scope" \
+    --property=TimeoutStopSec=15s \
+    gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
+    "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" \
+    > "$gaming_state/session.log" 2>&1 9>&- &
+  scope_pid=$!
+  local finished='' status=0
+  wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
+  local started=false
+  if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
+    started=true
+    ready_pid=''
+    gaming_save last gaming
+    wait -n -p finished "$scope_pid" "$return_pid" || status=$?
+  fi
+  if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
+    echo 'Requested return to desktop.' >> "$gaming_state/session.log"
+  elif [[ $finished == "$ready_pid" ]]; then
+    status=1
+    echo 'Gamescope did not start its Steam child within 60 seconds.' >> "$gaming_state/session.log"
+  elif ! $started; then
+    status=1
+    echo 'Gamescope exited before starting its Steam child.' >> "$gaming_state/session.log"
+  fi
+  stop_gaming
+  # Gamescope can return zero after its primary child fails. Preserve Steam's
+  # own result rather than confusing a compositor exit with a client success.
+  if [[ -f $gaming_runtime/steam-exit && $(cat "$gaming_runtime/steam-exit") != "0" ]]; then
+    status=1
+  fi
+  unset OMARCHY_GAMING_RUNTIME
+  return "$status"
+}
+
+if [[ $1 == "gaming" ]]; then
+  selection=gaming
+  rm -f "$gaming_state/recovery"
+else
+  selection=$(gaming_selection)
+fi
+while true; do
+  printf '%s\n' "$selection" > "$gaming_runtime/active"
+  if [[ $selection == "gaming" ]]; then
+    if ! run_gaming; then
+      gaming_save recovery 'Gaming failed; desktop selected until an explicit gaming choice.'
+    fi
+    stop_gaming
+    selection=desktop
+  else
+    gaming_save last desktop
+    desktop
+    status=$?
+    if [[ -f $gaming_runtime/switch ]] && [[ $(cat "$gaming_runtime/switch") == "gaming" ]]; then
+      rm -f "$gaming_runtime/switch"
+      selection=gaming
+    else
+      exit "$status"
+    fi
+  fi
+done

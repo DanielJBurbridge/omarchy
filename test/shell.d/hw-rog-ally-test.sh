@@ -4,6 +4,9 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+# These exercise input ownership, lock races and hotplug, not physical input.
+PYTHONDONTWRITEBYTECODE=1 python "$ROOT/test/helpers/rog-ally-input.py" "$ROOT/default/rog-ally-input/bridge.py"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 
@@ -314,3 +317,134 @@ if note=$(OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
 fi
 [[ $note == *"Install the reviewed wvkbd"* ]] || fail "keyboard setup accepts the short Ally product with RC71L board" "$note"
 pass "keyboard setup accepts the short Ally product with RC71L board"
+
+# Power-button routing must never suspend a desktop whose lock failed, or
+# replace the ordinary laptop/desktop power menu. The existing sleep-lock
+# suite exercises secure-lock IPC; this exercises the caller's decision.
+power_omarchy="$test_tmp/power-omarchy"
+mkdir -p "$power_omarchy/bin" "$test_tmp/runtime"
+cat >"$power_omarchy/bin/omarchy-system-sleep-lock" <<'SH'
+#!/bin/bash
+echo lock >>"$PKG_LOG"
+exit "${FAKE_LOCK_RESULT:-0}"
+SH
+cat >"$stub/omarchy-menu" <<'SH'
+#!/bin/bash
+echo "menu $*" >>"$PKG_LOG"
+SH
+cat >"$stub/systemctl" <<'SH'
+#!/bin/bash
+echo "systemctl $*" >>"$PKG_LOG"
+SH
+cat >"$stub/omarchy-sleep-disabled" <<'SH'
+#!/bin/bash
+exit "${FAKE_SLEEP_DISABLED:-1}"
+SH
+cat >"$stub/omarchy-toggle-enabled" <<'SH'
+#!/bin/bash
+[[ $1 == "suspend-off" ]] && exit "${FAKE_SUSPEND_OFF:-1}"
+exit 1
+SH
+chmod +x "$power_omarchy/bin/omarchy-system-sleep-lock" "$stub/omarchy-menu" \
+  "$stub/systemctl" "$stub/omarchy-sleep-disabled" "$stub/omarchy-toggle-enabled"
+
+run_power_button() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    XDG_RUNTIME_DIR="$test_tmp/runtime" OMARCHY_PATH="$power_omarchy" \
+    PKG_LOG="$pkg_log" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-system-power-button"
+}
+
+for product in "ROG Strix G16" "ROG Ally X RC72LA"; do
+  write_dmi "$vendor" "$product" ""
+  : >"$pkg_log"
+  run_power_button
+  [[ $(<"$pkg_log") == "menu toggle system" ]] || fail "power button preserves $product power menu"
+done
+pass "non-RC71L power buttons retain the existing system menu"
+
+write_dmi "$vendor" "ROG Ally" "RC71L"
+: >"$pkg_log"
+run_power_button
+[[ $(<"$pkg_log") == $'lock\nsystemctl suspend' ]] || fail "RC71L locks before requesting suspend"
+pass "RC71L power button locks before requesting suspend"
+
+: >"$pkg_log"
+if FAKE_LOCK_RESULT=1 run_power_button; then
+  fail "a failed lock cancels the power-button suspend"
+fi
+[[ $(<"$pkg_log") == "lock" ]] || fail "a failed lock never reaches systemctl"
+pass "failed desktop lock cancels suspend"
+
+: >"$pkg_log"
+FAKE_SLEEP_DISABLED=0 run_power_button
+FAKE_SUSPEND_OFF=0 run_power_button
+[[ $(<"$pkg_log") == $'menu toggle system\nmenu toggle system' ]] || fail "sleep-disabled settings prevent button suspend"
+pass "RC71L honours disabled suspend settings"
+
+: >"$pkg_log"
+(
+  flock 9
+  run_power_button
+) 9>"$test_tmp/runtime/omarchy-power-button.lock"
+[[ ! -s $pkg_log ]] || fail "overlapping power-button events are ignored"
+pass "overlapping power-button events cannot race the desktop lock"
+
+# A gaming daemon on the desktop would handle the same press a second time.
+# Run the real launch guard with the real DMI predicate and a recording daemon.
+cat >"$stub/omarchy-cmd-present" <<'SH'
+#!/bin/bash
+[[ $1 == "steamos-powerbuttond" && ${FAKE_POWERBUTTON_INSTALLED:-1} == "1" ]]
+SH
+cat >"$stub/steamos-powerbuttond" <<'SH'
+#!/bin/bash
+echo daemon >>"$PKG_LOG"
+SH
+chmod +x "$stub/omarchy-cmd-present" "$stub/steamos-powerbuttond"
+
+run_gaming_button() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    XDG_RUNTIME_DIR="$test_tmp/runtime" XDG_CURRENT_DESKTOP="${TEST_DESKTOP:-gamescope}" \
+    DISPLAY="${TEST_DISPLAY-:7}" HYPRLAND_INSTANCE_SIGNATURE="${TEST_HYPRLAND:-}" \
+    PKG_LOG="$pkg_log" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-launch-gaming-powerbutton"
+}
+
+: >"$pkg_log"
+write_dmi "$vendor" "ROG Ally X RC72LA" "RC72LA"
+if run_gaming_button; then fail "Ally X cannot start the RC71L handler"; fi
+write_dmi "$vendor" "ROG Ally" "RC71L"
+if TEST_DESKTOP=Hyprland run_gaming_button; then fail "desktop cannot start gaming handler"; fi
+if TEST_HYPRLAND=active run_gaming_button; then fail "active Hyprland cannot start gaming handler"; fi
+if TEST_DISPLAY= run_gaming_button; then fail "handler must wait for Gamescope DISPLAY"; fi
+if FAKE_POWERBUTTON_INSTALLED=0 run_gaming_button; then fail "missing companion is explicit"; fi
+[[ ! -s $pkg_log ]] || fail "refused launches never reach the daemon"
+pass "gaming handler rejects unsupported hardware, desktop and missing prerequisites"
+
+run_gaming_button
+[[ $(<"$pkg_log") == "daemon" ]] || fail "Gamescope RC71L starts upstream daemon"
+: >"$pkg_log"
+(
+  flock 9
+  run_gaming_button
+) 9>"$test_tmp/runtime/omarchy-power-button.lock"
+[[ ! -s $pkg_log ]] || fail "a second button handler cannot start"
+pass "gaming handler starts once and shares exclusion with desktop handler"
+
+# A substring match for 0x74 would also tag an ordinary keyboard carrying
+# only KEY_ZOOM (0x174). Query a real isolated hwdb, never the host database.
+hwdb_root="$test_tmp/hwdb"
+mkdir -p "$hwdb_root/usr/lib/udev/hwdb.d"
+cp "$ROOT/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.hwdb" "$hwdb_root/usr/lib/udev/hwdb.d/"
+systemd-hwdb --root="$hwdb_root" --strict update
+for keys in "74," "71,74,8F,"; do
+  tagged=$(systemd-hwdb --root="$hwdb_root" query "id-input:modalias:input:b0019v0000p0001e0000-e0,1,k${keys}ramlsfw")
+  [[ $tagged == "OMARCHY_POWER_BUTTON=1" ]] || fail "hwdb finds KEY_POWER in its capability list"
+done
+tagged=$(systemd-hwdb --root="$hwdb_root" query "id-input:modalias:input:b0019v0000p0001e0000-e0,1,k174,ramlsfw")
+[[ -z $tagged ]] || fail "hwdb must not grant power-button access to KEY_ZOOM"
+pass "hwdb matches KEY_POWER tokens without tagging unrelated keyboard capabilities"

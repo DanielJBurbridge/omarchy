@@ -1,0 +1,18 @@
+# Optional companion to the separately reviewed AUR decky-loader package.
+pkgname=omarchy-gaming-decky
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Package-managed service safeguards for optional Decky Loader'
+arch=('any')
+url='https://github.com/DanielJBurbridge/omarchy'
+license=('MIT')
+depends=('decky-loader')
+source=('50-omarchy.conf' 'LICENSE')
+sha256sums=('68339ba504ecf31b5192a38644ce879a22673a31851672d657cc1a2163f8e96c'
+            '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2')
+
+package() {
+  install -Dm644 "$srcdir/50-omarchy.conf" \
+    "$pkgdir/usr/lib/systemd/system/decky-loader@.service.d/50-omarchy.conf"
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

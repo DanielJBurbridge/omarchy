@@ -73,7 +73,7 @@ Use **Game libraries** to choose an already formatted microSD or USB partition. 
 
 Use an executable Linux filesystem such as ext4 or Btrfs for Proton prefixes. Windows/shared filesystems need extra care; do not assume that a writable folder supports Proton's symlinks, filename rules and permissions. **Check** validates access and mount options, not every game's compatibility. Keep a second copy of valuable saves outside the microSD card.
 
-Steam Cloud coverage varies by game. Close the game and let synchronisation finish before copying saves. Back up `userdata`, the relevant games' `steamapps/compatdata` prefixes, and game-specific native save folders. External Steam libraries have their own `compatdata`. Do not publish these backups: they can contain identifiers or account information. See the explicit copy and restore examples in the installed source's `docs/rog-ally-storage.md`.
+Steam Cloud coverage varies by game. Close the game and let synchronisation finish before copying saves. Back up `userdata`, the relevant games' `steamapps/compatdata` prefixes, and game-specific native save folders. External Steam libraries have their own `compatdata`. Do not publish these backups: they can contain identifiers or account information. See the [explicit copy and restore examples](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-release-20261111/docs/rog-ally-storage.md#user-data-backup-and-restore-u14).
 
 ## Firmware and boot security
 

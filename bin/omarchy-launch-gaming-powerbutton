@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# omarchy:summary=Run the optional RC71L power-button handler inside the gaming session
+# omarchy:hidden=true
+
+set -euo pipefail
+
+if ! omarchy-hw-rog-ally; then
+  echo "Gaming power-button handling is only configured for ROG Ally RC71L." >&2
+  exit 1
+fi
+
+if [[ ${XDG_CURRENT_DESKTOP:-} != "gamescope" || -z ${DISPLAY:-} || -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  echo "Start the power-button handler inside the Gamescope Steam child session." >&2
+  exit 1
+fi
+
+if ! omarchy-cmd-present steamos-powerbuttond; then
+  echo "Install the reviewed omarchy-rog-ally-powerbutton companion package first." >&2
+  exit 1
+fi
+
+# SESSION owns this foreground process, its kill/wait and enclosing scope.
+# Never enable a global service or let desktop and gaming handle one press.
+exec 9>"$XDG_RUNTIME_DIR/omarchy-power-button.lock"
+flock -n 9 || exit 0
+exec steamos-powerbuttond

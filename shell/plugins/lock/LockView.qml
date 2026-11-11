@@ -54,7 +54,24 @@ Item {
   }
 
   function clearPassword() {
+    Qt.inputMethod.reset()
     passwordTextEdited("")
+  }
+
+  function cancelEntry() {
+    if (authenticatingPassword) return
+    clearPassword()
+    clearFailureRequested()
+    Qt.inputMethod.hide()
+    forcePasswordFocus()
+  }
+
+  function submitEntry() {
+    if (!inputEnabled || authenticatingPassword) return
+    Qt.inputMethod.commit()
+    var submitted = passwordText
+    clearPassword()
+    if (submitted.length > 0) submitPassword(submitted)
   }
 
   // Waking a DPMS-blanked display can stall the compositor for seconds while
@@ -81,6 +98,12 @@ Item {
   onPasswordTextChanged: syncPasswordText()
   onInputEnabledChanged: {
     if (inputEnabled) Qt.callLater(forcePasswordFocus)
+  }
+
+  onAuthenticatingPasswordChanged: {
+    if (!authenticatingPassword && inputEnabled) Qt.callLater(function() {
+      root.forcePasswordFocus()
+    })
   }
 
   // A VT switch, which the NVIDIA driver forces around every suspend, takes the
@@ -141,9 +164,10 @@ Item {
 
     BorderSurface {
       id: inputField
-      width: root.fieldWidth
+      width: Math.min(root.fieldWidth, parent.width - 32)
       height: root.fieldHeight
-      anchors.centerIn: parent
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.verticalCenter: parent.verticalCenter
       color: Commons.Color.lock.background
       borderSpec: root.inputBorderSpec
       radius: Style.cornerRadius
@@ -151,6 +175,7 @@ Item {
 
       TextInput {
         id: passwordInput
+        objectName: "lockPassword"
         anchors.fill: parent
         anchors.topMargin: inputField.borderTop
         // Reserve the fingerprint icon's width on both sides so the centered
@@ -167,6 +192,7 @@ Item {
         echoMode: TextInput.Password
         passwordCharacter: "\u25CF"
         passwordMaskDelay: 0
+        inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
         color: Commons.Color.lock.text
         selectionColor: Commons.Color.lock.selection
         selectedTextColor: Commons.Color.lock.text
@@ -188,11 +214,7 @@ Item {
           if (text.length > 0 && root.failureMessage.length > 0) root.clearFailureRequested()
         }
 
-        onAccepted: {
-          var submitted = root.passwordText
-          root.passwordTextEdited("")
-          if (submitted.length > 0) root.submitPassword(submitted)
-        }
+        onAccepted: root.submitEntry()
 
         Keys.onPressed: function(event) {
           root.wakeRequested()
@@ -201,7 +223,7 @@ Item {
             return
           }
           if (event.key === Qt.Key_Escape || (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_U)) {
-            root.passwordTextEdited("")
+            root.cancelEntry()
             event.accepted = true
           }
         }
@@ -243,14 +265,40 @@ Item {
       }
     }
 
+    Row {
+      id: actions
+      anchors.top: inputField.bottom
+      anchors.topMargin: 12
+      anchors.horizontalCenter: parent.horizontalCenter
+      spacing: 8
+      enabled: root.inputEnabled && !root.authenticatingPassword
+
+      Button {
+        objectName: "lockCancel"
+        text: Commons.I18n.t("lock.cancel")
+        width: (inputField.width - 8) / 2
+        height: 48
+        bordered: true
+        onClicked: { root.wakeRequested(); root.cancelEntry() }
+      }
+      Button {
+        objectName: "lockSubmit"
+        text: Commons.I18n.t("lock.unlock")
+        width: (inputField.width - 8) / 2
+        height: 48
+        bordered: true
+        onClicked: { root.wakeRequested(); root.submitEntry() }
+      }
+    }
+
     // The crossed-out icon has no meaning to a user who has never seen it — it
     // is not intuitive that it signals a broken reader — so the words carry the
     // explanation and the icon only reinforces it.
     Text {
       objectName: "fingerprintUnavailableNotice"
       textFormat: Text.PlainText
-      anchors.top: inputField.bottom
-      anchors.topMargin: 18
+      anchors.top: actions.bottom
+      anchors.topMargin: 12
       anchors.horizontalCenter: inputField.horizontalCenter
       visible: root.fingerprintConfigured && root.fingerprintUnavailable
       text: Commons.I18n.t("lock.fingerprintUnavailable")

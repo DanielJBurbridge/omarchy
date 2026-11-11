@@ -1,0 +1,91 @@
+# Trusted touch authentication
+
+Source increment for SDDM K06/K08/K09 and preserved K12 behaviour. **K07 trusted lock touch keyboard is held and unavailable** pending a separate trusted host; it must not be enabled inside the plugin-bearing shell. Installed RC71L touch, controller and fingerprint acceptance remains the sole rollout owner's responsibility. K11 is investigated separately below.
+
+## Boundaries and behaviour
+
+The SDDM theme provides an editable user chooser, a visible session chooser, Password, Keyboard, Cancel and Sign in. It reads names and indices directly from SDDM's `userModel` and `sessionModel`. A valid remembered session wins; if no valid remembered session exists, the existing uwsm desktop is preferred. `omarchy.desktop`, `omarchy-gamescope.desktop` (Omarchy Gaming) and `omarchy-handheld.desktop` are discovered through SDDM, not launched by theme code. SESSION owns their installation and behaviour. No autologin or PAM policy is added.
+
+The lock retains its existing `WlSessionLockSurface`, physical password/fingerprint authentication, and visible Unlock/Cancel controls. It has no integrated touch keyboard. An external desktop wvkbd window cannot unlock it. The authentication service remains detached from the shell's host object tree and plugin facades.
+
+Both password fields mask immediately, mark input as sensitive, disable prediction and automatic capitalisation, and commit composed text before submission. For SDDM, Qt's packaged language key, Shift, symbols, long-press alternatives and Backspace provide layout/editing support. The language key selects a Qt keyboard layout; physical keyboards still use the compositor's XKB layout. The two layout choices are separate. Do not infer that all 50 Omarchy interface languages have a matching Qt password layout.
+
+Cancel or Escape discards the entry and hides the keyboard. Cancel is disabled while authentication is in flight; it cannot unlock the session or cancel an SDDM PAM transaction. Return and the visible submit button use the same submission path. Duplicate submission is blocked during a password check; failure clears the field and restores focus for retry. The lock retains its existing empty-password guard. SDDM retains its existing PAM handling, including whether a user's account accepts an empty password.
+
+Qt Virtual Keyboard cannot safely share a process with unrelated QML plugins: an importer of `QtQuick.VirtualKeyboard.Core` can reach the focused password QObject through `InputContext.inputItem` (or its private alias), even when the field is masked and the authentication service is detached. The shell launcher therefore sets no Qt keyboard/input-context overrides, and the lock's integrated keyboard loader and activation binding have been removed. Masking and sensitive-data hints are not an access-control boundary.
+
+This also corrects the original app-environment regression: Quickshell captures its initial environment for `execDetached` and `Process`, and `uwsm-app` scopes inherit their caller's environment. Merely overriding the shell's launch environment did affect applications launched from it. With those overrides removed, the shell and its children retain the caller's exact prior `QT_IM_MODULE`, `QT_IM_MODULES` and `QT_VIRTUALKEYBOARD_DESKTOP_DISABLE`, including unset versus empty values. No global Fcitx value is forced, and no general child-launch wrappers are added.
+
+SDDM remains separately deliverable because its greeter process loads the fixed trusted theme rather than the desktop's third-party plugin registry. Its keyboard is created only on demand and only on the active monitor, since Qt supports one `InputPanel` per process. It is embedded, not a new window. Desktop keyboard shortcuts remain TOUCH/INPUT's responsibility and are not authentication shortcuts.
+
+A future K07 implementation requires an agreed trusted authentication host with no third-party QML or another narrowly demonstrated safe input mechanism. That design must preserve the existing lock lifecycle, fingerprint/PAM behaviour and read-only INPUT state contract. Do not re-enable the process-wide keyboard as an environment-only fix.
+
+The existing lock's separate password and fingerprint PAM contexts are unchanged. The enrolled-reader hint and unavailable-reader notice remain visible, and password entry remains available when a reader fails. This does not establish RC71L fingerprint support: the rollout owner must record driver, enrollment and actual PAM results. No fingerprint enrollment or PAM editing is performed by this increment.
+
+## Read-only lock-state feed
+
+The detached first-party lock service owns a Unix stream socket at `$XDG_RUNTIME_DIR/omarchy-lock-$HYPRLAND_INSTANCE_SIGNATURE.sock`. Each subscriber immediately receives one JSON line with exactly `{"locked":true}` or `{"locked":false}`. The producer re-reads `currentlyLocked()` on connection and on `lockRequested`, compositor locked and compositor secure transitions; identical consecutive booleans are suppressed. Thus a lock request blocks desktop input before the compositor confirms the secure surface. No secret, authentication object or request method is exported. Any unsolicited bytes disconnect that subscriber, including an unterminated byte.
+
+INPUT owns the consumer: check the peer UID, require a strict boolean, treat missing/malformed data or EOF as unknown/locked, and watch the runtime directory for socket recreation. Do not authorise desktop input from a saved false value after disconnect. At initial connection and action boundaries, also check the existing canonical `omarchy-shell lock isLocked` and compositor helper to cover a stranded compositor lock during shell startup. The compositor helper's exit 2 is undetermined and must fail closed. Those checks are event-driven, never idle polling. No logind LockedHint or PAM policy changes are made.
+
+The producer starts only for a service with its normal shell host, so standalone service fixtures cannot replace the live shell's endpoint. It adds no process or timer. The focused `lock-state-test.sh` exercises the actual Unix stream offscreen: initial/late snapshots, two-subscriber changes, duplicate suppression, rejected writes and EOF on producer destruction. Its existing source checks cover the actual session-lock transition wiring; real secure-lock/controller acceptance still belongs to rollout.
+
+## Dependencies and package manifest
+
+Required package: `qt6-virtualkeyboard`. Arch Extra and the configured sync database supplied **6.12.0-1** when checked on 11 November 2026, matching local Qt 6.12.0. The package includes the platform input plugin, `QtQuick.VirtualKeyboard`, layouts, styles and their runtime dependencies. Reuse the installed package under its published licences; no upstream keyboard source is copied into Omarchy. The package metadata lists GPL-3.0-only, LGPL-3.0-only, LicenseRef-Qt-Commercial and Qt-GPL-exception-1.0; individual components retain their own notices.
+
+Reviewed source-to-install mapping for the normal Omarchy package build:
+
+| Source | Installed role/path |
+| --- | --- |
+| `install/omarchy-base.packages` | Required package set: add `qt6-virtualkeyboard` |
+| `default/sddm/omarchy/Main.qml` | Settings package: `/usr/share/sddm/themes/omarchy/Main.qml` |
+| `etc/sddm.conf.d/10-wayland.conf` | Settings package: `/etc/sddm.conf.d/10-wayland.conf` |
+| `bin/omarchy-launch-shell` | Runtime package command, reached through the normal Omarchy installation |
+| `shell/plugins/lock/Service.qml`, `LockView.qml` and `LockStateSocket.qml` | Runtime package shell sources |
+| `default/i18n/en/shell.json` | Runtime package fallback strings |
+
+Only SDDM's trusted greeter receives `QT_IM_MODULE=qtvirtualkeyboard`, `QT_IM_MODULES=qtvirtualkeyboard` and `QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1`, through `GreeterEnvironment`. The last variable prevents an external keyboard window. The plural setting takes precedence in current Qt. Do not put these settings in the desktop session or shell launcher environment.
+
+The source integrator must include the required keyboard package in the reviewed release dependency/install transaction; adding it to the source package list does not install it on an existing machine. Do not activate the SDDM theme against a release that lacks this dependency. Dev link alone does not publish the SDDM theme or fixed greeter configuration. Existing `omarchy-refresh-sddm` can publish the theme from a trusted installed/development tree, but it does not publish `/etc/sddm.conf.d/10-wayland.conf`.
+
+## Serial deployment and rollback
+
+Only the rollout owner executes this procedure. Before deploying, record existing runtime/settings package versions, save the matching package archives, back up the installed SDDM theme and configuration including any local overrides, and retain a working physical USB keyboard and TTY login. Save work before any planned logout. Do not modify disk encryption, autologin or PAM to make the test pass.
+
+1. Install the required dependency through `omarchy-pkg-add qt6-virtualkeyboard`, then apply the integrator's reviewed runtime/settings package build through the established package release route. Record the exact installed versions and archive paths. Check package file ownership, fixed theme/config contents and `.pacnew` files before logout; a locally modified config may need an explicit reviewed merge.
+2. From an unlocked desktop, the rollout owner can run `omarchy-restart-shell` once to load the runtime sources. The integrated lock keyboard remains unavailable; verify physical password/fingerprint and the read-only INPUT state feed without claiming touch unlock support. A preview cannot prove secure-lock behaviour.
+3. Exercise SDDM at the next deliberate logout/reboot. Do not restart the display manager under a live user session. Check that `QT_IM_MODULES`, `QT_IM_MODULE` and desktop-disable settings reached the greeter; never enable secret-bearing Qt/PAM debug logging during real password entry.
+4. If the increment fails, return through the physical keyboard/TTY and reinstall the saved matching runtime/settings archives (`sudo pacman -U <previous-runtime-archive> <previous-settings-archive>`), restore the backed-up greeter config/theme where local files differed, and restart the shell from the unlocked desktop. Use the restored greeter on the next deliberate logout. Keep the keyboard dependency installed until no active or installed UI needs it. No LUKS rollback is needed because this increment changes no boot files.
+
+Do not publish real passwords, keyboard traces, account names or personal screen contents. Screenshots and recordings use dummy input and stay outside Git.
+
+## Focused checks and physical acceptance
+
+`bash test/shell.d/lock-autorepeat-test.sh` runs an offscreen SDDM fixture against the real Qt input plugin and greeter. It checks masked non-US input, layout selection, Backspace, virtual Return, visible submission, cancellation, failure/retry, duplicate submission guards and selected session forwarding. The existing live lock autorepeat check still requires a compositor. `launch-shell-test.sh` additionally runs the real supervisor and Quickshell with a populated, focused real lock field: an unrelated QML component imports Qt Virtual Keyboard Core and attempts to read that field through its global input context. A real detached child reports the exact prior Qt IME environment in unset, empty and custom-value cases. These regressions exercise both the password-object exposure and the app-environment boundary. Existing fingerprint, lock state and authentication-boundary checks remain relevant.
+
+The SDDM fixture uses a dummy proxy only to capture calls and emit failure; it does not claim PAM, fingerprint or compositor security verification. It does not contact the actual device or take a session lock.
+
+The rollout owner still needs to record:
+
+- RC71L screen scale and keyboard geometry: password, session chooser, submit and Cancel remain visible with the keyboard shown; inspect at native resolution and configured scaling. Inspect the language popup and long-press symbol row for clipping. Repeat on an external monitor; at most one keyboard appears in the active surface.
+- Actual touch keys: lowercase, Shift/capital, number, punctuation, non-US accented character, long-press alternative, layout switch and Backspace. Use a test account/password containing those characters. Verify the keyboard's key labels agree with the characters entered; never expose the actual password to demonstrate this.
+- Real wrong-password PAM failure, retry, visible submit, Return and Cancel on SDDM; physical password/fingerprint fallback on secure lock. Touch unlock remains held. Check focus after VT switch, suspend/resume and monitor changes.
+- Real authenticated selection of desktop, gaming and managed-preference sessions when SESSION's package is installed; confirm failed login preserves the chosen session. No greeter shortcut may bypass authentication.
+- Fingerprint success/failure/unavailable behaviour if this device has a working enrolled reader; password fallback remains usable. Distinguish absent driver support from UI regressions.
+- Cold-boot LUKS result separately. A successful SDDM or lock keyboard says nothing about encrypted-disk input.
+
+## K11: encrypted-disk input investigation
+
+The current RC71L boot path uses the busybox mkinitcpio `udev`, `plymouth`, `keyboard` and `encrypt` hooks. `default/plymouth/omarchy.script` renders password bullets; it supplies no touch keyboard. Qt Virtual Keyboard is available only after the root filesystem and GUI have started.
+
+Upstream [BuffyBox/unl0kr](https://gitlab.com/postmarketOS/mirror/buffybox/-/raw/master/unl0kr/README.md) provides fbdev/DRM touch password entry, hardware keyboard hotplug and runtime layouts. It is a candidate for a separate boot increment, not installed support here. Upstream's Arch package link points to AUR `buffybox`; no `buffybox` or `unl0kr` was available in the configured sync repositories. The current [AUR recipe](https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=buffybox) was retrieved and inspected: version 3.6.0-1 builds split packages `buffyboard` and `unl0kr`, with both busybox `unl0kr` and systemd `sd-unl0kr` mkinitcpio integration files. This establishes an available source recipe, not a reviewed boot release or RC71L support. The project is GPL-3.0-or-later. Its password goes to stdout and must be passed directly to the decrypt operation, never to logs or shell tracing.
+
+A later boot increment needs a reviewed package/hook, actual RC71L touchscreen/display module discovery in the initramfs, a tested fallback boot entry and physical cold-boot verification. The [linux-surface integration reference](https://github.com/linux-surface/linux-surface/wiki/Disk-Encryption) distinguishes busybox `unl0kr` from systemd `sd-unl0kr`; its device module list is not evidence for the Ally. Bazzite's [early-boot OSK request](https://github.com/ublue-os/bazzite/issues/5842) was still open when checked. Keep the current encryption configuration and physical USB keyboard recovery intact.
+
+## Primary references
+
+- [Qt application integration and environment settings](https://doc.qt.io/qt-6/qtvirtualkeyboard-deployment-guide.html).
+- [Qt InputPanel: one panel per application](https://doc.qt.io/qt-6/qml-qtquick-virtualkeyboard-inputpanel.html).
+- [Arch package, dependencies and licences](https://archlinux.org/packages/extra/x86_64/qt6-virtualkeyboard/).
+- [SDDM greeter model and login integration](https://github.com/sddm/sddm/blob/develop/src/greeter/GreeterApp.cpp). SDDM's normal `InputMethod` setting is deliberately skipped for a Wayland greeter; process-local `GreeterEnvironment` supplies the embedded application input plugin.

@@ -158,7 +158,6 @@ exit 93''',
     print('PASS held input retains disable/readiness without exposing activation or private paths')
     for choice, expected in (
         ('Roll back power backend', 'omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-power --rollback\n'),
-        ('Desktop power panel', 'omarchy-shell shell toggle omarchy.power\n'),
     ):
         result = run('omarchy-setup-rog-ally', choices=('Power setup', choice), POWER_TOOLS='1')
         assert result.returncode == 0 and (root / 'actions').read_text() == expected, result

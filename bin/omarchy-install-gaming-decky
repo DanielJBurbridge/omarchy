@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# omarchy:summary=Install optional Decky from a reviewed AUR recipe without enabling it
+# omarchy:args=--install-reviewed-aur
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+if (( $# != 1 )) || [[ $1 != "--install-reviewed-aur" ]]; then
+  echo "Review the decky-loader AUR recipe and docs/gaming-tools.md first." >&2
+  echo "Usage: omarchy install gaming decky --install-reviewed-aur" >&2
+  exit 2
+fi
+if ! omarchy-hw-x86; then
+  echo "The reviewed Decky AUR recipe targets x86; no packages changed." >&2
+  exit 1
+fi
+if omarchy-cmd-missing steam; then
+  echo "Initialise native Steam before adding Decky." >&2
+  exit 1
+fi
+# The reviewed 3.3.1-1 recipe invokes python -m installer without declaring it.
+omarchy-pkg-add python-installer
+omarchy-pkg-aur-add decky-loader
+
+echo "Decky package installed; this command does not enable or restart its service."
+echo "Review/build the omarchy-gaming-decky companion before activation."
+echo "Decky plugins run as root and activation enables Steam remote debugging."
+echo "Use package updates, not Decky's in-app updater. See docs/gaming-tools.md."

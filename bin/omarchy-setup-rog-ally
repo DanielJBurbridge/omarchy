@@ -64,12 +64,10 @@ while true; do
       choose 'One power owner — reviewed SteamOS Manager required' \
         "$(row '󰋖' 'Power readiness' 'Actual available controls and readback; no hardware changes')" \
         "$(row '󰁯' 'Roll back power backend' 'Verify original settings, then restore prior services; reconnect AC if needed')" \
-        "$(row '󰁹' 'Desktop power panel' 'Existing panel with supported controls; does not cross into Gamescope')" \
         "$(row '󰌑' 'Back' 'No changes')"
       case "$selection" in
         'Power readiness') omarchy-hw-rog-ally-status --menu ;;
         'Roll back power backend') omarchy-launch-floating-terminal-with-presentation omarchy-setup-rog-ally-power --rollback; exit ;;
-        'Desktop power panel') omarchy-shell shell toggle omarchy.power; exit ;;
       esac
       ;;
     'Gaming session')

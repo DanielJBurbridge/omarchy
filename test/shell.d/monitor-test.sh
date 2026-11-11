@@ -161,3 +161,188 @@ assertDeepEqual(
 
 assertDeepEqual(monitor.parseDisplays('{'), { displays: [], enabledDisplayCount: 0 }, 'monitor handles invalid display JSON')
 JS
+
+# RC71L boundary: request VRR from capability, never from the currently active
+# state. HDR must be external, advertised, and effective before reporting success.
+require_command jq
+require_command lua
+require_command python
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/bin" "$tmp/home" "$tmp/drm"
+export ALLY_TEST_TMP="$tmp"
+cat >"$tmp/bin/hyprctl" <<'SH'
+#!/bin/bash
+case $1 in
+monitors) cat "$ALLY_TEST_TMP/monitors" ;;
+devices) printf '%s\n' '{"touch":[{"name":"ally-touch"}]}' ;;
+eval|dispatch) printf '%s\n' "$2" >>"$ALLY_TEST_TMP/eval" ;;
+esac
+SH
+cat >"$tmp/bin/gamescope" <<'SH'
+#!/bin/bash
+printf '%s\n' '--prefer-output'
+SH
+cat >"$tmp/bin/omarchy-restart-hyprctl" <<'SH'
+#!/bin/bash
+printf 'reload\n' >>"$ALLY_TEST_TMP/eval"
+SH
+for tool in omarchy-hyprland-monitor-internal omarchy-hyprland-monitor-internal-mirror; do
+  printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/$tool"
+done
+chmod +x "$tmp/bin/"*
+printf 'ASUSTeK COMPUTER INC.\n' >"$tmp/vendor"
+printf 'ROG Ally RC71L_RC71L\n' >"$tmp/product"
+printf 'RC71L\n' >"$tmp/board"
+ally() {
+  HOME="$tmp/home" XDG_STATE_HOME="$tmp/home/.local/state" OMARCHY_DRM_PATH="$tmp/drm" \
+    OMARCHY_DMI_SYS_VENDOR_PATH="$tmp/vendor" OMARCHY_DMI_PRODUCT_NAME_PATH="$tmp/product" OMARCHY_DMI_BOARD_NAME_PATH="$tmp/board" \
+    PATH="$tmp/bin:$ROOT/bin:$PATH" "$ROOT/bin/omarchy-display-rog-ally" "$@"
+}
+cat >"$tmp/monitors" <<'JSON'
+[{"name":"eDP-1","width":1920,"height":1080,"scale":1.5,"transform":0,"x":0,"y":0,"disabled":false,"vrr":false,"hardwareDetails":{"vrrCapable":true}},
+ {"name":"DP-1","width":3840,"height":2160,"scale":2,"transform":0,"x":1280,"y":0,"disabled":false,"vrr":true,"hardwareDetails":{}}]
+JSON
+: >"$tmp/eval"
+ally vrr eDP-1 fullscreen >/dev/null
+grep -q 'vrr = 2' "$tmp/eval" || fail 'Ally can request supported VRR before it is active'
+: >"$tmp/eval"
+if ally vrr DP-1 on >"$tmp/out" 2>&1; then fail 'active VRR alone is not capability evidence'; fi
+if ally hdr eDP-1 on >"$tmp/out" 2>&1; then fail 'Ally refuses internal HDR'; fi
+if ally hdr DP-1 on >"$tmp/out" 2>&1; then fail 'unknown external HDR capability is refused'; fi
+[[ ! -s $tmp/eval ]] || fail 'unsupported requests leave outputs untouched'
+pass 'Ally VRR/HDR guards distinguish supported, active, unknown and internal SDR'
+jq '.[1].hardwareDetails = {hdr:true,bt2020:true} | .[1].colorManagementPreset="srgb" | .[1].currentFormat="XRGB8888"' "$tmp/monitors" >"$tmp/new"
+mv "$tmp/new" "$tmp/monitors"
+if ally hdr DP-1 on >"$tmp/out" 2>&1; then fail 'HDR candidate rejected by compositor is not reported as effective'; fi
+grep -q 'bitdepth = 10, cm = "hdr"' "$tmp/eval" || fail 'external HDR candidate is submitted without forcing capabilities'
+tail -n 1 "$tmp/eval" | grep -q 'bitdepth = 8, cm = "srgb"' || fail 'ineffective HDR restores previous depth and colour'
+pass 'Ally restores colour settings when compositor declines HDR'
+# Known-good modes still use the generic validation/persistence implementation.
+jq '.[0].availableModes = ["1920x1080@60.00Hz", "1920x1080@120.00Hz"] | .[0].refreshRate = 120' "$tmp/monitors" >"$tmp/new"
+mv "$tmp/new" "$tmp/monitors"
+ally native 60
+: >"$tmp/eval"
+if ally native 75 >"$tmp/out" 2>&1; then fail 'unadvertised Ally refresh is refused'; fi
+[[ ! -s $tmp/eval ]] || fail 'invalid native mode cannot change the output'
+ally dock DP-1 >/dev/null
+grep -q 'hl.dsp.focus({ monitor = "DP-1" })' "$tmp/eval" || fail 'dock profile focuses with the supported dispatcher'
+ally handheld >/dev/null
+grep -q 'hl.dsp.focus({ monitor = "eDP-1" })' "$tmp/eval" || fail 'handheld restores internal focus'
+pass 'Ally native mode validates advertised rates and dock profile uses generic persistence'
+
+# The same EDID comes back on another dock connector; unplugged preferences
+# must produce no argv, rather than force an absent output or a made-up mode.
+mkdir -p "$tmp/drm/card1-DP-1"
+printf 'connected\n' >"$tmp/drm/card1-DP-1/status"
+python -c 'import sys; sys.stdout.buffer.write(bytes(range(128)))' >"$tmp/drm/card1-DP-1/edid"
+ally gaming-output DP-1
+mv "$tmp/drm/card1-DP-1" "$tmp/drm/card2-DP-3"
+ally gamescope-args >"$tmp/argv"
+[[ $(cat "$tmp/argv") == $'--prefer-output\nDP-3' ]] || fail 'gaming output follows EDID to a renamed connector'
+printf 'disconnected\n' >"$tmp/drm/card2-DP-3/status"
+ally gamescope-args >"$tmp/argv" 2>"$tmp/diagnostic"
+[[ ! -s $tmp/argv ]] || fail 'disconnected gaming output falls back to native selection'
+ally gaming-output auto
+ally gamescope-args >"$tmp/argv"
+[[ ! -s $tmp/argv ]] || fail 'auto gaming output supplies no overrides'
+printf 'connected\n' >"$tmp/drm/card2-DP-3/status"
+ally gaming-output DP-3
+mkdir -p "$tmp/drm/card3-DP-4"
+cp "$tmp/drm/card2-DP-3/"* "$tmp/drm/card3-DP-4/"
+if ally gamescope-args >"$tmp/argv" 2>"$tmp/diagnostic"; then fail 'identical EDIDs are ambiguous'; fi
+[[ ! -s $tmp/argv ]] || fail 'ambiguous EDID emitted no partial argv'
+pass 'Ally gaming argv follows a renamed dock and fails safely for unplugged or ambiguous outputs'
+
+ally touch ally-touch
+[[ $(cat "$tmp/home/.local/state/omarchy/rog-ally-display/touch-device") == 'ally-touch' ]] || fail 'selected touchscreen is stored as data'
+# The Lua module uses a data name, follows orientation events, and disables the
+# internal touchscreen when its output is off, preventing focus-based fallback.
+HOME="$tmp/home" XDG_STATE_HOME="$tmp/home/.local/state" lua - <<'LUA'
+package.path = os.getenv("ROOT") .. "/?.lua;" .. package.path
+local calls, events = {}, {}
+local monitors = {{ name = "eDP-1", transform = 0 }}
+o = { shell_succeeds = function() return true end }
+hl = {
+  device = function(spec) calls[#calls + 1] = spec end,
+  get_monitors = function() return monitors end,
+  on = function(event, fn) events[event] = fn end,
+}
+require("default.hypr.rog-ally-touch")
+assert(calls[1].name == "ally-touch" and calls[1].output == "eDP-1" and calls[1].enabled)
+monitors[1].transform = 1
+events["monitor.layout_changed"]()
+assert(calls[2].transform == 1)
+events["monitor.layout_changed"]()
+assert(#calls == 2, "unchanged events are no-ops")
+monitors = {{name = "DP-1", transform = 0}}
+events["monitor.removed"]()
+assert(not calls[3].enabled, "dark panel cannot send touches to a focused dock")
+monitors = {{name = "eDP-1", transform = 0}}
+events["monitor.added"]()
+assert(calls[4].enabled and calls[4].transform == 0)
+package.loaded["default.hypr.rog-ally-touch"] = nil
+o.shell_succeeds = function() return false end
+require("default.hypr.rog-ally-touch")
+assert(#calls == 4, "a saved mapping must do nothing on a different machine")
+LUA
+pass 'Ally touch mapping follows layout events without polling and stays scoped to RC71L'
+ally touch reset
+[[ ! -e $tmp/home/.local/state/omarchy/toggles/hypr/rog-ally-touch.lua ]] || fail 'touch reset removes its own loader'
+printf 'Other vendor\n' >"$tmp/vendor"
+: >"$tmp/eval"
+if ally native 60 >"$tmp/out" 2>&1; then fail 'non-Ally cannot configure the Ally display'; fi
+[[ ! -s $tmp/eval ]] || fail 'non-Ally host is left untouched'
+pass 'Ally display operations fail closed on other hardware'
+
+# The preset edits only bar geometry, retains larger effective dimensions,
+# backs up state and refuses rollback over subsequent user edits.
+python - <<'PY'
+import importlib.util
+import os
+import sys
+sys.dont_write_bytecode = True
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("touch_preset", Path(os.environ["ROOT"]) / "default/rog-ally/touch-preset.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+import tomllib
+original = '# keep this comment\n[font]\nbase-size = 16\n[bar]\nsize-horizontal = 60\ntext = "red"\n[controls]\nnormal-fill-alpha = 0.1\n'
+updated = module.upsert_bar(original, {"size-horizontal": 80, "size-vertical": 44, "scale-with-font": "false"})
+parsed = tomllib.loads(updated)
+assert parsed["bar"] == {"size-horizontal":80,"size-vertical":44,"scale-with-font":False,"text":"red"}
+assert parsed["font"]["base-size"] == 16 and '# keep this comment' in updated
+assert parsed["controls"]["normal-fill-alpha"] == 0.1
+try:
+  module.upsert_bar('[bar]\ntext = """first\nsize-horizontal = 80\nlast"""\n', {"size-horizontal":44})
+except ValueError:
+  pass
+else:
+  raise AssertionError("multiline TOML string was modified as a setting")
+# In-process command boundary: test actual file writes and rollback, leaving
+# monitor scaling's own logic to the existing scaling suite.
+home = Path(os.environ["ALLY_TEST_TMP"]) / "preset-home"
+config = home / ".config/omarchy/shell.toml"
+config.parent.mkdir(parents=True)
+config.write_text(original)
+os.environ["HOME"] = str(home)
+os.environ.pop("XDG_STATE_HOME", None)
+module.run = lambda *args: "eDP-1" if args[0] == "omarchy-hyprland-monitor-laptop" else ""
+import sys
+sys.argv = ["touch-preset", "apply"]
+module.main()
+assert tomllib.loads(config.read_text())["bar"]["size-horizontal"] == 80
+sys.argv[1] = "reset"
+config.write_text(config.read_text() + '# subsequent edit\n')
+try:
+  module.main()
+except ValueError:
+  pass
+else:
+  raise AssertionError("rollback overwrote subsequent changes")
+assert '# subsequent edit' in config.read_text()
+config.write_bytes((home / ".local/state/omarchy/rog-ally-display/touch-preset/shell.toml.applied").read_bytes())
+module.main()
+assert config.read_text() == original
+PY
+pass 'Ally touch preset preserves unrelated settings, larger targets and later user changes'

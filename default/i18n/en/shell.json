@@ -1,4 +1,8 @@
 {
+  "power.chargeDefault": "Default",
+  "power.handheldSetupRequired": "Power controls need reviewed-package setup.",
+  "bar.desktopKeyboard": "Keyboard",
+  "bar.desktopKeyboardToggle": "Show or hide desktop keyboard (Super+Ctrl+Y)",
   "agents.active": "ACTIVE",
   "agents.addAccount": "Add an account",
   "agents.addAnother": "Add another",
@@ -344,6 +348,8 @@
   "imagePicker.deleteTheme": "Do you want to delete %1?",
   "lock.authenticationFailed": "Authentication failed (%1)",
   "lock.checking": "Checking…",
+  "lock.cancel": "Cancel",
+  "lock.unlock": "Unlock",
   "lock.enterPassword": "Enter Password",
   "lock.fingerprintUnavailable": "Fingerprint reader unavailable",
   "media.mediaSource": "Media source",

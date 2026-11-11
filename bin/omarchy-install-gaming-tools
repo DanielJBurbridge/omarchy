@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# omarchy:summary=Install optional compatibility, runner-management or performance tools
+# omarchy:args=<compatibility|protonplus|overlay|goverlay|gamemode|sunshine>
+# omarchy:examples=omarchy install gaming tools compatibility | omarchy install gaming tools overlay
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+if (( $# != 1 )); then
+  echo "Usage: omarchy install gaming tools <compatibility|protonplus|overlay|goverlay|gamemode|sunshine>" >&2
+  exit 2
+fi
+
+install_overlay() {
+  local packages=(mangohud)
+  if omarchy-hw-x86; then
+    packages+=(lib32-mangohud)
+  fi
+  omarchy-pkg-add "${packages[@]}"
+}
+
+install_flatpak() {
+  local app=$1
+  omarchy-pkg-add flatpak
+  if flatpak info --user "$app" >/dev/null 2>&1 || flatpak info --system "$app" >/dev/null 2>&1; then
+    echo "$app is already installed."
+  else
+    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    flatpak install --user --noninteractive flathub "$app"
+  fi
+}
+
+case $1 in
+  compatibility)
+    # UMU runs x86 Windows games; Arch supplies it from multilib.
+    if ! omarchy-hw-x86; then
+      echo "UMU's Arch package requires x86 multilib; no packages changed." >&2
+      exit 1
+    fi
+    omarchy-install-gaming-gpu-lib32
+    omarchy-pkg-add umu-launcher protontricks winetricks
+    echo "Use protontricks --gui for an existing Steam prefix, or umu-run for non-Steam games."
+    echo "No runners or game prefixes were changed. UMU downloads its runtime on first launch."
+    ;;
+  protonplus)
+    # Use the distribution method recommended by ProtonPlus upstream.
+    install_flatpak com.vysp3r.ProtonPlus
+    echo "Open ProtonPlus from the app launcher and choose a runner for the intended launcher/game."
+    echo "Existing runners and per-game selections were kept. Restart Steam after adding a runner."
+    ;;
+  overlay)
+    install_overlay
+    echo "Per-game desktop launch option: omarchy-launch-gaming-overlay -- %command%"
+    echo "Gamescope sessions use gamescope --mangoapp instead; see docs/gaming-tools.md."
+    ;;
+  goverlay)
+    install_overlay
+    omarchy-pkg-add goverlay
+    echo "Open GOverlay from the app launcher. Review changes before enabling a global overlay."
+    ;;
+  sunshine)
+    install_flatpak dev.lizardbyte.app.Sunshine
+    echo "Launch Sunshine from the app launcher and select the desktop portal for capture."
+    echo "Host input/udev setup is separate: review upstream additional-install.sh before granting it privileges."
+    echo "No host rules, firewall ports or autostart services were changed; see docs/gaming-tools.md."
+    ;;
+  gamemode)
+    # GameMode writes governors and platform profiles even with empty desiredgov/
+    # desiredprof settings. Keep the RC71L's POWER backend as the sole owner.
+    if omarchy-hw-rog-ally; then
+      echo "GameMode is not installed on RC71L: its power writes would compete with handheld power management." >&2
+      echo "Use the handheld power backend and the overlay component instead." >&2
+      exit 1
+    fi
+    packages=(gamemode)
+    if omarchy-hw-x86; then
+      packages+=(lib32-gamemode)
+    fi
+    omarchy-pkg-add "${packages[@]}"
+    echo "GameMode is optional per game: gamemoderun %command%. No service was enabled."
+    echo "Review its governor/platform-profile writes against any other power manager first."
+    ;;
+  *)
+    echo "Unknown gaming tools component: $1" >&2
+    exit 2
+    ;;
+esac

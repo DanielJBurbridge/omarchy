@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# omarchy:summary=Report gaming packages and runtime capabilities without changing system settings
+
+set -euo pipefail
+
+echo "Kernel: $(uname -r)"
+echo "Installed gaming packages (missing packages omitted):"
+pacman -Q steam heroic-games-launcher-bin lutris umu-launcher protontricks winetricks \
+  mangohud lib32-mangohud goverlay gamemode lib32-gamemode gamescope \
+  decky-loader mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon 2>/dev/null || true
+
+echo
+echo "Runtime capabilities:"
+if [[ -c /dev/ntsync ]]; then
+  if [[ -r /dev/ntsync && -w /dev/ntsync ]]; then
+    echo "NTSync device: accessible (runner support still required)"
+  else
+    echo "NTSync device: present but inaccessible to this user"
+  fi
+else
+  echo "NTSync device: absent (no module or permissions changed)"
+fi
+for setting in /sys/kernel/sched_ext/state /sys/kernel/sched_ext/root/ops \
+  /proc/sys/vm/swappiness /proc/sys/net/ipv4/tcp_congestion_control \
+  /proc/sys/net/core/default_qdisc; do
+  if [[ -r $setting ]]; then
+    printf '%s: %s\n' "${setting#/proc/sys/}" "$(<"$setting")"
+  fi
+done
+zramctl --output NAME,ALGORITHM,DISKSIZE,DATA,COMPR,TOTAL
+lsblk --nodeps --output NAME,SCHED
+
+echo
+echo "This is a capability report, not evidence of game, overlay or controller acceptance."
