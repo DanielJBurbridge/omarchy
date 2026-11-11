@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='ally-recovery-') as temp:
         'systemctl': '''printf 'LoadState=%s\\nActiveState=%s\\n' "${LOAD:-loaded}" "${ACTIVE:-active}"''',
         'busctl': 'printf "%s\\n" "${BUS:-b false}"',
         'findmnt': 'echo btrfs',
-        'omarchy-cmd-present': 'exit 1',
+        'omarchy-cmd-present': '[[ ${TOOLS:-0} == 1 && $1 == omarchy-install-gaming-tools ]]',
         'checkupdates': '''printf '%s\\n' 'private-repo-package 1 -> 2'; exit "${UPDATE_STATUS:-0}"''',
         'omarchy-menu-select': '''printf '%s\\n' "$@" >> "$TEST_ROOT/menus"
 read -r count < "$TEST_ROOT/count"
@@ -101,3 +101,9 @@ exit 93''',
         assert result.returncode == 0, (choices, result)
         assert (root / 'actions').read_text() == expected, (choices, (root / 'actions').read_text())
     print('PASS storage, normal update and confirmed recovery route to real commands')
+    result = run('omarchy-setup-rog-ally', choices=('Game software', 'Game installers'))
+    assert result.returncode == 0 and 'summon install.gaming' in (root / 'actions').read_text(), result
+    assert 'Compatibility tools' not in (root / 'menus').read_text()
+    result = run('omarchy-setup-rog-ally', choices=('Game software', 'Compatibility tools'), TOOLS='1')
+    assert result.returncode == 0 and (root / 'actions').read_text() == 'omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-tools compatibility\n', result
+    print('PASS optional delivered tools are offered only when their command exists')
