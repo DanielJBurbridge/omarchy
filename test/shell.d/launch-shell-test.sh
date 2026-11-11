@@ -41,8 +41,9 @@ cat >"$fake_bin/quickshell" <<'SH'
 #!/bin/bash
 
 printf '%s\n' "$*" >>"$OMARCHY_TEST_QS_LOG"
-printf 'watcher=%s popup=%s background=%s\n' \
-  "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" "${OMARCHY_STARTUP_BACKGROUND:-unset}" >>"$OMARCHY_TEST_QS_ENV_LOG"
+printf 'watcher=%s popup=%s im=%s modules=%s desktop=%s trusted=%s background=%s\n' \
+  "${QS_DISABLE_FILE_WATCHER:-unset}" "${QS_NO_RELOAD_POPUP:-unset}" \
+  "${QT_IM_MODULE:-unset}" "${QT_IM_MODULES:-unset}" "${QT_VIRTUALKEYBOARD_DESKTOP_DISABLE:-unset}" "${OMARCHY_TRUSTED_KEYBOARD:-unset}" "${OMARCHY_STARTUP_BACKGROUND:-unset}" >>"$OMARCHY_TEST_QS_ENV_LOG"
 
 launches=$(wc -l <"$OMARCHY_TEST_QS_LOG")
 status=$(awk -v n="$launches" 'NR == n { print; found = 1 } END { if (!found) print "0" }' <<<"$OMARCHY_TEST_QS_STATUSES")
@@ -89,6 +90,12 @@ shift 2
 printf '%s\n' "$*" >>"$OMARCHY_TEST_LOGGER_LOG"
 SH
 
+cat >"$fake_bin/omarchy-hw-rog-ally" <<'SH'
+#!/bin/bash
+[[ ${OMARCHY_TEST_ALLY:-0} == "1" ]]
+SH
+chmod +x "$fake_bin/omarchy-hw-rog-ally"
+
 chmod +x "$fake_bin/quickshell" "$fake_bin/systemd-cat" "$fake_bin/hyprctl" "$fake_bin/logger"
 
 qs_log="$test_tmp/quickshell.log"
@@ -104,6 +111,7 @@ launch_shell() {
 
   PATH="$fake_bin:$PATH" \
   HOME="$launch_home" \
+  QT_IM_MODULE=fcitx QT_IM_MODULES=fcitx QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=0 \
   OMARCHY_PATH="$shell_root" \
   OMARCHY_TEST_QS_LOG="$qs_log" \
   OMARCHY_TEST_QS_ENV_LOG="$qs_env_log" \
@@ -120,7 +128,7 @@ launches() {
   wc -l <"$qs_log" | tr -d ' '
 }
 
-launch_shell '0' || fail "a clean launch succeeds"
+OMARCHY_TEST_ALLY=1 launch_shell '0' || fail "a clean launch succeeds"
 [[ $(launches) == 1 ]] || fail "a shell that exits cleanly is not relaunched" "$(<"$qs_log")"
 grep -F -- "-n -p $shell_root/shell" "$qs_log" >/dev/null || fail "the shell launches from OMARCHY_PATH"
 pass "a shell that exits cleanly is left alone"
@@ -132,6 +140,15 @@ pass "a shell that exits cleanly is left alone"
 pass "the shell launches with Quickshell's config watcher and reload popup off"
 [[ $(<"$qs_env_log") == *"background=$startup_wallpaper" ]] || fail "the shell receives the resolved wallpaper path before startup" "$(<"$qs_env_log")"
 pass "the selected wallpaper can decode as soon as Quickshell starts"
+
+[[ $(<"$qs_env_log") == *"im=qtvirtualkeyboard modules=qtvirtualkeyboard desktop=1 trusted=1 "* ]] ||
+  fail "the lock keyboard overrides inherited IME only inside the shell process" "$(<"$qs_env_log")"
+pass "the shell embeds its lock keyboard despite an inherited desktop IME"
+
+OMARCHY_TEST_ALLY=0 launch_shell '0' || fail "ordinary desktop launch succeeds"
+[[ $(<"$qs_env_log") == *"im=fcitx modules=fcitx desktop=0 trusted=0 "* ]] ||
+  fail "ordinary hardware keeps its existing desktop IME" "$(<"$qs_env_log")"
+pass "ordinary hardware preserves its desktop input method"
 
 # Qt leaves through _exit(), so Quickshell's crash handler never relaunches it.
 launch_shell $'255\n0' || fail "a shell that died on a Wayland error is relaunched"

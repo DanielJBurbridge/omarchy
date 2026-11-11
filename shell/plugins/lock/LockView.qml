@@ -19,6 +19,9 @@ Item {
   property bool loadBackground: true
   property string passwordText: ""
   property bool syncingPasswordText: false
+  property bool keyboardAvailable: false
+  property bool keyboardRequested: false
+  readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
   readonly property string placeholderText: Commons.I18n.t("lock.enterPassword")
   readonly property int fieldWidth: 381
@@ -54,7 +57,32 @@ Item {
   }
 
   function clearPassword() {
+    Qt.inputMethod.reset()
     passwordTextEdited("")
+  }
+
+  function showKeyboard() {
+    if (!keyboardAvailable || !inputEnabled || authenticatingPassword) return
+    keyboardRequested = true
+    forcePasswordFocus()
+    Qt.inputMethod.show()
+  }
+
+  function cancelEntry() {
+    if (authenticatingPassword) return
+    clearPassword()
+    clearFailureRequested()
+    keyboardRequested = false
+    Qt.inputMethod.hide()
+    forcePasswordFocus()
+  }
+
+  function submitEntry() {
+    if (!inputEnabled || authenticatingPassword) return
+    Qt.inputMethod.commit()
+    var submitted = passwordText
+    clearPassword()
+    if (submitted.length > 0) submitPassword(submitted)
   }
 
   // Waking a DPMS-blanked display can stall the compositor for seconds while
@@ -81,6 +109,17 @@ Item {
   onPasswordTextChanged: syncPasswordText()
   onInputEnabledChanged: {
     if (inputEnabled) Qt.callLater(forcePasswordFocus)
+    else {
+      keyboardRequested = false
+      Qt.inputMethod.hide()
+    }
+  }
+
+  onAuthenticatingPasswordChanged: {
+    if (!authenticatingPassword && inputEnabled) Qt.callLater(function() {
+      root.forcePasswordFocus()
+      if (root.keyboardRequested) Qt.inputMethod.show()
+    })
   }
 
   // A VT switch, which the NVIDIA driver forces around every suspend, takes the
@@ -141,9 +180,10 @@ Item {
 
     BorderSurface {
       id: inputField
-      width: root.fieldWidth
+      width: Math.min(root.fieldWidth, parent.width - 32)
       height: root.fieldHeight
-      anchors.centerIn: parent
+      anchors.horizontalCenter: parent.horizontalCenter
+      y: (parent.height - root.keyboardHeight - height) / 2 - (root.keyboardHeight > 0 ? 36 : 0)
       color: Commons.Color.lock.background
       borderSpec: root.inputBorderSpec
       radius: Style.cornerRadius
@@ -151,6 +191,7 @@ Item {
 
       TextInput {
         id: passwordInput
+        objectName: "lockPassword"
         anchors.fill: parent
         anchors.topMargin: inputField.borderTop
         // Reserve the fingerprint icon's width on both sides so the centered
@@ -167,6 +208,7 @@ Item {
         echoMode: TextInput.Password
         passwordCharacter: "\u25CF"
         passwordMaskDelay: 0
+        inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
         color: Commons.Color.lock.text
         selectionColor: Commons.Color.lock.selection
         selectedTextColor: Commons.Color.lock.text
@@ -188,11 +230,8 @@ Item {
           if (text.length > 0 && root.failureMessage.length > 0) root.clearFailureRequested()
         }
 
-        onAccepted: {
-          var submitted = root.passwordText
-          root.passwordTextEdited("")
-          if (submitted.length > 0) root.submitPassword(submitted)
-        }
+        onAccepted: root.submitEntry()
+        TapHandler { onTapped: root.showKeyboard() }
 
         Keys.onPressed: function(event) {
           root.wakeRequested()
@@ -201,7 +240,7 @@ Item {
             return
           }
           if (event.key === Qt.Key_Escape || (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_U)) {
-            root.passwordTextEdited("")
+            root.cancelEntry()
             event.accepted = true
           }
         }
@@ -243,14 +282,69 @@ Item {
       }
     }
 
+    Row {
+      id: actions
+      anchors.top: inputField.bottom
+      anchors.topMargin: 12
+      anchors.horizontalCenter: parent.horizontalCenter
+      spacing: 8
+      enabled: root.inputEnabled && !root.authenticatingPassword
+
+      Button {
+        objectName: "lockKeyboard"
+        visible: root.keyboardAvailable
+        text: Commons.I18n.t("lock.keyboard")
+        width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
+        height: 48
+        bordered: true
+        onClicked: {
+          root.wakeRequested()
+          if (root.keyboardHeight > 0) {
+            root.keyboardRequested = false
+            Qt.inputMethod.hide()
+          } else root.showKeyboard()
+        }
+      }
+      Button {
+        objectName: "lockCancel"
+        text: Commons.I18n.t("lock.cancel")
+        width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
+        height: 48
+        bordered: true
+        onClicked: { root.wakeRequested(); root.cancelEntry() }
+      }
+      Button {
+        objectName: "lockSubmit"
+        text: Commons.I18n.t("lock.unlock")
+        width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
+        height: 48
+        bordered: true
+        onClicked: { root.wakeRequested(); root.submitEntry() }
+      }
+    }
+
+    // A desktop OSK cannot draw on an ext-session-lock surface. Load Qt's
+    // panel into this surface, and only on the active monitor (one per process).
+    Loader {
+      id: keyboardLoader
+      objectName: "lockKeyboardLoader"
+      active: root.keyboardAvailable && root.inputEnabled && root.keyboardRequested && root.Window.active
+      width: Math.min(root.width - 16, root.height * 1.3, 1000)
+      height: root.keyboardHeight
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.bottom: parent.bottom
+      source: "TrustedKeyboard.qml"
+      onLoaded: { root.forcePasswordFocus(); Qt.inputMethod.show() }
+    }
+
     // The crossed-out icon has no meaning to a user who has never seen it — it
     // is not intuitive that it signals a broken reader — so the words carry the
     // explanation and the icon only reinforces it.
     Text {
       objectName: "fingerprintUnavailableNotice"
       textFormat: Text.PlainText
-      anchors.top: inputField.bottom
-      anchors.topMargin: 18
+      anchors.top: actions.bottom
+      anchors.topMargin: 12
       anchors.horizontalCenter: inputField.horizontalCenter
       visible: root.fingerprintConfigured && root.fingerprintUnavailable
       text: Commons.I18n.t("lock.fingerprintUnavailable")
