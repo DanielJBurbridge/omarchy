@@ -21,7 +21,7 @@ run_shell() {
   # process-wide InputContext exposes focused fields across unrelated QML;
   # it must not be enabled inside this plugin-bearing shell.
   OMARCHY_STARTUP_BACKGROUND="$startup_background" QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
-    systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell" &
+    systemd-cat -t omarchy-shell -- "$OMARCHY_PATH/bin/omarchy-lock-host" run-shell &
   shell_pid=$!
 
   local status

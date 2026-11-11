@@ -11,6 +11,7 @@ Item {
   id: root
 
   property var shell: null
+  property bool trustedHost: false
   property string omarchyPath: ""
 
   readonly property string home: Quickshell.env("HOME")
@@ -19,7 +20,7 @@ Item {
   readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
 
   property bool lockRequested: false
-  onLockRequestedChanged: lockStateSocket.stateChanged()
+  onLockRequestedChanged: publishState()
   property bool pendingSessionLock: false
   property bool authenticatingPassword: false
   property bool fingerprintAuthenticating: false
@@ -62,6 +63,8 @@ Item {
   readonly property bool videoBackground: Util.isVideoPath(backgroundPath)
   property bool strandedLock: false
   property bool strandedLockResolved: false
+  readonly property bool ownerReady: passwordPamConfigured && strandedLockResolved
+  onOwnerReadyChanged: publishState()
 
   readonly property bool locked: lockRequested || sessionLock.locked || sessionLock.secure
 
@@ -464,12 +467,53 @@ Item {
     }
   }
 
+  function snapshot() {
+    return {
+      protocol: 1,
+      owner: trustedHost ? "trusted-host" : "shell",
+      ready: ownerReady,
+      locked: currentlyLocked(), requested: lockRequested,
+      pending: pendingSessionLock, sessionLocked: sessionLock.locked,
+      secure: sessionLock.secure, realScreens: realScreenCount(),
+      passwordPam: passwordPamConfigured, fingerprint: fingerprintConfigured,
+      fingerprintUnavailable: fingerprintUnavailable, authenticating: authenticating,
+      lastEvent: lastEvent, lastEventAt: lastEventAt
+    }
+  }
+
+  function publishState() {
+    lockStateSocket.stateChanged()
+    if (trustedHost) controlSocket.stateChanged()
+  }
+
+  LockControlSocket {
+    id: controlSocket
+    active: root.trustedHost
+    readStatus: function() { return root.snapshot() }
+    onLockRequested: {
+      if (root.passwordPamConfigured && root.strandedLockResolved) {
+        if (root.currentlyLocked()) root.noteSleepRequested()
+        else root.beginLock()
+      }
+    }
+    onListening: readyFile.setText(JSON.stringify({pid: Quickshell.processId, started: Date.now()}) + "\n")
+  }
+  FileView {
+    id: readyFile
+    path: root.trustedHost ? Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-lock-ready-" + Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") + ".json" : ""
+    atomicWrites: true
+    printErrors: false
+  }
+
   LockStateSocket {
     id: lockStateSocket
     // Standalone service fixtures have no host and must not replace the live
     // shell's feed. The normal registry supplies the trusted first-party host.
-    active: root.shell !== null && path.length > 0
-    readLocked: function() { return root.currentlyLocked() }
+    active: (root.trustedHost || root.shell !== null) && path.length > 0
+    // A new independent host is unknown until its PAM/orphan checks finish.
+    // The true -> actual-state edge also lets INPUT recover from startup
+    // canonical unavailability without polling or a synthetic broker event.
+    readLocked: function() { return root.currentlyLocked() || (root.trustedHost && !root.ownerReady) }
   }
 
   WlSessionLock {
@@ -478,7 +522,7 @@ Item {
     locked: false
 
     onSecureStateChanged: {
-      lockStateSocket.stateChanged()
+      root.publishState()
       root.logEvent("secure=" + secure)
       if (secure) {
         root.pendingSessionLock = false
@@ -489,7 +533,7 @@ Item {
     }
 
     onLockStateChanged: {
-      lockStateSocket.stateChanged()
+      root.publishState()
       root.logEvent("session-locked=" + locked)
 
       if (locked) {
@@ -527,6 +571,7 @@ Item {
         authenticatingPassword: root.authenticatingPassword
         failureMessage: root.failureMessage
         failedAttempts: root.failedAttempts
+        keyboardAvailable: root.trustedHost
         inputEnabled: root.lockRequested
         loadBackground: root.locked
         passwordText: root.enteredPassword
@@ -539,41 +584,18 @@ Item {
     }
   }
 
-  PanelWindow {
-    id: previewWindow
-    // Right-to-left languages read this window mirrored.
-    Binding { target: previewWindow.contentItem; property: "LayoutMirroring.enabled"; value: Commons.I18n.rightToLeft }
-    Binding { target: previewWindow.contentItem; property: "LayoutMirroring.childrenInherit"; value: true }
-
-    visible: root.previewVisible
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    WlrLayershell.namespace: "omarchy-lock-preview"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-    exclusionMode: ExclusionMode.Ignore
-
-    LockView {
-      anchors.fill: parent
-      backgroundPath: root.backgroundPath
-      videoPosterPath: root.videoPosterPath
-      backgroundVersion: root.backgroundVersion
-      fingerprintConfigured: root.fingerprintConfigured || root.fingerprintUnavailable
-      fingerprintUnavailable: root.fingerprintUnavailable
-      authenticatingPassword: false
-      failureMessage: ""
-      failedAttempts: 0
-      inputEnabled: false
-      loadBackground: root.previewVisible
-      passwordText: ""
-    }
-
-    MouseArea {
-      anchors.fill: parent
-      acceptedButtons: Qt.LeftButton | Qt.RightButton
-      onClicked: root.previewVisible = false
-    }
+  // The trusted host never loads the desktop's layer-shell preview backend.
+  LazyLoader {
+    id: previewLoader
+    active: root.previewVisible && !root.trustedHost
+    source: root.trustedHost ? "" : "LockPreview.qml"
   }
+  Binding { target: previewLoader.item; property: "backgroundPath"; value: root.backgroundPath; when: previewLoader.item !== null }
+  Binding { target: previewLoader.item; property: "videoPosterPath"; value: root.videoPosterPath; when: previewLoader.item !== null }
+  Binding { target: previewLoader.item; property: "backgroundVersion"; value: root.backgroundVersion; when: previewLoader.item !== null }
+  Binding { target: previewLoader.item; property: "fingerprintConfigured"; value: root.fingerprintConfigured || root.fingerprintUnavailable; when: previewLoader.item !== null }
+  Binding { target: previewLoader.item; property: "fingerprintUnavailable"; value: root.fingerprintUnavailable; when: previewLoader.item !== null }
+  Connections { target: previewLoader.item; ignoreUnknownSignals: true; function onDismissed() { root.previewVisible = false } }
 
   PamContext {
     id: passwordPam
@@ -752,7 +774,9 @@ Item {
   Process {
     id: strandedLockCheckProc
     // $PPID is this shell: a crash re-execs in place, so its pid is the one to skip.
-    command: ["bash", "-c", "omarchy-hyprland-session-lock-stranded \"$PPID\""]
+    command: root.trustedHost
+      ? ["bash", "-c", "omarchy-lock-host stranded \"$PPID\""]
+      : ["bash", "-c", "omarchy-hyprland-session-lock-stranded \"$PPID\""]
     onExited: function(exitCode) {
       // No output to read the lock off yet.
       if (exitCode === 2) return
@@ -884,7 +908,7 @@ Item {
   }
 
   ShellIpc {
-    target: "lock"
+    target: root.trustedHost ? "" : "lock"
 
     function lock(): string {
       if (!root.passwordPamConfigured) return "missing-pam"
@@ -899,20 +923,7 @@ Item {
     }
 
     function status(): string {
-      return JSON.stringify({
-        locked: root.currentlyLocked(),
-        requested: root.lockRequested,
-        pending: root.pendingSessionLock,
-        sessionLocked: sessionLock.locked,
-        secure: sessionLock.secure,
-        realScreens: root.realScreenCount(),
-        passwordPam: root.passwordPamConfigured,
-        fingerprint: root.fingerprintConfigured,
-        fingerprintUnavailable: root.fingerprintUnavailable,
-        authenticating: root.authenticating,
-        lastEvent: root.lastEvent,
-        lastEventAt: root.lastEventAt
-      })
+      return JSON.stringify(root.snapshot())
     }
 
     function preview(): string {

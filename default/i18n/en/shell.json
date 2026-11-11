@@ -345,6 +345,8 @@
   "lock.authenticationFailed": "Authentication failed (%1)",
   "lock.checking": "Checking…",
   "lock.cancel": "Cancel",
+  "lock.keyboard": "Keyboard",
+  "lock.keyboardLayout": "Keyboard layout: %1",
   "lock.unlock": "Unlock",
   "lock.enterPassword": "Enter Password",
   "lock.fingerprintUnavailable": "Fingerprint reader unavailable",

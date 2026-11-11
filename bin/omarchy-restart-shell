@@ -26,7 +26,19 @@ fi
 # ask the lock service rather than merely pinging the shell: only a locker
 # that reports the lock secure or in progress is worth preserving.
 relock=0
-if omarchy-hyprland-session-locked; then
+host_owned=0
+if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && [[ $("$session_omarchy_path/bin/omarchy-lock-host" mode 2>/dev/null) == "host" ]]; then
+  host_state=$("$session_omarchy_path/bin/omarchy-lock-host" status 2>/dev/null) || host_state=
+  if [[ $(jq -r '.owner == "trusted-host"' <<<"$host_state" 2>/dev/null) == "true" ]]; then
+    host_owned=1
+  elif omarchy-hyprland-session-locked; then
+    echo "Refusing desktop restart while the trusted lock owner cannot be validated." >&2
+    exit 1
+  fi
+fi
+# A trusted auth host has a distinct config and service lifetime. Restart only
+# the plugin-bearing desktop; never kill/relock its independent active owner.
+if (( !host_owned )) && omarchy-hyprland-session-locked; then
   locking=$(OMARCHY_PATH="$session_omarchy_path" OMARCHY_SHELL_IPC_TIMEOUT=0.5s omarchy-shell lock status 2>/dev/null |
     jq -r '.secure or .requested' 2>/dev/null)
   if [[ $locking == "true" ]]; then

@@ -43,3 +43,26 @@ mapfile -t shutdown < <(rg '^(pkill|timeout) ' "$call_log")
 rg -A1 '^pkill -KILL ' "$call_log" | rg -q 'invisible = false' ||
   fail "system lock shows the cursor a killed screensaver left hidden" "$(<"$call_log")"
 pass "system lock gives the screensaver a second to restore the cursor before killing it, then restores it itself"
+
+# A trusted owner must be compositor-secure before the proactive lock caller
+# can proceed. Test the caller's failure propagation; sleep-lock-test exercises
+# the real readiness/secure state checks separately.
+mkdir -p "$tmpdir/root/bin"
+cat >"$tmpdir/root/bin/omarchy-lock-host" <<'SH'
+#!/bin/bash
+echo host
+SH
+cat >"$tmpdir/root/bin/omarchy-system-sleep-lock" <<'SH'
+#!/bin/bash
+printf 'secure-check\n' >>"$CALL_LOG"
+exit "$SECURE_RESULT"
+SH
+chmod +x "$tmpdir/root/bin/"*
+: >"$call_log"
+if PATH="$mock_bin:$PATH" CALL_LOG="$call_log" SECURE_RESULT=1 HYPRLAND_INSTANCE_SIGNATURE=fixture OMARCHY_PATH="$tmpdir/root" "$ROOT/bin/omarchy-system-lock"; then
+  fail "unready trusted lock must fail the proactive caller"
+fi
+[[ $(<"$call_log") == "secure-check" ]] || fail "failed secure acquisition must stop proactive lock completion"
+PATH="$mock_bin:$PATH" CALL_LOG="$call_log" SECURE_RESULT=0 HYPRLAND_INSTANCE_SIGNATURE=fixture OMARCHY_PATH="$tmpdir/root" "$ROOT/bin/omarchy-system-lock"
+rg -q '^hyprctl ' "$call_log" || fail "secure trusted lock can complete normal display handling"
+pass "trusted lock acquisition failure propagates before proactive lock completion"

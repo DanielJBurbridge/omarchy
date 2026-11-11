@@ -1,0 +1,5 @@
+#!/bin/bash
+# omarchy:summary=Stage trusted touch-unlock ownership for the next graphical session
+# omarchy:args=enable|disable|status
+
+exec "$OMARCHY_PATH/bin/omarchy-lock-host" setup "$@"
