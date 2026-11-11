@@ -10,6 +10,7 @@ Usage: omarchy-setup-rog-ally-input --enable|--disable
 
 Install the reviewed omarchy-rog-ally-input companion package first; it depends
 on Arch Extra inputplumber>=0.84.0. This command does not install packages.
+Enable requires exactly omarchy-rog-ally-input 1.0.3-1.
 Enable refuses competing input services; it never disables another owner.
 Disable stops this user's bridge and InputPlumber and removes the opt-in marker.
 See docs/rog-ally-input.md for package build, acceptance and full rollback.
@@ -26,7 +27,14 @@ omarchy-hw-rog-ally || { echo 'This setup is only for ASUS ROG Ally RC71L.' >&2;
 
 if [[ $action == "--enable" ]]; then
   # Package-management boundary: the companion owns fixed paths, not dev link.
-  pacman -Q omarchy-rog-ally-input >/dev/null || { echo 'Install the reviewed companion package first.' >&2; exit 1; }
+  companion=$(pacman -Q omarchy-rog-ally-input 2>/dev/null) || {
+    echo 'Requires reviewed omarchy-rog-ally-input 1.0.3-1; no changes made.' >&2
+    exit 1
+  }
+  [[ $companion == "omarchy-rog-ally-input 1.0.3-1" ]] || {
+    echo 'Requires reviewed omarchy-rog-ally-input 1.0.3-1; no changes made.' >&2
+    exit 1
+  }
   installed=$(pacman -Q inputplumber)
   version=${installed#* }
   (( $(vercmp "$version" 0.84.0) >= 0 )) || { echo 'InputPlumber 0.84.0 or newer is required.' >&2; exit 1; }
