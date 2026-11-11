@@ -1,0 +1,12 @@
+[Unit]
+Description=ROG Ally power preferences via SteamOS Manager events
+After=steamos-manager.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/omarchy-power-ally watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

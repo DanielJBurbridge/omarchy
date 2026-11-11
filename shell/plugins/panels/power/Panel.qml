@@ -20,6 +20,10 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
+  property bool handheld: false
+  property var handheldState: ({})
+  readonly property bool handheldOwner: handheld && handheldState.configured === true
+  property string handheldError: ""
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -143,7 +147,7 @@ Panel {
     if (!batteryPresent) return
 
     if (!batteryProc.running) batteryProc.running = true
-    if (!profilesProc.running) profilesProc.running = true
+    if (!handheldOwner && !profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
   }
 
@@ -190,6 +194,41 @@ Panel {
     function hide() { root.close() }
     function toggle() { root.toggle() }
     function togglePercentage() { root.togglePercentage() }
+    function refresh() { root.refreshHandheld() }
+  }
+
+  function refreshHandheld() {
+    if (handheld && !handheldProc.running) handheldProc.running = true
+  }
+
+  Process {
+    id: handheldGuard
+    command: ["omarchy-hw-rog-ally"]
+    running: true
+    onExited: function(code) { root.handheld = code === 0 }
+  }
+  Process {
+    id: handheldProc
+    command: ["omarchy-power-ally", "status"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try { root.handheldState = JSON.parse(text) }
+        catch (e) { root.handheldState = { controls: {}, error: "Power backend unavailable; run reviewed-package power setup." } }
+      }
+    }
+  }
+  Process {
+    id: handheldAction
+    stderr: StdioCollector { onStreamFinished: root.handheldError = text.trim() }
+    onExited: root.refreshHandheld()
+  }
+  FileView {
+    path: root.handheld ? (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchy/ally-power/status.json" : ""
+    watchChanges: root.handheld
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.handheldState = JSON.parse(text()) } catch (e) { root.refreshHandheld() }
+    }
   }
 
   onOpenedChanged: {
@@ -203,6 +242,7 @@ Panel {
       }
 
       refresh()
+      refreshHandheld()
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
       cursorActive = false
@@ -315,10 +355,15 @@ Panel {
       implicitHeight: column.implicitHeight
       onMoveRequested: function(dx, dy) {
         if (!root.cursorActive) { root.cursorActive = true; return }
+        if (root.handheldOwner) { handheldControls.move(dx, dy); return }
         if (dx !== 0) root.selectProfileByDelta(dx)
         else if (dy !== 0) root.selectProfileByDelta(dy)
       }
-      onActivateRequested: if (root.cursorActive) root.activateSelectedProfile()
+      onActivateRequested: {
+        if (!root.cursorActive) return
+        if (root.handheldOwner) handheldControls.activate()
+        else root.activateSelectedProfile()
+      }
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -469,6 +514,7 @@ Panel {
         }
 
         Column {
+          visible: !root.handheldOwner
           width: parent.width
           spacing: Style.space(10)
 
@@ -513,6 +559,23 @@ Panel {
                 }
               }
             }
+          }
+        }
+
+        Handheld {
+          id: handheldControls
+          visible: root.handheld
+          width: parent.width
+          state: root.handheldState
+          bar: root.bar
+          busy: handheldAction.running
+          error: root.handheldError
+          cursorActive: root.cursorActive
+          onRequested: function(control, value) {
+            if (handheldAction.running) return
+            root.handheldError = ""
+            handheldAction.command = ["omarchy-power-ally", "set", control, value]
+            handheldAction.running = true
           }
         }
       }

@@ -13,6 +13,23 @@ usage() {
 
 (( $# <= 2 )) || usage
 
+# This explicit per-user opt-in selects one RC71L writer. Ordinary machines
+# retain PPD; do not auto-select a backend merely because it is installed.
+ally_state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power"
+if [[ -f $ally_state/enabled ]] && omarchy-hw-rog-ally; then
+  if [[ -z $requested_profile ]]; then
+    # The event listener owns AC/DC and resume restoration; avoid duplicate writes.
+    exit 0
+  fi
+  case "$requested_profile" in
+    power-saver) profile=quiet ;;
+    balanced | performance) profile=$requested_profile ;;
+    *) usage ;;
+  esac
+  omarchy-power-ally set profile "$profile"
+  exit
+fi
+
 case "$action" in
   autodetect)
     # Use the same signal as the shell (UPower.onBattery) so every entry point

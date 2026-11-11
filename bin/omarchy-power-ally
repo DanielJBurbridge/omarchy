@@ -1,0 +1,7 @@
+#!/bin/bash
+# omarchy:summary=Inspect and control supported RC71L power settings through SteamOS Manager
+# omarchy:args=[status|set <control> <value>|restore|watch|run <watts> -- <command...>]
+# omarchy:examples=omarchy power ally status | omarchy power ally set tdp 15 | omarchy power ally run 15 -- steam
+
+set -euo pipefail
+exec python3 "$OMARCHY_PATH/default/handheld/power.py" "$@"
