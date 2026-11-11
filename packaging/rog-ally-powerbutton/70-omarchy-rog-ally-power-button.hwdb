@@ -1,0 +1,5 @@
+# KEY_POWER capability (0x74). Tag candidates only; the rule below restricts
+# access and discovery to the central original-RC71L hardware predicate.
+id-input:modalias:input:*,1,*k74,*
+id-input:modalias:input:*,1,*k*,74,*
+ OMARCHY_POWER_BUTTON=1

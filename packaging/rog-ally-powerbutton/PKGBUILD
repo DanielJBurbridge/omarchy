@@ -1,0 +1,32 @@
+# Optional original-RC71L integration of Valve's maintained powerbuttond.
+# No system-wide service, display manager, logind policy or kernel changes.
+pkgname=omarchy-rog-ally-powerbutton
+pkgver=4.2
+pkgrel=1
+pkgdesc='Session-scoped ROG Ally RC71L power button for Omarchy Gaming'
+arch=('x86_64')
+url='https://gitlab.steamos.cloud/holo/powerbuttond'
+license=('BSD-2-Clause')
+depends=('omarchy' 'libevdev' 'systemd-libs')
+makedepends=('git' 'gcc' 'make' 'pkgconf')
+conflicts=('steamos-powerbuttond' 'steam-powerbuttond' 'steam-powerbuttond-git')
+source=('powerbuttond::git+https://gitlab.steamos.cloud/holo/powerbuttond.git#commit=9392e68883fdb0c40bc01ab39ae75c83a541e413'
+        '70-omarchy-rog-ally-power-button.hwdb'
+        '70-omarchy-rog-ally-power-button.rules')
+sha256sums=('SKIP'
+            '2dee85350942cd4a075d7d4b11b09c71fc297313fb4b021fd926c70116a836c9'
+            '5f0c5ca5626d6703a1d75fd5a10e8a6b1dedce8e8c0a414af608cf7e1d0d5301')
+
+build() {
+  make -C powerbuttond
+}
+
+package() {
+  # Keep upstream source unmodified. Its default install also ships broad
+  # hwdb overrides and a gamescope-session.service.wants link; do not ship
+  # those in Omarchy's separately owned gaming lifecycle.
+  install -Dm755 powerbuttond/steamos-powerbuttond "$pkgdir/usr/bin/steamos-powerbuttond"
+  install -Dm644 powerbuttond/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 70-omarchy-rog-ally-power-button.hwdb "$pkgdir/usr/lib/udev/hwdb.d/70-omarchy-rog-ally-power-button.hwdb"
+  install -Dm644 70-omarchy-rog-ally-power-button.rules "$pkgdir/usr/lib/udev/rules.d/70-omarchy-rog-ally-power-button.rules"
+}
