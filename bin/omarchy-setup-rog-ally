@@ -30,13 +30,39 @@ while true; do
   options=("$(row '󰋖' 'Status' 'Packages, services, recovery readiness and unverified device checks')")
   # Backend setup commands are optional increments. Never invoke an absent
   # command or silently install a different backend in its place.
-  options+=("$(row '' 'Desktop keyboard' 'Review and install the optional wvkbd AUR package')"
+  options+=("$(row '' 'Game software' 'Steam, other launchers and optional compatibility tools')"
+    "$(row '' 'Desktop keyboard' 'Review and install the optional wvkbd AUR package')"
     "$(row '󰋊' 'Game libraries' 'Mount an existing microSD or USB filesystem; never format')"
     "$(row '󰑓' 'Update and recovery' 'Normal Omarchy updates and existing system snapshots')"
     "$(row '󰅖' 'Close' 'Leave setup without changing anything')")
   choose 'ROG Ally handheld setup' "${options[@]}"
   case "$selection" in
     'Status') omarchy-hw-rog-ally-status --menu ;;
+    'Game software')
+      game_options=("$(row '' 'Game installers' 'Open the existing Steam and launcher installers')")
+      if omarchy-cmd-present omarchy-install-gaming-tools; then
+        game_options+=("$(row '' 'Compatibility tools' 'Optional UMU, Protontricks and Winetricks')"
+          "$(row '' 'ProtonPlus' 'Optional runner manager; existing prefixes stay intact')"
+          "$(row '󰍹' 'Performance overlay' 'Optional MangoHud; enable it per game')"
+          "$(row '󰍹' 'GOverlay' 'Optional overlay configuration application')"
+          "$(row '󰖔' 'Sunshine' 'Optional streaming application; host permissions remain separate')")
+      fi
+      game_options+=("$(row '󰌑' 'Back' 'Return without installation')")
+      choose 'Game software' "${game_options[@]}"
+      component=''
+      case "$selection" in
+        'Game installers') omarchy-menu summon install.gaming; exit ;;
+        'Compatibility tools') component=compatibility ;;
+        'ProtonPlus') component=protonplus ;;
+        'Performance overlay') component=overlay ;;
+        'GOverlay') component=goverlay ;;
+        'Sunshine') component=sunshine ;;
+      esac
+      if [[ -n $component ]]; then
+        omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-tools "$component"
+        exit
+      fi
+      ;;
     'Desktop keyboard')
       choose 'Review wvkbd AUR source before installation' \
         "$(row '' 'Install reviewed keyboard' 'Uses the existing optional AUR installer; preserves existing launcher')" \

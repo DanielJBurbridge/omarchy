@@ -2,6 +2,10 @@
 
 For the original ASUS ROG Ally RC71L, open **Setup > Gaming > ROG Ally handheld** or **Setup > ROG Ally Handheld**. You can also run `omarchy setup rog ally`. Each component is an explicit choice. Opening or cancelling setup does not install packages or change services. Steam Big Picture still works inside the existing desktop on other machines.
 
+## Games and compatibility tools
+
+**Game software > Game installers** opens the existing Steam and launcher installation menu. When the delivered gaming-tools command is installed, this picker also offers optional UMU/Protontricks/Winetricks, ProtonPlus, MangoHud, GOverlay and Sunshine. These are explicit installations; they do not replace existing runners or prefixes. Sunshine host input permissions and actual streaming acceptance remain separate. GameMode is excluded from this handheld picker because its power writes would compete with the Ally power owner.
+
 ## Readiness and updates
 
 Choose **Status** for a readable report, or run:

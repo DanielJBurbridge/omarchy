@@ -72,14 +72,14 @@ bus_ready() {
 }
 module() {
   if omarchy-cmd-present "$2"; then
-    report "$1 setup" 'available; run explicitly from handheld setup'
+    report "$1 setup" 'command available; readiness and physical checks are separate'
   else
     report "$1 setup" 'not delivered in this installation'
   fi
 }
 
 report 'Hardware' 'original ROG Ally RC71L'
-for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
+for spec in 'Omarchy:omarchy' 'Development package:omarchy-dev' 'Steam:steam' 'Gamescope:gamescope' 'InputPlumber:inputplumber' 'SteamOS Manager:steamos-manager' 'PowerStation:powerstation' 'Trusted keyboard:qt6-virtualkeyboard' 'Desktop keyboard:wvkbd' 'Firmware tooling:fwupd'; do
   report "${spec%%:*} package" "$(package "${spec#*:}")"
 done
 for unit in inputplumber powerstation power-profiles-daemon; do
@@ -94,6 +94,7 @@ for unit in hhd handheld-daemon; do
 done
 report 'InputPlumber readiness' "$(bus_ready --system org.shadowblip.InputPlumber)"
 report 'SteamOS Manager readiness' "$(bus_ready --user com.steampowered.SteamOSManager1)"
+module 'Game tools' omarchy-install-gaming-tools
 module 'Dedicated session' omarchy-setup-gaming-session
 module 'Touch keyboard' omarchy-setup-rog-ally-keyboard
 report 'Physical acceptance' 'not established by this report; test touch, controllers, game and resume on device'
