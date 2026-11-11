@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# omarchy:summary=Mount an existing removable game library on the original ROG Ally
+# omarchy:args=--menu | list | mount <partition> | unmount <partition> | check <directory>
+# omarchy:examples=omarchy drive game library list | omarchy drive game library mount /dev/mmcblk0p1 | omarchy drive game library check /run/media/USER/Games
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: omarchy-drive-game-library --menu | list | mount <partition> | unmount <partition> | check <directory>"
+  echo "Uses existing removable filesystems through UDisks2. Never formats or changes mount configuration."
+}
+
+if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+action=${1:-list}
+case "$action" in
+  list|--menu) (( $# <= 1 )) || { usage >&2; exit 2; } ;;
+  mount|unmount|check) (( $# == 2 )) || { usage >&2; exit 2; } ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if ! omarchy-hw-rog-ally; then
+  echo "Game-library storage setup supports the original ROG Ally RC71L only." >&2
+  exit 1
+fi
+
+# Inspect the whole disk tree so a removable drive containing /, /home or a
+# boot partition can never be unmounted through this game-library command.
+# Deliberately omit labels, UUIDs, model names and serial numbers.
+eligible=$(lsblk --json --tree --paths --output PATH,TYPE,RM,TRAN,FSTYPE,MOUNTPOINTS | jq -r '
+  def system_disk:
+    any(.. | objects | .mountpoints? // [] | .[]?;
+      . != null and (. == "/" or . == "[SWAP]" or test("^/(boot|efi|home|usr|var)(/|$)")));
+  [.blockdevices[]
+    | select(.type == "disk" and (.rm == true or .rm == 1 or .tran == "usb") and (system_disk | not))
+    | .. | objects
+    | select(.type == "part" and (.fstype | IN("ext4", "btrfs", "xfs", "f2fs", "ntfs", "ntfs3", "exfat", "vfat")))
+    | [.path, .fstype, (if any(.mountpoints[]?; . != null) then "mounted" else "unmounted" end)]]
+  | unique | .[] | @tsv')
+
+if [[ $action == "list" ]]; then
+  printf 'Partition\tFilesystem\tState\n'
+  if [[ -n $eligible ]]; then
+    printf '%s\n' "$eligible"
+  else
+    echo "No supported removable data partitions found. Nothing was changed."
+  fi
+  exit 0
+fi
+
+choose() {
+  local status
+  if selection=$(omarchy-menu-select "$@" -- --width 600); then
+    selection=${selection%%$'\t'*}
+  else
+    status=$?
+    if (( status == 1 )); then
+      exit 0
+    else
+      exit "$status"
+    fi
+  fi
+}
+
+if [[ $action == "--menu" ]]; then
+  if [[ -z $eligible ]]; then
+    choose "Game-library storage" $'Close\tNo existing removable data partitions found; nothing changed'
+  else
+    menu_options=()
+    while IFS=$'\t' read -r candidate filesystem state; do
+      menu_options+=("$candidate"$'\t'"$filesystem — $state")
+    done <<<"$eligible"
+    menu_options+=("Close")
+    choose "Choose an existing game-library partition" "${menu_options[@]}"
+    if [[ $selection != "Close" ]]; then
+      device=$selection
+      choose "Game-library action: $device" "Mount" "Check mount" "Unmount" "Close"
+      case "$selection" in
+        Mount) "$0" mount "$device" ;;
+        Unmount) "$0" unmount "$device" ;;
+        "Check mount")
+          directory=$(findmnt --json --source "$device" --output TARGET | jq -er '.filesystems[0].target')
+          "$0" check "$directory"
+          ;;
+        Close) ;;
+        *) echo "Unknown library action." >&2; exit 2 ;;
+      esac
+    fi
+  fi
+  exit 0
+fi
+
+if [[ $action == "check" ]]; then
+  directory=$(realpath -e -- "$2")
+  if [[ ! -d $directory ]]; then
+    echo "Choose an existing directory on a mounted game-library partition." >&2
+    exit 1
+  fi
+  mounted=$(findmnt --json --target "$directory" --output SOURCE,FSTYPE,OPTIONS)
+  device=$(jq -er '.filesystems[0].source' <<<"$mounted")
+  # findmnt appends a subvolume in brackets for btrfs.
+  device=${device%%\[*}
+else
+  device=$2
+fi
+
+record=""
+while IFS=$'\t' read -r candidate filesystem state; do
+  if [[ $candidate == "$device" ]]; then
+    record=$filesystem
+    break
+  fi
+done <<<"$eligible"
+
+if [[ -z $record ]]; then
+  echo "Choose a partition from 'omarchy drive game library list'. Internal and system disks are refused." >&2
+  exit 1
+fi
+
+case "$action" in
+  mount|unmount)
+    if [[ $action == "mount" && $state == "mounted" ]]; then
+      echo "Partition is already mounted. Add its library folder in Steam Settings > Storage."
+    elif [[ $action == "unmount" && $state == "unmounted" ]]; then
+      echo "Partition is already unmounted."
+    else
+      # udiskie, in the default package set, supplies UDisks2. Its polkit
+      # policy owns authorisation; do not wrap this in sudo or force unmount.
+      udisksctl "$action" --block-device "$device"
+    fi
+    ;;
+  check)
+    mount_options=$(jq -er '.filesystems[0].options' <<<"$mounted")
+    if [[ ,$mount_options, == *,ro,* || ,$mount_options, == *,noexec,* || ! -w $directory || ! -x $directory ]]; then
+      echo "Library is not ready: the directory must be writable and the mount must permit execution." >&2
+      echo "Use the file manager to review permissions; this command does not change ownership or mount options." >&2
+      exit 1
+    fi
+    if [[ $record == "ntfs" || $record == "ntfs3" || $record == "exfat" || $record == "vfat" ]]; then
+      echo "Mounted and writable, but this filesystem is unsuitable for a reliable Proton library."
+      echo "Use an existing Linux filesystem (ext4, btrfs, xfs or f2fs) for Proton prefixes. No formatting was performed."
+      exit 1
+    fi
+    echo "Software checks passed: mounted Linux filesystem, writable directory, execution permitted."
+    echo "Add the folder in Steam Settings > Storage, then install and launch a game to verify the library."
+    ;;
+esac
