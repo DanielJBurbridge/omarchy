@@ -6,7 +6,7 @@ Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (R
 
 Per-button codes and paddle mapping are pending a device press test.
 
-Omarchy is MIT. GPL and LGPL material in these notes (CachyOS-Handheld configs, HHD MCU init bytes, and the InputPlumber-derived Ally config) stays under its own licence. Reimplement from behaviour, or vendor it as separately-licensed files with LICENSE and SPDX headers. That is a decision for Daniel.
+Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1-or-later) and the CachyOS handheld configs are not copied into this tree. For each of those, reimplement the behaviour, or vendor the files in a clearly separate path with their own LICENSE and SPDX headers. Checked licence ids are in [`distros.md`](distros.md).
 
 ## Index
 
@@ -14,5 +14,5 @@ Omarchy is MIT. GPL and LGPL material in these notes (CachyOS-Handheld configs, 
 - [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and a 10-line recommended Omarchy stack, with the steamos-manager caveat above.
 - [`distros.md`](distros.md) — How Bazzite, CachyOS Handheld, SteamOS, ChimeraOS and Nobara install, boot into gaming mode, switch to the desktop and handle docking, plus what Omarchy can reuse and under which licence.
 - [`accessibility.md`](accessibility.md) — Handheld accessibility findings for a gamescope + Steam gaming mode and the Hyprland desktop.
-- [`ally-hw-dump.md`](ally-hw-dump.md) — Read-only hardware and input dump from a real RC71L running Omarchy dev (kernel `7.2.15-2-omarchy`). Raw captures named in the note (`ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt`, `ally-omarchy-files.txt`) are not committed. The press-test script is [`tools/ally-press-test.sh`](tools/ally-press-test.sh).
+- [`ally-hw-dump.md`](ally-hw-dump.md) — Read-only hardware and input dump from a real RC71L running Omarchy dev (kernel `7.2.15-2-omarchy`). The raw captures are kept off-repo and are available on request. The press-test script is [`tools/ally-press-test.sh`](tools/ally-press-test.sh).
 - [`tools/ally-press-test.sh`](tools/ally-press-test.sh) — Device-only button press-test script. Not part of the product. It is the pending check for per-button codes and paddle mapping.

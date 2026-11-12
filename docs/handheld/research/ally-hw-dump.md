@@ -1,6 +1,6 @@
 # ROG Ally RC71L: hardware and input dump (read-only)
 
-Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing installed or changed. Raw output was captured as `ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt` and `ally-omarchy-files.txt`. Those files are not committed.
+Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing installed or changed. Raw captures (`ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt`, `ally-omarchy-files.txt`) are kept off-repo and are available on request. They hold device identifiers and are not in this repository.
 
 ## System
 - ASUSTeK ROG Ally RC71L_RC71L, board RC71L, BIOS RC71L.339 (2024-07-02), Ryzen Z1 Extreme.
@@ -32,7 +32,7 @@ Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing insta
 
 ## Already in Omarchy dev on the device (not enabled)
 - `omarchy-hw-rog-ally`: detection by DMI (`ASUSTeK COMPUTER INC.` + product `ROG Ally RC71L*` or board `RC71L`). It deliberately excludes the Ally X and Xbox Ally.
-- `/usr/share/omarchy/default/rog-ally-input/50-rog_ally.yaml`: InputPlumber composite-device config, derived from InputPlumber 0.84.0 (GPL-3.0-or-later). Sources are hidraw 0b05:1abe if2, the xpad pad, and N-KEY keys PROG1/F14–F17/F19/F20. It also uses the bmi323 IMU. Targets are xbox-elite, mouse and keyboard; capability map `aly1`. Because it is derived from GPL-3.0-or-later InputPlumber, the file stays GPL-3.0-or-later. Keep its licence text and notices, and mark it with an SPDX header, or reimplement the behaviour. Decision for Daniel. Omarchy is MIT. Attribution alone does not cover copying it in.
+- `/usr/share/omarchy/default/rog-ally-input/50-rog_ally.yaml`: InputPlumber composite-device config, derived from InputPlumber 0.84.0 (GPL-3.0-or-later; upstream README says "GNU GPLv3+"). Sources are hidraw 0b05:1abe if2, the xpad pad, and N-KEY keys PROG1/F14–F17/F19/F20. It also uses the bmi323 IMU. Targets are xbox-elite, mouse and keyboard; capability map `aly1`. Omarchy is MIT. Reimplement that config, or vendor it in a clearly separate path with its own LICENSE and SPDX headers.
 - Profiles `desktop.yaml`, `gamepad.yaml` and `dualsense.yaml`, switched by `bridge.py` over InputPlumber D-Bus according to session and lock state.
   - Armoury short (`QuickAccess`) opens the Omarchy menu. Armoury long (`QuickAccess2`) switches mode.
   - Command Centre short (`Guide`) is the power action. Command Centre long (`Keyboard`) does Super+Ctrl+Y on the desktop (wvkbd keyboard), or Guide+West in gamepad mode (Steam OSK).
@@ -46,10 +46,10 @@ Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing insta
 A per-button press test is needed to pin each extra button to its exact code and confirm 0xa2. It covers Armoury Crate short/long, Command Centre short/long and the M1/M2 paddles, plus combos. It needs `evtest` and either sudo or the `input` group, so it's an install or change and is waiting on Daniel.
 
 ## Press test
-The copy in this tree is [`tools/ally-press-test.sh`](tools/ally-press-test.sh). It is a device-only research tool and not part of the product. On the Ally, Daniel runs `bash ~/ally-press-test.sh`.
+On the device the script is `~/ally-press-test.sh`. The repo copy is [`tools/ally-press-test.sh`](tools/ally-press-test.sh) (`docs/handheld/research/tools/ally-press-test.sh`). It is a device-only research tool and not part of the product.
 - It installs evtest via one-off sudo and logs that to `~/omarchy-handheld-deploy.log`.
-- It takes 17 prompted steps. Each capture lasts `SECS` seconds (default 5) and records evtest on all N-KEY interfaces, WMI and the pad, plus raw hidraw and dmesg.
-- Output goes to `~/ally-press-test/<ts>.tar.gz`.
+- It takes 17 prompted steps of 5 s each (`SECS` defaults to 5). The steps are `armoury_short`, `armoury_long`, `cc_short`, `cc_long`, `cc_hold_0.5s`, `cc_hold_1s`, `armoury_hold_0.5s`, `armoury_hold_1s`, `vol_up`, `vol_down`, `paddle_left`, `paddle_right`, `paddle_left_plus_A`, `paddle_right_plus_A`, `armoury_plus_A`, `cc_plus_A` and `idle`. Each step records evtest on all N-KEY interfaces, WMI and the pad, plus raw hidraw and dmesg.
+- Output goes to `~/ally-press-test/<timestamp>.tar.gz`.
 
 ## Open questions from dev-ux's button map (12 Nov, 13:37 AWST)
 - **OQ-2:** does CC long send F20 or Ctrl+Alt+Del? It's in the press test (`cc_long`; N-KEY devices grabbed). Upstream InputPlumber `ally_type1` accepts both F20 and Ctrl+Alt+Del as CC long.
