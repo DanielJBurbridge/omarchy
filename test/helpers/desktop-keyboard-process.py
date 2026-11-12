@@ -3,8 +3,9 @@
 
 Usage: python3 helper-process-test.py [path/to/omarchy-toggle-desktop-keyboard]
 Requires Linux /proc, cc, Bash and flock. No packages, services or live session
-are touched. This checks helper routing/identity/locking, not keyboard behaviour,
-focus retention, held-key release, overlay geometry or hardware acceptance.
+are touched. This checks helper routing/identity/locking and the DMI gate
+on keyboard setup. It does not check focus retention, held-key release or
+overlay geometry.
 """
 import os
 from pathlib import Path
@@ -55,8 +56,58 @@ def starttime(pid):
     return Path(f'/proc/{pid}/stat').read_text().rsplit(') ', 1)[1].split()[19]
 
 
+def hardware_acceptance():
+    """RC71L passes the setup gate. A ROG laptop and a generic laptop do not."""
+    repo = Path(__file__).resolve().parents[2]
+    with tempfile.TemporaryDirectory(prefix='haki-keyboard-dmi-') as temp:
+        root = Path(temp)
+        stub = root / 'bin'
+        stub.mkdir()
+        pacman = stub / 'pacman'
+        pacman.write_text('#!/bin/bash\nexit 1\n')
+        pacman.chmod(0o700)
+        home = root / 'home'
+        home.mkdir()
+        cases = (
+            ('ally', 'ASUSTeK COMPUTER INC.', 'ROG Ally', 'RC71L', True),
+            ('rog-laptop', 'ASUSTeK COMPUTER INC.', 'ROG Zephyrus', 'GU604', False),
+            ('generic', 'Dell Inc.', 'XPS 13', '0A1B', False),
+        )
+        base = os.environ | {
+            'PATH': f'{stub}:{repo / "bin"}:/usr/bin:/bin',
+            'OMARCHY_PATH': str(repo),
+            'HOME': str(home),
+        }
+        for name, vendor, product, board, enabled in cases:
+            dmi = root / name
+            dmi.mkdir()
+            (dmi / 'sys_vendor').write_text(vendor + '\n')
+            (dmi / 'product_name').write_text(product + '\n')
+            (dmi / 'board_name').write_text(board + '\n')
+            env = base | {
+                'OMARCHY_DMI_SYS_VENDOR_PATH': str(dmi / 'sys_vendor'),
+                'OMARCHY_DMI_PRODUCT_NAME_PATH': str(dmi / 'product_name'),
+                'OMARCHY_DMI_BOARD_NAME_PATH': str(dmi / 'board_name'),
+            }
+            detector = subprocess.run([str(repo / 'bin/omarchy-hw-rog-ally')], env=env)
+            setup = subprocess.run(
+                [str(repo / 'bin/omarchy-setup-rog-ally-keyboard'), '--configure-reviewed-package'],
+                env=env, capture_output=True, text=True)
+            combined = setup.stdout + setup.stderr
+            assert 'Keyboard button' not in combined, (name, combined)
+            if enabled:
+                assert detector.returncode == 0, name
+                assert setup.returncode != 0, (name, combined)
+                assert 'Install the reviewed wvkbd' in setup.stderr, (name, setup.stderr)
+            else:
+                assert detector.returncode != 0, name
+                assert 'This optional setup is for ASUS ROG Ally RC71L.' in setup.stderr, (name, setup.stderr)
+        print('[Haki] PASS DMI override: RC71L setup gate open; ROG laptop and generic laptop closed')
+
+
 def main():
     assert HELPER.is_file(), f'Helper missing: {HELPER}'
+    hardware_acceptance()
     with tempfile.TemporaryDirectory(prefix='haki-keyboard-test-') as temp:
         root = Path(temp)
         source = root / 'sink.c'
@@ -224,7 +275,7 @@ def main():
                         os.kill(pid, signal.SIGTERM)
                 except (FileNotFoundError, ProcessLookupError):
                     pass
-    print('[Haki] LIMIT: fixture tests helper process safety only; focus/hardware acceptance UNTESTED')
+    print('[Haki] LIMIT: fixture tests helper process safety and the DMI setup gate; focus retention and overlay geometry UNTESTED')
 
 
 if __name__ == '__main__':
