@@ -1,0 +1,21 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Remove the K07 marker so the handheld stays on the pre-landing lock
+# omarchy:requires-sudo=true
+
+# Root only. A user must not be able to delete the marker or put it back.
+# Removing it returns the handheld to the pre-K07 desktop-lock reading.
+
+set -euo pipefail
+
+if (( EUID != 0 )); then
+  echo 'omarchy-rollback-handheld-k07 must run as root.' >&2
+  exit 1
+fi
+
+marker=/var/lib/omarchy/handheld/k07-landed
+if [[ -L $marker ]]; then
+  echo 'omarchy-rollback-handheld-k07: refusing a symlink marker.' >&2
+  exit 1
+fi
+rm -f -- "$marker"

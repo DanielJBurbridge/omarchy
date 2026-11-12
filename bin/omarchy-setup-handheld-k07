@@ -1,0 +1,41 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Record that the lock-screen touch keyboard has landed
+# omarchy:requires-sudo=true
+
+# K07 ships dormant. Nothing here writes /var/lib/omarchy/handheld/k07-landed
+# until a recorded device lock test has passed. That record is not created by
+# install or by the migration. The handheld therefore stays desktop-lock off.
+# omarchy-rollback-handheld-k07 removes a marker that an earlier run left behind.
+
+set -euo pipefail
+
+recorded=/var/lib/omarchy/handheld/k07-device-lock-passed
+if [[ ! -f $recorded || -L $recorded ]]; then
+  echo 'K07 is dormant until a recorded device lock test passes; not writing the marker.' >&2
+  exit 0
+fi
+
+if (( EUID != 0 )); then
+  echo 'omarchy-setup-handheld-k07 must run as root.' >&2
+  exit 1
+fi
+
+"$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs"
+
+source "$OMARCHY_PATH/default/gaming/session.sh"
+marker=/var/lib/omarchy/handheld/k07-landed
+if [[ -L $marker ]]; then
+  echo 'omarchy-setup-handheld-k07: refusing a symlink marker.' >&2
+  exit 1
+fi
+if [[ ! -e $marker ]]; then
+  temporary=$(mktemp)
+  : > "$temporary"
+  install -o root -g root -m 0644 "$temporary" "$marker"
+  rm -f "$temporary"
+fi
+
+if [[ $(gaming_desktop_lock_stored) == default-off ]]; then
+  "$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs" --value on
+fi

@@ -5,10 +5,29 @@
 # omarchy:name=lock
 # omarchy:examples=omarchy system lock
 
+# The handheld gate lives with the callers of the lock, not in the lock screen.
+if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/session.sh ]]; then
+  # shellcheck source=/dev/null
+  source "$OMARCHY_PATH/default/gaming/session.sh"
+  gaming_apply_lock_gate
+  gate=$?
+  if (( gate == 10 )); then exit 0; fi
+  if (( gate == 11 )); then exit 1; fi
+fi
+
+# Hide wvkbd before the lock surface. Its overlay would sit above hyprlock and
+# take the touches meant for the password field. stop is a no-op when it is
+# not running, and a missing helper must not refuse the lock.
+omarchy-toggle-desktop-keyboard stop >/dev/null 2>&1 || true
+
 if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && [[ $("$OMARCHY_PATH/bin/omarchy-lock-host" mode 2>/dev/null) == "host" ]]; then
   "$OMARCHY_PATH/bin/omarchy-system-sleep-lock" || exit 1
 else
-  omarchy-shell lock lock >/dev/null
+  # A failed lock used to fall through and exit 0, which opened an unlocked
+  # desktop. The caller has to see that the lock did not engage.
+  if ! omarchy-shell lock lock >/dev/null; then
+    exit 1
+  fi
 fi
 
 # Set keyboard layout to default (first layout)
