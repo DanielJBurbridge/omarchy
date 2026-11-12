@@ -505,6 +505,10 @@ def policy_file():
     script = (ROOT / "bin/omarchy-ally-tdp-prepare").read_text()
     if "mask --now asusd" in script or "mask asusd" in script:
         fail("prepare script does not mask asusd")
+    apply = (ROOT / "bin/omarchy-ally-tdp-apply").read_text()
+    if "exec python3 -I -B" not in apply:
+        fail("root runs python3 -I")
+    ok("root runs python3 -I")
     ok("polkit is one active-seat action and the units share the writer")
 
 
