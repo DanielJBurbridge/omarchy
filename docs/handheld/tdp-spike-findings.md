@@ -29,7 +29,7 @@ The fixture test proves our process can own the name, answer `Get`/`Set`/`Intros
 
 User command `omarchy-ally-tdp-shim` (hidden). On a non-Ally it prints a line and exits 0 without taking the name.
 
-On an RC71L it takes `com.steampowered.SteamOSManager1` on the session bus with `do_not_queue` and without replacement. A second owner exits 1. `dbus-python` releases a well-known name when the `BusName` object is collected, so the shim keeps that object for the life of the process.
+When the owner gate is open (RC71L, handheld variant marker present, and `omarchy-ally-tdp-apply` installed) it takes `com.steampowered.SteamOSManager1` on the session bus with `do_not_queue` and without replacement. A second owner exits 1. `dbus-python` releases a well-known name when the `BusName` object is collected, so the shim keeps that object for the life of the process. If the gate is closed it prints a line and exits 0 without taking the name, the same as on a laptop.
 
 | Interface | What the shim does |
 |---|---|
@@ -50,10 +50,10 @@ Root derives SPPT and FPPT. It does not accept them from the caller.
 
 - Ratio anchor for each limit is its boot-captured `default_value` when that is greater than zero, otherwise `max_value`. The RC71 AC table in `asus-armoury` has no `*_def`, so the driver exposes default equal to max: SPL 30, SPPT 43, FPPT 53. The DC table is min/def/max SPL 7/15/25, SPPT 15/20/30, FPPT 15/25/35.
 - Integer half-up: `(requested * anchor + spl_anchor / 2) / spl_anchor`.
-- Burst ceiling is `min(live max, boot-captured max)`. Burst floor is the live min.
-- SPL hard cap is `min(source cap, live max, boot-captured max)`. Source caps are 30 W on AC and 25 W on battery.
+- On battery, SPL, SPPT and FPPT stay at or under the boot-captured defaults for that source. The SPL cap is the highest integer at or under the SPL default whose derived bursts still fit those defaults. It is computed from the frozen defaults, not stored as 15 or 25. With the stock DC defaults that integer is 15 W, and the tuple is 15/20/25. A derived burst above a default is a rejection, not a silent clamp.
+- On AC the existing ceiling stays: SPL is `min(30, live max, boot-captured max)`, and each burst is `min(live max, boot-captured max)`, lifted to the live min when the ratio falls short of it.
 - A result with SPPT below SPL, or FPPT below SPPT, is rejected.
-- The advertised maximum is the highest integer in that range that still plans, so a value that would force a burst under its floor is not offered.
+- The advertised maximum is the highest integer in that range that still plans.
 
 Stock tuples the fixture checks:
 
@@ -62,12 +62,15 @@ Stock tuples the fixture checks:
 | 15 | AC | 15, 22, 27 |
 | 10 | AC | 10, 15, 18 (bursts lifted to the firmware floor) |
 | 30 | AC | 30, 43, 53 |
-| 25 | battery | 25, 30, 35 |
-| 31 on AC, 26 or 30 on battery | either | rejected, no write |
+| 15 | battery | 15, 20, 25 |
+| 14 | battery | 14, 19, 23 |
+| 16 or 25 on battery, 31 on AC | either | rejected, no write |
 
-The dev-lead line "never above the firmware defaults" cannot also allow 25 W on battery if "default" is the ceiling: the DC SPPT default is 20 and the DC FPPT default is 25, and 25 W needs SPPT 30 and FPPT 35, which are the DC maximums. This writer treats `max_value` as the hard ceiling and `default_value` as the ratio anchor. The first time a source is seen in a boot, min/max/default are stored under `/run/omarchy/ally-tdp/ceilings.json` keyed by `/proc/sys/kernel/random/boot_id`. A later rise in the live max does not raise that ceiling. A new boot id reads the firmware again. `--show` does not persist the snapshot; `--set`, `--snapshot`, and `--reassert` do.
+Going above the DC defaults (toward the DC maximums of 25/30/35) needs reviewer sign-off and a `power*_input` measurement under load. This spike does not do that.
 
-`--set` rejects out of range and does not clamp. It stores `requested_spl` as the number the user asked for. `--reassert` reads that request, clamps it into the current source, and does not change `requested_spl`. Unplugging after a 30 W AC set therefore applies 25/30/35 and still remembers 30, so plugging back in restores 30/43/53.
+The first time a source is seen in a boot, min/max/default are stored under `/run/omarchy/ally-tdp/ceilings.json` keyed by `/proc/sys/kernel/random/boot_id`. A later rise in the live default or max does not raise that boot's ceiling. A new boot id reads the firmware again. `--show` does not persist the snapshot; `--set`, `--snapshot`, and `--reassert` do.
+
+`--set` rejects out of range and does not clamp. It stores `requested_spl` as the number the user asked for. `--reassert` reads that request, clamps it into the current source, and does not change `requested_spl`. Unplugging after a 30 W AC set therefore applies 15/20/25 and still remembers 30, so plugging back in restores 30/43/53.
 
 Power source follows the same idea as `omarchy-power-present`. A `Mains` or `USB` supply with `online` 1 is AC. Those types present but offline means battery. No mains-type supply is a refusal; the writer does not guess AC.
 
@@ -95,15 +98,17 @@ The user shim also watches logind `PrepareForSleep(false)` and UPower `OnBattery
 
 ## power-profiles-daemon and asusd
 
-`omarchy-ally-tdp-prepare` runs only as root (or in the fixture). On an RC71L it snapshots the current source's ceilings, warns if `asusd.service` is active, and runs `systemctl mask --now power-profiles-daemon.service`. On anything else it prints a line and does not call systemctl, so a laptop keeps PPD.
+`omarchy-ally-tdp-prepare` runs only as root (or in the fixture). It uses the same owner gate as the writer. The gate is open only when all three are true: `omarchy-hw-rog-ally` matches, the handheld variant marker `/var/lib/omarchy/variants/handheld` exists, and `omarchy-ally-tdp-apply` is executable (`$OMARCHY_PATH/bin` or `/usr/bin`). The marker is the handheld install's file. This spike does not create it. While the gate is open, prepare snapshots the current source's ceilings, warns if `asusd.service` is active, and runs `systemctl mask --now power-profiles-daemon.service`. It records the previous `is-enabled` state in `/var/lib/omarchy/ally-tdp/ppd-mask.json`.
+
+An RC71L without that marker, or without the writer binary, does not call systemctl. PPD stays as it was. When the gate later stops applying and that record exists, prepare runs `systemctl unmask power-profiles-daemon.service` and, if PPD had been `enabled`, `systemctl enable --now`. A mask this command did not create is left alone. A laptop never matches the hardware half of the gate.
 
 asusd is not masked here. Another task owns that mask. The hardware dump shows asusd 6.5.0 and PPD both running, and asusd is a static unit started by udev, so skipping it in `install/hardware/asus/rog-ally.sh` does not stop it. asusd writes `platform_profile` and EPP and can re-apply PPT when the profile changes. A third-party report of PPT enforcement dropping after a profile change is about the RC73XA, and is unverified on the RC71L. This writer never writes `platform_profile`, which avoids being a second profile owner, and it cannot stop asusd from overwriting PPT until that mask lands. After the mask, confirm with a load measurement, not only by reading the sysfs integers back.
 
-There is one new owner of the PPT nodes, and PPD is taken out of the way on this board only. `power.py` is not revived, and no second power service is added beside the ones that already exist.
+The writer and the PPD mask share that one gate, so an Ally that is not running the handheld variant keeps PPD as its platform-power owner. `power.py` is not revived, and no second power service is added beside the ones that already exist.
 
 ## Units of the PPT integers
 
-`asus-armoury` stores the limits in a `u8` `struct power_limits`. The driver does not label the unit. The RC71 AC maximums are 30, 43, and 53, and the DC maximums are 25, 30, and 35, which match the watt caps already chosen. The live dump cited by the red team was 30/43/53 on AC, the same numbers as the AC maximums. That is consistent with watts and is not a measurement of package power.
+`asus-armoury` stores the limits in a `u8` `struct power_limits`. The driver does not label the unit. The RC71 AC maximums are 30, 43, and 53, and the DC defaults are 15, 20, and 25 (DC maximums 25, 30, and 35). The live dump cited by the red team was 30/43/53 on AC, the same numbers as the AC maximums. That is consistent with watts and is not a measurement of package power.
 
 `power*_input` under hwmon is microwatts. `amdgpu`'s `power1_input` is often the GPU rail alone, so it can sit under the package SPL and still not disprove the unit. An idle sample does not confirm it either.
 
@@ -142,16 +147,25 @@ OMARCHY_PATH=/usr/share/omarchy omarchy-ally-tdp-probe | tee /tmp/ally-tdp-idle.
 
 Then start a sustained CPU and GPU load and run the probe again into `/tmp/ally-tdp-load-stock.txt`. Compare the package `power*_input` with `ppt_pl1_spl` using the rules above. Stop if they disagree by an order of magnitude.
 
-Install the policy and snapshot ceilings, which also masks PPD on this board only:
+Install the policy. Prepare does nothing to PPD until the handheld variant marker exists. For this on-device run, create that marker only for the test and remove it afterwards; the handheld install is what will own the file.
 
 ```bash
 sudo install -m 0644 /usr/share/omarchy/default/handheld/org.omarchy.ally.set-tdp.policy /usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy
 sudo /usr/bin/omarchy-ally-tdp-prepare
 systemctl is-enabled power-profiles-daemon.service
+```
+
+That first prepare must leave PPD enabled. Then:
+
+```bash
+sudo install -d /var/lib/omarchy/variants
+sudo touch /var/lib/omarchy/variants/handheld
+sudo /usr/bin/omarchy-ally-tdp-prepare
+systemctl is-enabled power-profiles-daemon.service
 systemctl is-active asusd.service
 ```
 
-`power-profiles-daemon.service` should be masked. asusd should be unchanged, and the prepare command should have said so if it was active.
+`power-profiles-daemon.service` should now be masked. asusd should be unchanged, and the prepare command should have said so if it was active. Removing the marker and running prepare again must unmask PPD and start it if it was enabled before the mask.
 
 Start the shim in the same user session that will run Steam, before Steam:
 
@@ -167,7 +181,7 @@ busctl --user get-property com.steampowered.SteamOSManager1 /com/steampowered/St
 busctl --user get-property com.steampowered.SteamOSManager1 /com/steampowered/SteamOSManager1 com.steampowered.SteamOSManager1.TdpLimit1 TdpLimitMax
 ```
 
-Expect `TdpLimitMax` 30 on AC and 25 on battery. Launch Steam's gamepadui through the gamescope session only after the name is owned. Open the Quick Access Menu performance page and move the slider through 10, 15, and 25. After each stop, under load:
+Expect `TdpLimitMax` 30 on AC and 15 on battery with the stock DC defaults. Launch Steam's gamepadui through the gamescope session only after the name is owned. Open the Quick Access Menu performance page and move the slider through 10 and 15 on battery, and through 10, 15, and 30 on AC. After each stop, under load:
 
 ```bash
 OMARCHY_PATH=/usr/share/omarchy omarchy-ally-tdp-probe --json
@@ -175,8 +189,8 @@ OMARCHY_PATH=/usr/share/omarchy omarchy-ally-tdp-probe --json
 
 The SPL integer should match the slider, SPPT and FPPT should match the table above, and the package sensor should move with the SPL. Set 99 from `busctl` and confirm the integers do not change.
 
-On AC, set 30, then unplug. SPL must fall to at most 25 (25/30/35 with the stock DC table) while the stored request stays 30. Plug back in and confirm 30/43/53 returns. Then suspend and resume, and repeat the load probe. Readback alone is not the resume check.
+On AC, set 30, then unplug. SPL must fall to the stock DC default tuple 15/20/25 while the stored request stays 30. Plug back in and confirm 30/43/53 returns. Then suspend and resume, and repeat the load probe. Readback alone is not the resume check. A battery limit above those defaults is out of scope until a reviewer signs off with probe data.
 
 On a laptop, or any machine where `omarchy-hw-rog-ally` is false, `omarchy-ally-tdp-prepare` must leave PPD enabled, and `omarchy-ally-tdp-apply --set 15` must refuse without writing `platform_profile` or the armoury attributes.
 
-After the run, the Ally should have exactly one PPT writer. PPD stays masked on that board. asusd stays as the other task left it. Do not start `steamos-manager`.
+After the run, remove `/var/lib/omarchy/variants/handheld` unless the handheld variant is actually installed, and run prepare once more so PPD comes back. asusd stays as the other task left it. Do not start `steamos-manager`.

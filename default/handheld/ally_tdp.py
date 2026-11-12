@@ -3,8 +3,9 @@
 The shim owns com.steampowered.SteamOSManager1 on the user bus and implements
 the public TdpLimit1 properties. Privileged writes go through
 omarchy-ally-tdp-apply, which is the only PPT writer: it derives SPPT and
-FPPT from the requested SPL, refuses anything outside the firmware range or
-the 25 W battery / 30 W AC caps, and never writes platform_profile.
+FPPT from the requested SPL, stays inside the current source's firmware
+defaults on battery and the AC firmware ceiling, and never writes
+platform_profile.
 
 Property names follow the MIT-licensed SteamOS Manager interface
 (com.steampowered.SteamOSManager1.TdpLimit1). This file does not vendor that
@@ -28,9 +29,10 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 ATTRIBUTES = ("ppt_pl1_spl", "ppt_pl2_sppt", "ppt_pl3_fppt")
 KEYS = {"ppt_pl1_spl": "spl", "ppt_pl2_sppt": "sppt", "ppt_pl3_fppt": "fppt"}
 REAL_ARMOURY = "/sys/class/firmware-attributes/asus-armoury/attributes"
+HANDHELD_VARIANT = "/var/lib/omarchy/variants/handheld"
 AC_CAP = 30
-BATTERY_CAP = 25
 PROFILE_NAME = "performance"
+PPD_UNIT = "power-profiles-daemon.service"
 
 
 class TdpError(Exception):
@@ -91,6 +93,51 @@ def require_ally():
         raise TdpError("rejected", f"omarchy-hw-rog-ally could not run: {error}") from error
     if result.returncode != 0:
         raise TdpError("rejected", "this TDP path is only for the original ROG Ally RC71L")
+
+
+def handheld_variant_installed():
+    flag = os.environ.get("OMARCHY_ALLY_TDP_HANDHELD")
+    if flag == "1":
+        return True
+    if flag == "0":
+        return False
+    return Path(os.environ.get("OMARCHY_HANDHELD_VARIANT_PATH", HANDHELD_VARIANT)).is_file()
+
+
+def writer_installed():
+    flag = os.environ.get("OMARCHY_ALLY_TDP_WRITER_INSTALLED")
+    if flag == "1":
+        return True
+    if flag == "0":
+        return False
+    candidates = []
+    root = os.environ.get("OMARCHY_PATH")
+    if root:
+        candidates.append(Path(root) / "bin" / "omarchy-ally-tdp-apply")
+    candidates.append(Path("/usr/bin/omarchy-ally-tdp-apply"))
+    return any(path.is_file() and os.access(path, os.X_OK) for path in candidates)
+
+
+def require_owner():
+    """Hardware gate plus the install gate. Writes and the PPD mask both use it."""
+    require_ally()
+    if not handheld_variant_installed():
+        raise TdpError("rejected", "the handheld variant is not installed")
+    if not writer_installed():
+        raise TdpError("rejected", "the Ally TDP writer is not installed")
+
+
+def owner_status():
+    try:
+        require_owner()
+    except TdpError as error:
+        text = str(error)
+        if "not installed" in text and "variant" in text:
+            return "variant"
+        if "writer" in text:
+            return "writer"
+        return "hardware"
+    return "open"
 
 
 def assert_write_allowed():
@@ -238,50 +285,82 @@ def round_div(numer, denom):
     return (numer + denom // 2) // denom
 
 
-def clamp_burst(value, live, snapshot):
-    ceiling = min(live["max"], snapshot["max"])
-    floor = live["min"]
-    if floor > ceiling:
-        raise TdpError("rejected", "a burst limit floor is above its firmware ceiling")
-    return min(max(value, floor), ceiling)
+def limit_ceiling(source, live, snapshot):
+    """Highest integer this limit may be written as.
+
+    Battery stays at or under the boot-captured firmware default. AC keeps the
+    boot-captured maximum, which is also the default when the AC table has none.
+    """
+    if source == "battery":
+        ceiling = snapshot["default"] if snapshot["default"] > 0 else snapshot["max"]
+    else:
+        ceiling = snapshot["max"]
+    return min(ceiling, live["max"], snapshot["max"])
 
 
-def plan_targets(requested, source, snapshot, live, clamp):
-    cap = BATTERY_CAP if source == "battery" else AC_CAP
+def spl_window(source, snapshot, live):
     spl_min = live["spl"]["min"]
-    spl_max = min(cap, live["spl"]["max"], snapshot["spl"]["max"])
+    if source == "battery":
+        spl_max = limit_ceiling(source, live["spl"], snapshot["spl"])
+    else:
+        spl_max = min(AC_CAP, live["spl"]["max"], snapshot["spl"]["max"])
     if spl_min > spl_max:
         raise TdpError("rejected", "the firmware SPL range does not overlap the Ally cap")
-    if clamp:
-        requested = min(max(requested, spl_min), spl_max)
+    return spl_min, spl_max
+
+
+def commit_plan(requested, source, snapshot, live):
+    spl_min, spl_max = spl_window(source, snapshot, live)
     if requested < spl_min or requested > spl_max:
         raise TdpError(
             "rejected",
             f"sustained limit {requested} W is outside {spl_min}–{spl_max} W on {source}",
         )
     spl_anchor = anchor(snapshot["spl"])
-    sppt = clamp_burst(round_div(requested * anchor(snapshot["sppt"]), spl_anchor), live["sppt"], snapshot["sppt"])
-    fppt = clamp_burst(round_div(requested * anchor(snapshot["fppt"]), spl_anchor), live["fppt"], snapshot["fppt"])
-    if sppt < requested or fppt < sppt:
+    derived = {
+        "sppt": round_div(requested * anchor(snapshot["sppt"]), spl_anchor),
+        "fppt": round_div(requested * anchor(snapshot["fppt"]), spl_anchor),
+    }
+    planned = {}
+    for key in ("sppt", "fppt"):
+        ceiling = limit_ceiling(source, live[key], snapshot[key])
+        floor = live[key]["min"]
+        if floor > ceiling:
+            raise TdpError("rejected", "a burst limit floor is above its firmware ceiling")
+        value = derived[key]
+        if value > ceiling:
+            noun = "defaults" if source == "battery" else "ceiling"
+            raise TdpError("rejected", f"derived {key.upper()} {value} W is above the firmware {noun}")
+        if value < floor:
+            value = floor
+        planned[key] = value
+    if planned["sppt"] < requested or planned["fppt"] < planned["sppt"]:
         raise TdpError("rejected", "derived burst limits cannot stay inside the firmware ceiling")
-    return requested, sppt, fppt
+    return requested, planned["sppt"], planned["fppt"]
+
+
+def plan_targets(requested, source, snapshot, live, clamp):
+    spl_min, spl_max = spl_window(source, snapshot, live)
+    if clamp:
+        requested = min(max(requested, spl_min), spl_max)
+        for candidate in range(requested, spl_min - 1, -1):
+            try:
+                return commit_plan(candidate, source, snapshot, live)
+            except TdpError:
+                continue
+        raise TdpError("rejected", "no sustained limit fits the firmware defaults")
+    return commit_plan(requested, source, snapshot, live)
 
 
 def effective_bounds(source, snapshot, live):
-    spl_min = live["spl"]["min"]
-    spl_max = min(BATTERY_CAP if source == "battery" else AC_CAP, live["spl"]["max"], snapshot["spl"]["max"])
-    best = None
-    if spl_min <= spl_max:
-        for candidate in range(spl_max, spl_min - 1, -1):
-            try:
-                plan_targets(candidate, source, snapshot, live, clamp=False)
-            except TdpError:
-                continue
-            best = candidate
-            break
-    if best is None:
-        raise TdpError("rejected", "no sustained limit fits the firmware ceiling and the Ally cap")
-    return spl_min, best
+    spl_min, spl_max = spl_window(source, snapshot, live)
+    for candidate in range(spl_max, spl_min - 1, -1):
+        try:
+            commit_plan(candidate, source, snapshot, live)
+        except TdpError:
+            continue
+        return spl_min, candidate
+    raise TdpError("rejected", "no sustained limit fits the firmware ceiling and the Ally cap")
 
 
 def ppd_active():
@@ -364,6 +443,7 @@ def restore_currents(original):
 
 
 def apply_spl(requested, clamp, remember):
+    require_owner()
     assert_write_allowed()
     if ppd_active():
         raise TdpError("rejected", "power-profiles-daemon is active; it still owns platform power")
@@ -429,7 +509,7 @@ def show_payload():
     preference = load_preference() if preference_path().is_file() else None
     return {
         "asusd_active": unit_active("asusd.service", "OMARCHY_ALLY_TDP_ASUSD_STATE"),
-        "cap": BATTERY_CAP if source == "battery" else AC_CAP,
+        "cap": high,
         "ceilings_frozen": frozen,
         "current_fppt": live["fppt"]["current"],
         "current_spl": live["spl"]["current"],
@@ -454,7 +534,7 @@ def command_show():
 
 
 def command_snapshot():
-    require_ally()
+    require_owner()
     assert_write_allowed()
     source = power_source()
     live = read_live()
@@ -464,7 +544,7 @@ def command_snapshot():
 
 
 def command_set(argv):
-    require_ally()
+    require_owner()
     if len(argv) != 1:
         raise TdpError("rejected", "set takes one whole-number watt argument and nothing else")
     requested = canonical_watts(argv[0])
@@ -473,7 +553,7 @@ def command_set(argv):
 
 
 def command_reassert():
-    require_ally()
+    require_owner()
     preference = load_preference()
     if preference is None:
         emit({"ok": True, "status": "unchanged"})
@@ -481,6 +561,73 @@ def command_reassert():
     result = apply_spl(preference["requested_spl"], clamp=True, remember=False)
     result["status"] = "reasserted"
     emit(result)
+    return 0
+
+
+def ppd_stamp_path():
+    return state_dir() / "ppd-mask.json"
+
+
+def run_systemctl(args):
+    try:
+        return subprocess.run(["systemctl", *args], check=False, text=True, capture_output=True)
+    except OSError as error:
+        raise TdpError("rejected", f"systemctl {' '.join(args)} failed: {error}") from error
+
+
+def prepare_main(_argv):
+    if _argv:
+        raise TdpError("rejected", "prepare takes no arguments")
+    if os.geteuid() != 0 and not fixture_mode():
+        print("omarchy-ally-tdp-prepare must run as root.", file=sys.stderr)
+        return 1
+    status = owner_status()
+    stamp = ppd_stamp_path()
+    if status != "open":
+        if stamp.is_file():
+            payload = load_json(stamp) or {}
+            previous = payload.get("previous")
+            unmask = run_systemctl(["unmask", PPD_UNIT])
+            if unmask.returncode != 0:
+                raise TdpError("rejected", "could not unmask power-profiles-daemon")
+            if previous in ("enabled", "enabled-runtime"):
+                restore = run_systemctl(["enable", "--now", PPD_UNIT])
+                if restore.returncode != 0:
+                    raise TdpError("rejected", "could not restore power-profiles-daemon")
+            try:
+                stamp.unlink()
+            except OSError as error:
+                raise TdpError("rejected", f"could not clear the PPD mask record: {error}") from error
+            print("power-profiles-daemon mask removed because the Ally TDP owner gate no longer applies.", file=sys.stderr)
+        elif status == "hardware":
+            print("Not an original ROG Ally RC71L; power-profiles-daemon is unchanged.", file=sys.stderr)
+        elif status == "variant":
+            print("Handheld variant is not installed; power-profiles-daemon is unchanged.", file=sys.stderr)
+        else:
+            print("Ally TDP writer is not installed; power-profiles-daemon is unchanged.", file=sys.stderr)
+        return 0
+
+    command_snapshot()
+    asusd = run_systemctl(["is-active", "--quiet", "asusd.service"])
+    if asusd.returncode == 0:
+        print(
+            "asusd is active. This command does not mask it. PPT limits can be overwritten until the Ally asusd mask task does.",
+            file=sys.stderr,
+        )
+    if not stamp.is_file():
+        enabled = run_systemctl(["is-enabled", PPD_UNIT])
+        previous = enabled.stdout.strip().split()[0] if enabled.stdout.strip() else "unknown"
+        if previous in ("masked", "masked-runtime"):
+            print("power-profiles-daemon is already masked; leaving that mask alone.", file=sys.stderr)
+            return 0
+        save_json(stamp, {"previous": previous})
+    masked = run_systemctl(["mask", "--now", PPD_UNIT])
+    if masked.returncode != 0:
+        try:
+            stamp.unlink()
+        except OSError:
+            pass
+        raise TdpError("rejected", "could not mask power-profiles-daemon")
     return 0
 
 
@@ -656,7 +803,7 @@ class Shim:
 
 def shim_main(_argv):
     try:
-        require_ally()
+        require_owner()
     except TdpError as error:
         print(f"ally-tdp-shim: {error}", file=sys.stderr)
         return 0
@@ -897,6 +1044,8 @@ def main(argv):
     try:
         if mode == "apply":
             return apply_main(argv[2:])
+        if mode == "prepare":
+            return prepare_main(argv[2:])
         if mode == "probe":
             return probe_main(argv[2:])
         if mode == "shim":

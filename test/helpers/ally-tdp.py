@@ -75,6 +75,10 @@ def layout(root, product="ROG Ally RC71L_RC71L", board="RC71L", vendor="ASUSTeK 
 
 
 def environment(root, **extra):
+    handheld = extra.pop("handheld", True)
+    variant = root / "variant" / "handheld"
+    if handheld:
+        write_text(variant, "handheld\n")
     env = {
         "PATH": f"{ROOT / 'bin'}:/usr/bin:/bin",
         "OMARCHY_PATH": str(ROOT),
@@ -85,6 +89,7 @@ def environment(root, **extra):
         "OMARCHY_ALLY_TDP_STATE_DIR": str(root / "state"),
         "OMARCHY_ALLY_TDP_RUN_DIR": str(root / "run"),
         "OMARCHY_ALLY_TDP_BOOT_ID": extra.pop("boot_id", "boot-1"),
+        "OMARCHY_HANDHELD_VARIANT_PATH": str(variant),
         "OMARCHY_DMI_SYS_VENDOR_PATH": str(root / "dmi" / "sys_vendor"),
         "OMARCHY_DMI_PRODUCT_NAME_PATH": str(root / "dmi" / "product_name"),
         "OMARCHY_DMI_BOARD_NAME_PATH": str(root / "dmi" / "board_name"),
@@ -190,12 +195,44 @@ def policy_cases():
         armoury = layout(root, online="0")
         rc71_dc(armoury, current=(15, 20, 25))
         env = environment(root)
-        result = run([str(APPLY), "--set", "25"], env, check=True)
-        if currents(armoury) != (25, 30, 35) or payload_of(result).get("source") != "battery":
-            fail("25 W on battery uses the DC ratio and the DC maximum", f"{currents(armoury)} {result.stdout}")
-        ok("25 W on battery uses the DC ratio and the DC maximum")
-        test_rejects_without_writes(root, armoury, env, ["--set", "26"], "26 W on battery is rejected")
-        test_rejects_without_writes(root, armoury, env, ["--set", "30"], "the AC cap is not available on battery")
+        result = run([str(APPLY), "--set", "15"], env, check=True)
+        body = payload_of(result)
+        if currents(armoury) != (15, 20, 25) or body.get("source") != "battery" or body.get("effective_max") != 15:
+            fail("15 W on battery is the stock DC default tuple", f"{currents(armoury)} {result.stdout}")
+        ok("15 W on battery is the stock DC default tuple")
+        test_rejects_without_writes(root, armoury, env, ["--set", "16"], "16 W on battery exceeds the DC defaults")
+        test_rejects_without_writes(root, armoury, env, ["--set", "25"], "the DC maximum is not a battery SPL cap")
+        result = run([str(APPLY), "--set", "14"], env, check=True)
+        if currents(armoury) != (14, 19, 23):
+            fail("14 W on battery derives bursts under the DC defaults", str(currents(armoury)))
+        ok("14 W on battery derives bursts under the DC defaults")
+
+        for name, default, high in (("ppt_pl1_spl", 20, 25), ("ppt_pl2_sppt", 30, 40), ("ppt_pl3_fppt", 35, 45)):
+            (armoury / name / "default_value").write_text(f"{default}\n")
+            (armoury / name / "max_value").write_text(f"{high}\n")
+        test_rejects_without_writes(root, armoury, env, ["--set", "16"], "a later DC default cannot raise this boot's battery cap")
+        raised = environment(root, boot_id="boot-dc-2")
+        result = run([str(APPLY), "--set", "16"], raised, check=True)
+        if currents(armoury) != (16, 24, 28):
+            fail("a new boot reads the DC defaults again", str(currents(armoury)))
+        ok("a new boot reads the DC defaults again")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-dc-tight-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root, online="0")
+        limit(armoury, "ppt_pl1_spl", 12, 7, 25, 12)
+        limit(armoury, "ppt_pl2_sppt", 16, 15, 30, 16)
+        limit(armoury, "ppt_pl3_fppt", 20, 15, 35, 20)
+        env = environment(root)
+        shown = run([str(APPLY), "--show"], env, check=True)
+        if payload_of(shown).get("effective_max") != 12:
+            fail("the battery cap is computed from the DC defaults", shown.stdout)
+        ok("the battery cap is computed from the DC defaults")
+        result = run([str(APPLY), "--set", "12"], env, check=True)
+        if currents(armoury) != (12, 16, 20):
+            fail("the battery tuple follows a non-stock DC default", str(currents(armoury)))
+        ok("the battery tuple follows a non-stock DC default")
+        test_rejects_without_writes(root, armoury, env, ["--set", "13"], "a watt above the DC SPL default is rejected")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-ratio-") as temporary:
         root = Path(temporary)
@@ -242,6 +279,13 @@ def policy_cases():
             env = environment(root)
             test_rejects_without_writes(root, armoury, env, ["--set", "15"], description)
 
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-novariant-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root, handheld=False)
+        test_rejects_without_writes(root, armoury, env, ["--set", "15"], "an RC71L without the handheld variant is not given a TDP writer")
+
     with tempfile.TemporaryDirectory(prefix="ally-tdp-source-") as temporary:
         root = Path(temporary)
         armoury = layout(root)
@@ -252,7 +296,7 @@ def policy_cases():
         (root / "supply" / "ADP" / "online").write_text("0\n")
         result = run([str(APPLY), "--reassert"], env, check=True)
         preference = json.loads((root / "state" / "preference.json").read_text())
-        if currents(armoury) != (25, 30, 35) or preference.get("requested_spl") != 30:
+        if currents(armoury) != (15, 20, 25) or preference.get("requested_spl") != 30:
             fail("unplug reasserts the saved request inside the battery cap", f"{currents(armoury)} {preference}")
         ok("unplug reasserts the saved request inside the battery cap")
         rc71_ac(armoury)
@@ -313,6 +357,10 @@ def probe_and_prepare():
                 """\
                 #!/bin/bash
                 printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
+                if [[ $1 == is-enabled ]]; then
+                  echo enabled
+                  exit 0
+                fi
                 if [[ $1 == is-active && $3 == asusd.service ]]; then
                   exit 0
                 fi
@@ -324,22 +372,51 @@ def probe_and_prepare():
             )
         )
         (stub / "systemctl").chmod(0o755)
-        env = environment(root)
+        env = environment(root, handheld=False)
         env["PATH"] = f"{stub}:{env['PATH']}"
         env["SYSTEMCTL_LOG"] = str(log)
         result = run([str(PREPARE)], env, check=True)
+        if log.exists() and log.read_text().strip():
+            fail("prepare on an RC71L without the handheld variant leaves PPD untouched", log.read_text())
+        if "unchanged" not in result.stderr:
+            fail("prepare on an RC71L without the handheld variant leaves PPD untouched", result.stderr)
+        ok("prepare on an RC71L without the handheld variant leaves PPD untouched")
+
+        write_text(root / "variant" / "handheld", "handheld\n")
+        env["OMARCHY_ALLY_TDP_WRITER_INSTALLED"] = "0"
+        log.write_text("")
+        result = run([str(PREPARE)], env, check=True)
+        if log.read_text().strip():
+            fail("prepare without the TDP writer leaves PPD untouched", log.read_text())
+        ok("prepare without the TDP writer leaves PPD untouched")
+        del env["OMARCHY_ALLY_TDP_WRITER_INSTALLED"]
+
+        log.write_text("")
+        result = run([str(PREPARE)], env, check=True)
         logged = log.read_text()
         if "mask --now power-profiles-daemon.service" not in logged:
-            fail("prepare masks power-profiles-daemon on an Ally", logged)
-        if "asusd" in logged and "mask" in logged.split("asusd")[0]:
-            fail("prepare does not mask asusd", logged)
+            fail("prepare masks power-profiles-daemon when the handheld variant and the writer are installed", logged)
         if "mask --now asusd" in logged or "mask asusd" in logged:
             fail("prepare does not mask asusd", logged)
         if "asusd is active" not in result.stderr:
             fail("prepare tells the operator that asusd is still active", result.stderr)
         if not (root / "run" / "ceilings.json").is_file():
             fail("prepare snapshots the boot ceilings before masking")
-        ok("prepare masks power-profiles-daemon and leaves asusd alone")
+        if not (root / "state" / "ppd-mask.json").is_file():
+            fail("prepare records the PPD mask it owns")
+        ok("prepare masks power-profiles-daemon when the handheld variant and the writer are installed")
+
+        (root / "variant" / "handheld").unlink()
+        log.write_text("")
+        result = run([str(PREPARE)], env, check=True)
+        logged = log.read_text()
+        if "unmask power-profiles-daemon.service" not in logged or "enable --now power-profiles-daemon.service" not in logged:
+            fail("prepare unmasks power-profiles-daemon when the handheld variant is removed", logged)
+        if "mask --now" in logged:
+            fail("prepare unmasks power-profiles-daemon when the handheld variant is removed", logged)
+        if (root / "state" / "ppd-mask.json").exists():
+            fail("prepare drops the PPD mask record after unmasking")
+        ok("prepare unmasks power-profiles-daemon when the handheld variant is removed")
 
         write_text(root / "dmi" / "board_name", "RC72LA\n")
         write_text(root / "dmi" / "product_name", "ROG Ally X RC72LA\n")
@@ -489,7 +566,7 @@ def shim_cases():
             deadline = time.time() + 3
             while time.time() < deadline and currents(armoury)[0] != 25:
                 time.sleep(0.05)
-            if currents(armoury) != (25, 30, 35):
+            if currents(armoury) != (15, 20, 25):
                 fail("PrepareForSleep(false) reasserts inside the battery cap", f"{currents(armoury)} {''.join(log)}")
             ok("PrepareForSleep(false) reasserts inside the battery cap")
         finally:
