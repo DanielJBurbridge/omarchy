@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Omarchy Gaming
+Comment=Standalone Steam Gamescope session with Omarchy desktop recovery
+Exec=omarchy-session-start gaming
+TryExec=gamescope
+Type=Application
