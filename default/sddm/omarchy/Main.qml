@@ -20,6 +20,10 @@ Rectangle {
   property bool authenticating: false
   property bool keyboardRequested: false
   property var keyboardFocusTarget: password
+  Window.onActiveFocusItemChanged: {
+    var field = root.Window.activeFocusItem
+    if (field === password || field === userName.contentItem) root.keyboardFocusTarget = field
+  }
   readonly property int sessionIndex: session.currentIndex
   readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
