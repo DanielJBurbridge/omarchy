@@ -24,7 +24,7 @@ Item {
   readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
   readonly property string placeholderText: Commons.I18n.t("lock.enterPassword")
-  readonly property int fieldWidth: 381
+  readonly property int fieldWidth: 440
   readonly property int fieldHeight: 67
   readonly property int outlineThickness: 3
   readonly property int fieldFontSize: Math.round(Style.font.heading * 1.125)
@@ -180,7 +180,7 @@ Item {
       width: Math.min(root.fieldWidth, parent.width - 32)
       height: root.fieldHeight
       anchors.horizontalCenter: parent.horizontalCenter
-      y: (parent.height - root.keyboardHeight - height) / 2 - (root.keyboardHeight > 0 ? 36 : 0)
+      y: (parent.height - root.keyboardHeight - height - actions.height - 12) / 2
       color: Commons.Color.lock.background
       borderSpec: root.inputBorderSpec
       radius: Style.cornerRadius
@@ -291,8 +291,10 @@ Item {
         objectName: "lockKeyboard"
         visible: root.keyboardAvailable
         text: Commons.I18n.t("lock.keyboard", "Keyboard")
+        selected: root.keyboardHeight > 0
         width: (inputField.width - 16) / 3
         height: 48
+        fontSize: Math.max(16, Style.font.heading)
         bordered: true
         onClicked: {
           root.wakeRequested()
@@ -305,6 +307,7 @@ Item {
         text: Commons.I18n.t("lock.cancel")
         width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
         height: 48
+        fontSize: Math.max(16, Style.font.heading)
         bordered: true
         onClicked: { root.wakeRequested(); root.cancelEntry() }
       }
@@ -313,6 +316,7 @@ Item {
         text: Commons.I18n.t("lock.unlock")
         width: (inputField.width - (root.keyboardAvailable ? 16 : 8)) / (root.keyboardAvailable ? 3 : 2)
         height: 48
+        fontSize: Math.max(16, Style.font.heading)
         bordered: true
         onClicked: { root.wakeRequested(); root.submitEntry() }
       }
@@ -322,10 +326,11 @@ Item {
       id: keyboardLoader
       objectName: "lockKeyboardLoader"
       active: root.keyboardAvailable && root.inputEnabled && root.keyboardRequested && root.Window.active
-      width: Math.min(root.width - 16, root.height * 1.3, 1000)
+      width: Math.min(root.width - 32, root.height * 1.65, 880)
       height: root.keyboardHeight
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.bottom: parent.bottom
+      anchors.bottomMargin: root.keyboardHeight > 0 ? 8 : 0
       source: "../../lock-host/Keyboard.qml"
       onLoaded: { root.forcePasswordFocus(); Qt.inputMethod.show() }
       Connections {

@@ -1,28 +1,25 @@
 import QtQuick
 import QtQuick.Controls.Basic as Controls
-import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Styles.Omarchy as Auth
 
-Controls.Pane {
+Rectangle {
   id: root
   width: 640
   height: 480
-  padding: 0
-  palette.window: "#1a1b26"
-  palette.base: "#1a1b26"
-  palette.button: "#1a1b26"
-  palette.text: "#ffffff"
-  palette.placeholderText: "#b8b8b8"
-  font.family: "JetBrainsMono Nerd Font"
-  font.pixelSize: 18
-  palette.buttonText: "#ffffff"
-  palette.highlight: "#ffffff"
-  palette.highlightedText: "#1a1b26"
-  background: Rectangle { color: "#1a1b26" }
+  color: "#1a1b26"
+  readonly property color foreground: "#ffffff"
+  readonly property color errorColor: "#f7768e"
+  readonly property string fontFamily: "JetBrainsMono Nerd Font"
+
+  Binding { target: Auth.Theme; property: "background"; value: root.color }
+  Binding { target: Auth.Theme; property: "foreground"; value: root.foreground }
+  Binding { target: Auth.Theme; property: "fontFamily"; value: root.fontFamily }
 
   readonly property string currentUser: userName.editText.trim()
   property bool loginFailed: false
   property bool authenticating: false
   property bool keyboardRequested: false
+  property var keyboardFocusTarget: password
   readonly property int sessionIndex: session.currentIndex
   readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
@@ -36,10 +33,11 @@ Controls.Pane {
     return count > 0 ? 0 : -1
   }
 
-  function showKeyboard() {
+  function showKeyboard(target) {
     if (authenticating) return
     keyboardRequested = true
-    password.forceActiveFocus()
+    keyboardFocusTarget = target || password
+    keyboardFocusTarget.forceActiveFocus()
     Qt.inputMethod.show()
   }
 
@@ -84,73 +82,116 @@ Controls.Pane {
 
     Column {
       id: form
-      width: Math.min(580, parent.width - 32)
+      objectName: "loginForm"
+      width: Math.min(440, parent.width - 40)
       anchors.centerIn: parent
-      spacing: 12
+      spacing: root.keyboardHeight > 0 ? 6 : 16
 
       Image {
         source: "logo.png"
         width: Math.min(sourceSize.width, form.width * 0.8)
-        height: visible ? Math.min(90, width * sourceSize.height / Math.max(1, sourceSize.width)) : 0
-        visible: root.keyboardHeight === 0
+        height: root.keyboardHeight > 0 ? 30 : Math.min(100, width * sourceSize.height / Math.max(1, sourceSize.width))
         fillMode: Image.PreserveAspectFit
         anchors.horizontalCenter: parent.horizontalCenter
       }
 
-      Controls.ComboBox {
-        id: userName
-        objectName: "loginUser"
+      Row {
         width: parent.width
-        height: 44
-        model: userModel
-        textRole: "name"
-        currentIndex: userModel.lastIndex
-        editable: true
-        enabled: !root.authenticating
-        Accessible.name: qsTr("User")
-        onEditTextChanged: { password.clear(); root.loginFailed = false }
-        onActivated: password.forceActiveFocus()
-      }
-
-      Controls.ComboBox {
-        id: session
-        objectName: "loginSession"
-        width: parent.width
-        height: 44
-        model: sessionModel
-        textRole: "name"
-        currentIndex: root.initialSessionIndex()
-        enabled: !root.authenticating
-        Accessible.name: qsTr("Session")
-        onActivated: password.forceActiveFocus()
-      }
-
-      Controls.TextField {
-        id: password
-        objectName: "loginPassword"
-        width: parent.width
-        height: 52
-        placeholderText: qsTr("Password")
-        echoMode: TextInput.Password
-        passwordMaskDelay: 0
-        inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-        enabled: !root.authenticating
-        selectByMouse: false
-        focus: true
-        onTextEdited: root.loginFailed = false
-        onAccepted: root.submit()
-        Keys.onEscapePressed: root.cancelEntry()
-        TapHandler { onTapped: root.showKeyboard() }
+        spacing: 8
+        Auth.AuthChoice {
+          id: userName
+          objectName: "loginUser"
+          width: (parent.width - 8) * 0.4
+          model: userModel
+          textRole: "name"
+          currentIndex: userModel.lastIndex
+          editable: true
+          enabled: !root.authenticating
+          Accessible.name: qsTr("User")
+          onEditTextChanged: { password.clear(); root.loginFailed = false }
+          onActivated: password.forceActiveFocus()
+          onInputRequested: root.showKeyboard(contentItem)
+        }
+        Auth.AuthChoice {
+          id: session
+          objectName: "loginSession"
+          width: (parent.width - 8) * 0.6
+          model: sessionModel
+          textRole: "name"
+          currentIndex: root.initialSessionIndex()
+          enabled: !root.authenticating
+          Accessible.name: qsTr("Session")
+          onActivated: password.forceActiveFocus()
+        }
       }
 
       Row {
-        spacing: 12
-        Controls.Button {
+        width: parent.width
+        spacing: 14
+        Image {
+          source: root.loginFailed ? "lock-failed.png" : "lock.png"
+          width: 30
+          height: 34
+          fillMode: Image.PreserveAspectFit
+          anchors.verticalCenter: parent.verticalCenter
+        }
+        Rectangle {
+          width: parent.width - 44
+          height: 56
+          color: root.color
+          border.width: 3
+          border.color: root.loginFailed ? root.errorColor : root.foreground
+          Controls.TextField {
+            id: password
+            objectName: "loginPassword"
+            anchors.fill: parent
+            anchors.margins: 3
+            leftPadding: 16
+            rightPadding: 16
+            background: Item {}
+            Accessible.name: qsTr("Password")
+            cursorVisible: activeFocus && text.length > 0
+            color: root.foreground
+            selectionColor: Auth.Theme.alpha(root.foreground, 0.35)
+            selectedTextColor: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: 20
+            font.letterSpacing: text.length > 0 ? 4 : 0
+            horizontalAlignment: TextInput.AlignHCenter
+            echoMode: TextInput.Password
+            passwordCharacter: "\u25CF"
+            passwordMaskDelay: 0
+            inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+            enabled: !root.authenticating
+            selectByMouse: false
+            focus: true
+            onTextEdited: root.loginFailed = false
+            onAccepted: root.submit()
+            Keys.onEscapePressed: root.cancelEntry()
+            TapHandler { onTapped: root.showKeyboard() }
+          }
+          Text {
+            anchors.fill: password
+            visible: password.text.length === 0 && !root.authenticating
+            text: qsTr("Password")
+            textFormat: Text.PlainText
+            color: Auth.Theme.alpha(root.foreground, 0.66)
+            font.family: root.fontFamily
+            font.pixelSize: 20
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+          }
+        }
+      }
+
+      Row {
+        spacing: 8
+        Auth.AuthButton {
           objectName: "loginKeyboard"
           text: qsTr("Keyboard")
-          width: (form.width - 24) / 3
+          selected: root.keyboardHeight > 0
+          width: (form.width - 16) / 3
           height: 48
-          focusPolicy: Qt.NoFocus
           enabled: !root.authenticating
           onClicked: {
             if (root.keyboardHeight > 0) {
@@ -159,19 +200,18 @@ Controls.Pane {
             } else root.showKeyboard()
           }
         }
-        Controls.Button {
+        Auth.AuthButton {
           objectName: "loginCancel"
           text: qsTr("Cancel")
-          width: (form.width - 24) / 3
+          width: (form.width - 16) / 3
           height: 48
-          focusPolicy: Qt.NoFocus
           enabled: !root.authenticating
           onClicked: root.cancelEntry()
         }
-        Controls.Button {
+        Auth.AuthButton {
           objectName: "loginSubmit"
           text: qsTr("Sign in")
-          width: (form.width - 24) / 3
+          width: (form.width - 16) / 3
           height: 48
           enabled: !root.authenticating && root.currentUser.length > 0 && root.sessionIndex >= 0
           onClicked: root.submit()
@@ -181,12 +221,13 @@ Controls.Pane {
       Text {
         objectName: "loginStatus"
         width: parent.width
-        height: 24
+        height: 20
         text: root.authenticating ? qsTr("Signing in…") : (root.loginFailed ? qsTr("Sign-in failed. Try again.") : "")
         textFormat: Text.PlainText
-        color: root.loginFailed ? "#f7768e" : "#ffffff"
+        color: root.loginFailed ? root.errorColor : root.foreground
         horizontalAlignment: Text.AlignHCenter
-        font.pixelSize: 16
+        font.family: root.fontFamily
+        font.pixelSize: 14
         elide: Text.ElideRight
       }
     }
@@ -198,15 +239,20 @@ Controls.Pane {
     id: keyboardLoader
     objectName: "loginKeyboardLoader"
     active: root.keyboardRequested && root.Window.active
-    width: Math.min(root.width - 16, root.height * 1.3, 1000)
+    width: Math.min(root.width - 32, root.height * 1.65, 880)
     height: root.keyboardHeight
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
-    sourceComponent: InputPanel {
+    anchors.bottomMargin: root.keyboardHeight > 0 ? 8 : 0
+    sourceComponent: Auth.Keyboard {
       width: keyboardLoader.width
-      visible: Qt.inputMethod.visible
+      backgroundColor: root.color
+      foregroundColor: root.foreground
+      fontFamily: root.fontFamily
+      layoutText: qsTr("Layout: %1")
+      onFocusRequested: root.keyboardFocusTarget.forceActiveFocus()
     }
-    onLoaded: { password.forceActiveFocus(); Qt.inputMethod.show() }
+    onLoaded: { root.keyboardFocusTarget.forceActiveFocus(); Qt.inputMethod.show() }
   }
 
   Component.onCompleted: password.forceActiveFocus()

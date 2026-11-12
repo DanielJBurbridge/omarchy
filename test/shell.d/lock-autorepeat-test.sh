@@ -15,6 +15,7 @@ if command -v quickshell >/dev/null 2>&1; then
   ln -s "$ROOT/shell/Ui" "$work/config/Ui"
   ln -s "$ROOT/shell/Commons" "$work/config/Commons"
   HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" \
+    QML_IMPORT_PATH="$ROOT/default/virtual-keyboard${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     OMARCHY_PATH="$ROOT" QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
     QT_STYLE_OVERRIDE= QT_QUICK_BACKEND=software QT_QUICK_CONTROLS_STYLE=Basic \
     QT_IM_MODULE=qtvirtualkeyboard QT_IM_MODULES=qtvirtualkeyboard QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1 \

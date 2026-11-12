@@ -474,6 +474,7 @@ class HostProcessTests(unittest.TestCase):
                  OMARCHY_AUTH_PAIR_FINISH_FILE=str(base / "pair-finish"),
                  QT_QPA_PLATFORM="offscreen", QT_QPA_PLATFORMTHEME="", QT_QUICK_BACKEND="software",
                  QT_IM_MODULE="qtvirtualkeyboard", QT_IM_MODULES="qtvirtualkeyboard", QT_VIRTUALKEYBOARD_DESKTOP_DISABLE="1",
+                 QML_IMPORT_PATH=str(ROOT / "default/virtual-keyboard") + ":" + os.environ.get("QML_IMPORT_PATH", ""),
                  PATH=str(base / "bin") + ":" + str(ROOT / "bin") + ":" + os.environ["PATH"])
       (base / "runtime/omarchy-lock-mode-pair-fixture").write_text("host\n")
       host_log = base / "host.log"

@@ -7,7 +7,11 @@
    'uwsm'
 --- a/pkgbuilds/omarchy-settings-dev/PKGBUILD
 +++ b/pkgbuilds/omarchy-settings-dev/PKGBUILD
-@@ -214,2 +214,3 @@
+@@ -214,2 +214,7 @@
    install -Dm644 default/systemd/user/omarchy-sleep-lock.service "$pkgdir/usr/lib/systemd/user/omarchy-sleep-lock.service"
 +  install -Dm644 default/systemd/user/omarchy-lock-host.service "$pkgdir/usr/lib/systemd/user/omarchy-lock-host.service"
++  # Fixed authentication visuals; no caller-selected QML or style directory.
++  for asset in qmldir Theme.qml AuthButton.qml AuthChoice.qml AuthKey.qml Keyboard.qml style.qml; do
++    install -Dm644 "default/virtual-keyboard/QtQuick/VirtualKeyboard/Styles/Omarchy/$asset" "$pkgdir/usr/lib/qt6/qml/QtQuick/VirtualKeyboard/Styles/Omarchy/$asset"
++  done
    install -Dm644 default/systemd/user/omarchy-recover-internal-monitor.service "$pkgdir/usr/lib/systemd/user/omarchy-recover-internal-monitor.service"
