@@ -259,7 +259,19 @@ For each increment record: source commit, installed package versions, changed co
 
 Research is complete. Nine feature worktrees and one source integration worktree preserve the common `f7194066d` baseline. The [thread index](rog-ally-threads.md) identifies each owner and the sole live rollout thread. This ledger records reviewed source separately from installation and physical acceptance; the presence of a command, package or active service never completes an inventory row by itself.
 
-### Reviewed source increments
+### Current source recovery release — 12 November 2026
+
+The recovered executable/package cut is **`43ad2f645d2667e2c8950366ddcca3facd8cd323`**, followed only by the publication receipt/ledger. The [finite source handoff](../docs/rog-ally-source-handoff-20261112.md) is authoritative for this new stage: use the full immutable publication SHA supplied to rollout, not the moving branch. Matching runtime/settings are mandatory even in generic mode; the pinned recipe patch installs the fixed trusted-host unit and declares Python/Qt dependencies. No new packages were installed or activated on Sigil or the Ally. Installed Ally remains `dev.28a5d89-1`; the frozen prepared/uninstalled 47e artifacts remain separate.
+
+AUTH `ebcfa92e2`, `c8a54fe5b` and final `f42bb6d81` are now integrated as `909f75ad6`, `c9c4cc02b` and `40f5d8a45`. The coordinator directly assessed exact f42 and closed the last source findings before recovery: unknown compositor state refuses before a restart kill, and orphan proofs require normal exit. Self-review completed the actual host/control/INPUT pair regression, including consumer observation of private PAM unlock before EOF; commit `8cf180321`. No new review delegate or thread was started. Actual systemd/Wayland security and physical acceptance remain unverified.
+
+The interrupted `./test/all` finished and was not repeated: CLI passed; 2 of 431 shell files failed, with skips in 44 files. Logs remain `/tmp/ally-k07-integrated-all.log` and `/tmp/omarchy-test-shell.4IgeM3`. The keyboard style failure also exists in the retained f719 baseline. The byte-unchanged usage partition/collectors timed out in integration but passed one focused base run; that integrated timing limitation remains explicit. After strengthening only the pair fixture, the affected lock-state file passed all 18 host cases in `/tmp/ally-source-recovery-lock-state-20261112.log`. Patched real package functions staged successfully and 208 payload byte/mode checks passed. See the handoff for exact recipes, hashes, evidence and remaining gates; no whole-suite green or installed acceptance is claimed.
+
+Reviewed INPUT cut 5af and exact companion 1.0.3-1 remain included and unchanged; never newly enable 1.0.2. POWER/stock Manager remain no-install/no-takeover, optional Decky stays disabled, and K11 encrypted-disk touch remains unimplemented. Root owns the separately authorised serial package build/install, unlocked owner transition, targeted rollback and genuine touch/sign-in/lock/unlock/suspend gates. No old source hold is an instruction to discard already assessed f42 fixes, and no source test clears live security.
+
+The sections below retain the chronology of earlier source and rollout receipts. Statements that K07 was unmerged/uncleared or that a source handoff was held describe those earlier cuts; this current release section and linked handoff supersede them. Frozen 47e and installed dev.28a5 status remain unchanged.
+
+### Reviewed source increments (earlier receipts)
 
 | Increment | Owner commit → integrated commit | Source checks | Installed and physical evidence |
 | --- | --- | --- | --- |
