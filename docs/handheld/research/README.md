@@ -2,7 +2,7 @@
 
 Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). Each file below is a research record dated 12 Nov 2026 (AWST).
 
-**steamos-manager is a recommendation, not a decision. An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive, and it is being re-assessed.**
+**An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
 **Superseded (12 Nov 2026).** Do not ship stock steamos-manager and do not fork it. Build backlog #10 (a small root writer for the power limits) and #11 (a session-bus shim implementing the public SteamOSManager1 API, so Steam's QAM performance slider works). The stock package enables a root service on install, its root RootManager API lacks Polkit/caller authorisation, its root daemon manages InputPlumber targets, it has a networking-helper dependency, and its root interface is monolithic.
 
