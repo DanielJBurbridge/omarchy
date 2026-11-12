@@ -1,6 +1,6 @@
 # Omarchy Handheld UX specs
 
-Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md).
+Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md). What this tip actually does on an RC71L, and how to install and roll it back, is in [ALPHA.md](ALPHA.md).
 
 Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Secondary (design for, verify later): Ally X (RC72LA), Xbox Ally (RC73X/Y), Lenovo Legion Go, Steam Deck, MSI Claw.
 
