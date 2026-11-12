@@ -1,0 +1,13 @@
+[Unit]
+Description=Re-apply the ROG Ally PPT limits after resume
+# Ordered after the sleep target, so systemd starts this once the machine is
+# back. It calls the same writer as the session shim.
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+Environment=OMARCHY_PATH=/usr/share/omarchy
+ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

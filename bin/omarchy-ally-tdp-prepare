@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# omarchy:summary=Snapshot Ally PPT ceilings and mask power-profiles-daemon
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Masks power-profiles-daemon on the original RC71L only. asusd is a different
+# task; this command reports it and does not mask it.
+
+if omarchy-hw-rog-ally; then
+  if [[ $(id -u) -ne 0 && ${OMARCHY_ALLY_TDP_FIXTURE:-} != 1 ]]; then
+    echo "omarchy-ally-tdp-prepare must run as root." >&2
+    exit 1
+  fi
+  omarchy-ally-tdp-apply --snapshot
+  if systemctl is-active --quiet asusd.service; then
+    echo "asusd is active. This command does not mask it. PPT limits can be overwritten until the Ally asusd mask task does." >&2
+  fi
+  systemctl mask --now power-profiles-daemon.service
+else
+  echo "Not an original ROG Ally RC71L; power-profiles-daemon is unchanged." >&2
+fi

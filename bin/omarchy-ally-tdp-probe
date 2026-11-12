@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# omarchy:summary=Record ROG Ally PPT limits and hwmon power for a units check
+# omarchy:args=[--json]
+# omarchy:hidden=true
+
+# Read-only. A person runs this on the Ally while a sustained load is active
+# and compares ppt_pl1_spl with hwmon power*_input. See
+# docs/handheld/tdp-spike-findings.md for what to measure.
+
+if [[ -z ${OMARCHY_PATH:-} || ! -f $OMARCHY_PATH/default/handheld/ally_tdp.py ]]; then
+  echo "ally-tdp: OMARCHY_PATH does not contain the TDP helper" >&2
+  exit 1
+fi
+
+exec python3 -B "$OMARCHY_PATH/default/handheld/ally_tdp.py" probe "$@"

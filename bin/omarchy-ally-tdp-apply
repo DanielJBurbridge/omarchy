@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# omarchy:summary=Apply a capped ROG Ally sustained power limit
+# omarchy:args=--show | --snapshot | --reassert | --set WATTS
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Root invocation comes from pkexec, which clears the environment, or from a
+# system unit that sets OMARCHY_PATH. Prefer the session tree, then the
+# packaged tree. Do not invent OMARCHY_PATH from HOME.
+
+if [[ $(id -u) -eq 0 && ${OMARCHY_ALLY_TDP_FIXTURE:-} != 1 ]]; then
+  export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+fi
+
+module=""
+if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/handheld/ally_tdp.py ]]; then
+  module=$OMARCHY_PATH/default/handheld/ally_tdp.py
+else
+  module=/usr/share/omarchy/default/handheld/ally_tdp.py
+fi
+
+if [[ ! -f $module ]]; then
+  echo "ally-tdp: cannot find the TDP helper module" >&2
+  exit 1
+fi
+
+exec python3 -B "$module" apply "$@"

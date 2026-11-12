@@ -1,0 +1,12 @@
+[Unit]
+Description=Snapshot ROG Ally PPT ceilings and mask power-profiles-daemon
+
+[Service]
+Type=oneshot
+# A system unit has no user session, so point at the packaged tree. The
+# command itself still exits without changing anything unless this is an RC71L.
+Environment=OMARCHY_PATH=/usr/share/omarchy
+ExecStart=/usr/bin/omarchy-ally-tdp-prepare
+
+[Install]
+WantedBy=multi-user.target

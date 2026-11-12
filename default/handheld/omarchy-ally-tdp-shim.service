@@ -1,0 +1,16 @@
+[Unit]
+Description=Session-bus TDP shim for Steam's Quick Access Menu on the ROG Ally
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=OMARCHY_PATH
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/omarchy-ally-tdp-shim
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Install]
+WantedBy=graphical-session.target
