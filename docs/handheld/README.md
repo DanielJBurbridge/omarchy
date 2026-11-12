@@ -10,8 +10,8 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 |---|---|---|
 | 01 | [Controller and button map](01-controller-button-map.md) | Draft, revision 4 |
 | 02 | [Mode switch (gaming ⇄ desktop) and dock / undock](02-mode-switch-and-dock.md) | Draft, revision 2 |
-| 03 | First boot and install flow (handheld variant) | TODO |
-| 04 | Quick-access overlay: TDP, fan, RGB, brightness, performance profile | TODO |
+| 03 | [First boot and install flow (handheld variant)](03-first-boot-and-install.md) | Draft, revision 1 |
+| 04 | [Quick-access overlay: TDP, fan, RGB, brightness, performance profile](04-quick-access-overlay.md) | Draft, revision 1 |
 | 05 | Notifications (gaming and desktop) | TODO |
 | 06 | Accessibility: text size, contrast, haptics, one-handed | TODO |
 | 07 | On-screen keyboard (desktop wvkbd and Steam OSK) | TODO |
