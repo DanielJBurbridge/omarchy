@@ -15,6 +15,10 @@ ShellRoot {
   property int step: 0
   property bool released: false
   property bool startRequested: false
+  property bool inputPairContinue: false
+  property bool inputPairReady: false
+  property bool inputPairFinished: false
+  property bool inputPairUnlocked: false
   property bool pamFinished: false
   property int submitted: 0
   property string pamFailure: ""
@@ -56,6 +60,20 @@ ShellRoot {
     onLoaded: root.released = true
     onFileChanged: reload()
   }
+  FileView {
+    path: Quickshell.env("OMARCHY_AUTH_PAIR_CONTINUE_FILE")
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.inputPairContinue = true
+    onFileChanged: reload()
+  }
+  FileView {
+    path: Quickshell.env("OMARCHY_AUTH_PAIR_FINISH_FILE")
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.inputPairFinished = true
+    onFileChanged: reload()
+  }
   Timer {
     interval: 200; running: true; repeat: true
     onTriggered: {
@@ -82,6 +100,10 @@ ShellRoot {
           check(pam !== null, "real password PAM context found")
           pam.configDirectory = Quickshell.env("OMARCHY_AUTH_PAM_DIR")
           pam.config = "deny"
+          if (!root.inputPairContinue) {
+            if (!root.inputPairReady) { root.inputPairReady = true; console.log("INPUT_PAIR_READY_UNLOCKED") }
+            return
+          }
           service.lockRequested = true
           pam.completed.connect(function(result) {
             root.pamFinished = true
@@ -156,6 +178,11 @@ ShellRoot {
           if (!pamFinished) return
           check(root.pamFailure === "", root.pamFailure)
           check(!service.currentlyLocked() && service.pendingPassword === "", "successful PAM retry clears private password and unlocks model")
+          if (!root.inputPairUnlocked) {
+            root.inputPairUnlocked = true
+            console.log("INPUT_PAIR_UNLOCKED_AFTER_PAM")
+          }
+          if (!root.inputPairFinished) return
           console.log("TRUSTED_LOCK_HOST_TEST_PASS")
           Qt.quit()
         }

@@ -470,6 +470,8 @@ class HostProcessTests(unittest.TestCase):
                  OMARCHY_AUTH_SOURCE_ROOT=str(ROOT), OMARCHY_AUTH_PAM_DIR=str(base / "pam"),
                  OMARCHY_AUTH_RELEASE_FILE=str(base / "release"), OMARCHY_AUTH_UNIT_PID_FILE=str(base / "unit-pid"),
                  OMARCHY_AUTH_START_FILE=str(base / "start"),
+                 OMARCHY_AUTH_PAIR_CONTINUE_FILE=str(base / "pair-continue"),
+                 OMARCHY_AUTH_PAIR_FINISH_FILE=str(base / "pair-finish"),
                  QT_QPA_PLATFORM="offscreen", QT_QPA_PLATFORMTHEME="", QT_QUICK_BACKEND="software",
                  QT_IM_MODULE="qtvirtualkeyboard", QT_IM_MODULES="qtvirtualkeyboard", QT_VIRTUALKEYBOARD_DESKTOP_DISABLE="1",
                  PATH=str(base / "bin") + ":" + str(ROOT / "bin") + ":" + os.environ["PATH"])
@@ -494,8 +496,48 @@ class HostProcessTests(unittest.TestCase):
         self.fail(host_log.read_text())
       process = launch_host()
       reader = None
+      monitor = None
+      input_spec = importlib.util.spec_from_file_location("paired_ally_input", ROOT / "default/rog-ally-input/bridge.py")
+      paired_input = importlib.util.module_from_spec(input_spec)
+      input_spec.loader.exec_module(paired_input)
+      actions = []
+      paired_input.launch = actions.append
+      class InputBoundary:
+        # Only logind/compositor and hardware are fixtures. The bool feed,
+        # bridge/monitor, native host peer and control client are production.
+        mode = "gamepad"
+        canonical_available = False
+        def active(self, session): return True
+        def devices(self): return ["/pair/composite"]
+        def properties(self, path):
+          return {"ProfileName": "Omarchy Ally " + self.mode,
+                  "ProfilePath": str(paired_input.PROFILE_DIR / (self.mode + ".yaml")),
+                  "InterceptMode": 0, "DbusDevices": ["/pair/events"]}
+        def load(self, path, mode): self.mode = mode
+        def desktop_unlocked(self):
+          try:
+            with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid if self.canonical_available else 0):
+              state = control.request("status")
+            return state["ready"] and not state["locked"]
+          except (OSError, ValueError, subprocess.SubprocessError):
+            return False
+      boundary = InputBoundary()
+      bridge = paired_input.Bridge(boundary, "/fixture/session")
+      bridge.discover()
+      def await_input(predicate):
+        deadline = time.monotonic() + 5
+        context = paired_input.GLib.MainContext.default()
+        while time.monotonic() < deadline:
+          while context.pending(): context.iteration(False)
+          if predicate(): return
+          time.sleep(0.01)
+        self.fail("actual host/INPUT state did not arrive: " + host_log.read_text())
       try:
         await_log("TRUSTED_LOCK_HOST_UNREADY")
+        with patch.dict(os.environ, env, clear=True):
+          monitor = paired_input.LockMonitor(bridge)
+        await_input(lambda: bridge.locked is True)
+        self.assertFalse(bridge.allowed)
         reader = socket.socket(socket.AF_UNIX)
         reader.settimeout(2)
         reader.connect(str(base / "runtime/omarchy-lock-pair-fixture.sock"))
@@ -504,9 +546,22 @@ class HostProcessTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid):
           self.assertFalse(control.request("status")["ready"])
         (base / "start").touch()
-        await_log("TRUSTED_LOCK_HOST_DUMMY_READY")
+        await_log("INPUT_PAIR_READY_UNLOCKED")
         self.assertIs(json.loads(feed.readline())["locked"], False)  # Readiness is an observable edge.
+        await_input(lambda: bridge.locked is False)
+        self.assertFalse(bridge.allowed, "unavailable canonical owner must deny at the real false snapshot")
+        boundary.canonical_available = True
+        bridge.event("/pair/events", "omarchy_menu", 1)
+        self.assertTrue(bridge.allowed, "owned action must recover without another producer frame")
+        self.assertEqual(actions, [["omarchy-menu"]])
+        self.assertIs(bridge.locked, False)
+        (base / "pair-continue").touch()
+        await_log("TRUSTED_LOCK_HOST_DUMMY_READY")
         self.assertIs(json.loads(feed.readline())["locked"], True)   # Then private dummy lock request.
+        await_input(lambda: bridge.locked is True)
+        self.assertFalse(bridge.allowed)
+        bridge.event("/pair/events", "omarchy_menu", 1)
+        self.assertEqual(actions, [["omarchy-menu"]], "actual locked frame must block actions")
         # The canonical implementation remains available with no main shell.
         with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid):
           self.assertTrue(control.request("status")["ready"])
@@ -550,7 +605,16 @@ class HostProcessTests(unittest.TestCase):
           oversized.sendall(b"x" * 65)  # No newline: still bounded and rejected.
           self.assertEqual(incomplete.readline(), b"")
         (base / "release").touch()
+        await_log("INPUT_PAIR_UNLOCKED_AFTER_PAM")
+        await_input(lambda: bridge.locked is False)
+        self.assertTrue(bridge.allowed, "real PAM unlock must restore the actual consumer before host exit")
+        bridge.event("/pair/events", "omarchy_menu", 0)
+        bridge.event("/pair/events", "omarchy_menu", 1)
+        self.assertEqual(actions, [["omarchy-menu"], ["omarchy-menu"]])
+        (base / "pair-finish").touch()
         process.wait(timeout=12)
+        await_input(lambda: bridge.locked is None)
+        self.assertFalse(bridge.allowed, "EOF must invalidate the actual consumer's last frame")
         self.assertIn("TRUSTED_LOCK_HOST_TEST_PASS", host_log.read_text())
         # Unlock is a real private permit result, then process death produces
         # EOF: consumers must discard their last false value on EOF.
@@ -567,6 +631,8 @@ class HostProcessTests(unittest.TestCase):
         (base / "release").unlink()
         process = launch_host()
         await_log("TRUSTED_LOCK_HOST_DUMMY_READY")
+        await_input(lambda: bridge.locked is True)
+        self.assertFalse(bridge.allowed, "recreated actual host remains locked")
         with socket.socket(socket.AF_UNIX) as renewed:
           renewed.settimeout(2)
           renewed.connect(str(base / "runtime/omarchy-lock-pair-fixture.sock"))
@@ -580,6 +646,8 @@ class HostProcessTests(unittest.TestCase):
           self.assertTrue(json.loads(crash_feed.readline())["locked"])
           process.kill()
           process.wait(timeout=5)
+          await_input(lambda: bridge.locked is None)
+          self.assertFalse(bridge.allowed)
           self.assertEqual(crash_feed.readline(), b"")
           crash_feed.close()
         with patch.dict(os.environ, env, clear=True), patch.object(control, "unit_pid", return_value=process.pid):
@@ -592,7 +660,10 @@ class HostProcessTests(unittest.TestCase):
         (base / "release").touch()
         process.wait(timeout=12)
         self.assertIn("TRUSTED_LOCK_HOST_TEST_PASS", host_log.read_text())
+        print("PASS: actual host feed/client and corrected INPUT bridge recover without a bool edge, block locks and discard EOF; unit/logind/compositor/hardware boundaries substituted")
       finally:
+        if monitor is not None:
+          monitor.stop()
         if reader is not None:
           reader.close()
         if process.poll() is None:
