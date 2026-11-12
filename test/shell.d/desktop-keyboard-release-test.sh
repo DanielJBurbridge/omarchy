@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # Device check for a virtual keyboard killed mid-key. CI has no Hyprland
-# session and no wvkbd, so this skips there. On a desktop it holds Backspace,
-# then Shift, through the same virtual-keyboard protocol wvkbd uses, SIGKILLs
-# that client and wvkbd, and checks the key does not stay down.
+# session and no wvkbd, so this skips there. On a desktop it requires the
+# shipped config to have already enabled release_pressed_on_close, holds
+# Backspace, then Shift, through the same virtual-keyboard protocol wvkbd
+# uses, SIGKILLs that client and wvkbd, and checks the key does not stay down.
 
 set -euo pipefail
 
@@ -26,6 +27,23 @@ option=$(hyprctl getoption input:virtualkeyboard:release_pressed_on_close 2>/dev
   skip "Hyprland has no virtualkeyboard release option; skipping SIGKILL key release"
   exit 0
 }
+# The shipped RC71L config turns this on. Setting it here would hide a revert.
+[[ $option == *'int: 1'* || $option == *'= 1'* || $option == *'= true'* ]] ||
+  fail "shipped config left input:virtualkeyboard:release_pressed_on_close off" "$option"
+
+# A stuck key repeats only after input:repeat_delay. Watch longer than that
+# delay, and at least a second, so the old 0.4s glance cannot miss it.
+repeat_delay_ms=600
+repeat=$(hyprctl getoption input:repeat_delay 2>/dev/null || true)
+if [[ $repeat =~ int:[[:space:]]*([0-9]+) ]]; then
+  repeat_delay_ms=${BASH_REMATCH[1]}
+elif [[ $repeat =~ =[[:space:]]*([0-9]+) ]]; then
+  repeat_delay_ms=${BASH_REMATCH[1]}
+fi
+settle_ms=$(( repeat_delay_ms + 400 ))
+if (( settle_ms < 1000 )); then
+  settle_ms=1000
+fi
 
 work=$(mktemp -d)
 record=$work/keys
@@ -48,8 +66,6 @@ exec python3 "$work/record.py" "$record"
 SH
 chmod +x "$work/record.sh"
 
-previous=0
-[[ $option == *'int: 1'* || $option == *'= 1'* || $option == *'= true'* ]] && previous=1
 foot_pid=''
 wtype_pid=''
 keyboard_pid=''
@@ -64,12 +80,9 @@ cleanup() {
   if [[ -n $foot_pid ]]; then
     kill "$foot_pid" 2>/dev/null || true
   fi
-  hyprctl keyword input:virtualkeyboard:release_pressed_on_close "$previous" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT
-
-hyprctl keyword input:virtualkeyboard:release_pressed_on_close true >/dev/null
 
 foot --app-id omarchy-keyboard-release -e "$work/record.sh" >/dev/null 2>&1 &
 foot_pid=$!
@@ -134,11 +147,8 @@ raise SystemExit(0 if sys.argv[2].encode() in text else 1)' "$record" "$needle";
     kill -9 "$keyboard_pid" 2>/dev/null || true
     keyboard_pid=''
   fi
-  again=$size
-  for _ in {1..8}; do
-    sleep 0.05
-    again=$(wc -c <"$record" | tr -d ' ')
-  done
+  sleep "$(printf '%d.%03d' $(( settle_ms / 1000 )) $(( settle_ms % 1000 )))"
+  again=$(wc -c <"$record" | tr -d ' ')
   (( again == size )) || fail "$name stayed down after SIGKILL" "grew from $size to $again"
 }
 
