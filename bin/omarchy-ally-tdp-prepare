@@ -43,4 +43,7 @@ if [[ $(id -u) -eq 0 ]]; then
   fi
 fi
 
+if [[ $(id -u) -eq 0 ]]; then
+  exec python3 -I -B "$module" prepare "$@"
+fi
 exec python3 -B "$module" prepare "$@"

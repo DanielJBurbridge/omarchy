@@ -9,6 +9,7 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 Type=oneshot
 Environment=OMARCHY_PATH=/usr/share/omarchy
 ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert
+SuccessExitStatus=75
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

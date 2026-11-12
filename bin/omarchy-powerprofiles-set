@@ -27,6 +27,14 @@ case "$action" in
   *) usage ;;
 esac
 
+stamp="${OMARCHY_ALLY_TDP_STATE_DIR:-/var/lib/omarchy/ally-tdp}/ppd-mask.json"
+variant="${OMARCHY_HANDHELD_VARIANT_PATH:-/var/lib/omarchy/variants/handheld}"
+if [[ -f $stamp && -f $variant ]] && omarchy-hw-rog-ally; then
+  echo "Power profiles are managed by the Ally TDP control" >&2
+  omarchy-notification-send -u normal "Power profiles are managed by the Ally TDP control" || true
+  exit 1
+fi
+
 mapfile -t profiles < <(omarchy-powerprofiles-list)
 
 profile_available() {

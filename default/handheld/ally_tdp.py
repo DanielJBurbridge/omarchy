@@ -44,6 +44,7 @@ CONFLICTS = (
     ("hhd.service", "OMARCHY_ALLY_TDP_HHD_STATE"),
     ("tuned.service", "OMARCHY_ALLY_TDP_TUNED_STATE"),
     ("gamemoded.service", "OMARCHY_ALLY_TDP_GAMEMODE_STATE"),
+    ("powerstation.service", "OMARCHY_ALLY_TDP_POWERSTATION_STATE"),
 )
 
 
@@ -61,6 +62,8 @@ def emit(payload):
 def fail(status, message):
     print(f"ally-tdp: {message}", file=sys.stderr)
     emit({"error": message, "ok": False, "status": status})
+    if status == "locked":
+        return 75
     return 1
 
 
@@ -161,13 +164,19 @@ def require_ally():
 
 
 def handheld_variant_installed():
+    path = Path(effective_config()["variant"])
     if os.geteuid() != 0:
         flag = os.environ.get("OMARCHY_ALLY_TDP_HANDHELD")
         if flag == "1":
             return True
         if flag == "0":
             return False
-    return Path(effective_config()["variant"]).is_file()
+        return path.is_file()
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not (info.st_mode & 0o022)
 
 
 def writer_installed():
@@ -309,19 +318,34 @@ def load_json(path):
 
 
 def assert_safe_dir(path):
-    """Refuse a symlink or a group/world-writable directory we are about to write in."""
+    """Refuse a symlink or a group/world-writable directory on the way to the file.
+
+    Root walks every ancestor through `/`. A non-root run stops at
+    OMARCHY_ALLY_TDP_FIXTURE_ROOT so the world-writable `/tmp` above a test
+    directory is not treated as the machine's `/`.
+    """
     directory = Path(path)
-    for candidate in (directory, directory.parent):
-        if not candidate.exists() and not candidate.is_symlink():
-            continue
-        info = candidate.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            raise TdpError("rejected", f"{candidate} is a symlink")
-        if info.st_mode & 0o022:
-            raise TdpError("rejected", f"{candidate} is group or world writable")
-        owner = 0 if os.geteuid() == 0 else os.geteuid()
-        if info.st_uid != owner:
-            raise TdpError("rejected", f"{candidate} is not owned by the writer")
+    stop = None
+    if os.geteuid() != 0:
+        raw = os.environ.get("OMARCHY_ALLY_TDP_FIXTURE_ROOT")
+        if raw:
+            stop = Path(raw).resolve()
+    current = directory
+    while True:
+        if current.exists() or current.is_symlink():
+            info = current.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise TdpError("rejected", f"{current} is a symlink")
+            if info.st_mode & 0o022:
+                raise TdpError("rejected", f"{current} is group or world writable")
+            owner = 0 if os.geteuid() == 0 else os.geteuid()
+            if info.st_uid != owner:
+                raise TdpError("rejected", f"{current} is not owned by the writer")
+        if stop is not None and current.resolve() == stop:
+            break
+        if current == current.parent:
+            break
+        current = current.parent
 
 
 def save_json(path, payload):
@@ -332,7 +356,11 @@ def save_json(path, payload):
         if path.is_symlink():
             raise TdpError("rejected", f"{path} is a symlink")
         blob = (json.dumps(payload, sort_keys=True) + "\n").encode()
-        temporary = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}"
+        pinned = os.environ.get("OMARCHY_ALLY_TDP_TEMP_NAME") if os.geteuid() != 0 else ""
+        if pinned:
+            temporary = path.parent / pinned
+        else:
+            temporary = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}"
         descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o644)
         try:
             os.write(descriptor, blob)
@@ -402,14 +430,14 @@ def round_div(numer, denom):
 def burst_ceiling(source, live, snapshot):
     """SPPT and FPPT never go above the boot-captured default.
 
-    On AC the RC71 table has no separate default, so the driver reports
-    default == max and that maximum is the ceiling. A battery default of zero
-    is refused instead of silently using the maximum.
+    A default of zero on AC falls back to the captured maximum, because the
+    RC71 AC table has no separate default and the driver reports default == max.
+    A battery default of zero is refused instead of silently using the maximum.
     """
-    if source == "battery":
-        if snapshot["default"] <= 0:
-            raise TdpError("rejected", "battery firmware default is missing")
+    if snapshot["default"] > 0:
         ceiling = snapshot["default"]
+    elif source == "battery":
+        raise TdpError("rejected", "battery firmware default is missing")
     else:
         ceiling = snapshot["max"]
     return min(ceiling, live["max"], snapshot["max"])
@@ -447,7 +475,7 @@ def commit_plan(requested, source, snapshot, live):
 
 def plan_targets(requested, source, snapshot, live, clamp):
     spl_min, spl_max = absolute_window(source, snapshot, live)
-    if requested < spl_min or (not clamp and requested > spl_max):
+    if not clamp and (requested < spl_min or requested > spl_max):
         raise TdpError(
             "rejected",
             f"sustained limit {requested} W is outside {spl_min}–{spl_max} W on {source}",
@@ -532,19 +560,27 @@ def write_current(name, value):
 
 
 def restore_currents(original):
+    """Write a captured tuple back without breaking SPL <= SPPT <= FPPT."""
     unrestored = []
-    for name, value in original.items():
-        path = attr_file(name, "current_value")
-        try:
-            path.write_text(f"{value}\n")
-        except OSError:
-            pass
-        try:
-            got = read_int_file(path)
-        except TdpError:
-            unrestored.append(name)
+    for name in ordered_names(read_currents(), original):
+        if read_currents().get(name) == original[name]:
             continue
-        if got != value:
+        try:
+            write_current(name, original[name])
+        except OSError:
+            unrestored.append(name)
+            break
+        if not tuple_in_order(read_currents()):
+            unrestored.append(name)
+            break
+        trace_write()
+    for name, value in original.items():
+        if name in unrestored:
+            continue
+        try:
+            if read_currents().get(name) != value:
+                unrestored.append(name)
+        except TdpError:
             unrestored.append(name)
     return unrestored
 
@@ -626,7 +662,7 @@ def acquire_lock():
         except BlockingIOError:
             if time.monotonic() >= deadline:
                 os.close(descriptor)
-                raise TdpError("rejected", "another TDP write holds the lock")
+                raise TdpError("locked", "another TDP write holds the lock")
             time.sleep(0.05)
 
 
@@ -681,7 +717,7 @@ def apply_locked(requested, clamp, remember):
         if flip_source_once() or power_source() != source:
             clamp = True
             continue
-        requested_spl = asked if remember else load_requested(default=asked)
+        requested_spl = min(asked, AC_CAP) if remember else load_requested(default=asked)
         save_json(
             preference_path(),
             {
@@ -738,11 +774,12 @@ def session_bus_owner():
 
 
 def activation_file():
-    override = os.environ.get("OMARCHY_ALLY_TDP_DBUS_SERVICE")
-    if override == "absent":
-        return None
-    if override:
-        return Path(override)
+    if os.geteuid() != 0:
+        override = os.environ.get("OMARCHY_ALLY_TDP_DBUS_SERVICE")
+        if override == "absent":
+            return None
+        if override:
+            return Path(override)
     return Path("/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service")
 
 
@@ -799,7 +836,7 @@ def command_set(argv):
     if len(argv) != 1:
         raise TdpError("rejected", "set takes one whole-number watt argument and nothing else")
     requested = canonical_watts(argv[0])
-    emit(apply_spl(requested, clamp=False, remember=True))
+    emit(apply_spl(requested, clamp=True, remember=True))
     return 0
 
 
@@ -826,15 +863,33 @@ def run_systemctl(args):
         raise TdpError("rejected", f"systemctl {' '.join(args)} failed: {error}") from error
 
 
-def lift_ppd_mask(reason):
-    """Unmask PPD from the receipt and write the recorded PPT tuple back.
+def write_recorded_spl(recorded_spl):
+    """Apply a receipt SPL under the current source, in order."""
+    source = power_source()
+    live = read_live()
+    snapshot, _frozen = ceilings_for(source, live, persist=True)
+    spl, sppt, fppt = plan_targets(recorded_spl, source, snapshot, live, clamp=True)
+    targets = {"ppt_pl1_spl": spl, "ppt_pl2_sppt": sppt, "ppt_pl3_fppt": fppt}
+    write_targets(targets, read_currents())
 
-    This is root-only. It is not the polkit action, which can only run
-    omarchy-ally-tdp-apply.
+
+def lift_ppd_mask(reason):
+    """Unmask PPD from the receipt and re-apply its SPL for the current source.
+
+    The tuple is planned and written before PPD is unmasked, and it is clamped
+    to the source that is live now. This is root-only. It is not the polkit action.
     """
     stamp = ppd_stamp_path()
     payload = load_json(stamp) or {}
     previous = payload.get("previous")
+    recorded = payload.get("spl")
+    if isinstance(recorded, int) and not isinstance(recorded, bool):
+        descriptor = acquire_lock()
+        try:
+            write_recorded_spl(recorded)
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
     unmask = run_systemctl(["unmask", PPD_UNIT])
     if unmask.returncode != 0:
         raise TdpError("rejected", "could not unmask power-profiles-daemon")
@@ -842,19 +897,6 @@ def lift_ppd_mask(reason):
         restore = run_systemctl(["enable", "--now", PPD_UNIT])
         if restore.returncode != 0:
             raise TdpError("rejected", "could not restore power-profiles-daemon")
-    recorded = {name: payload.get(key) for name, key in (
-        ("ppt_pl1_spl", "spl"),
-        ("ppt_pl2_sppt", "sppt"),
-        ("ppt_pl3_fppt", "fppt"),
-    )}
-    if all(isinstance(value, int) and not isinstance(value, bool) for value in recorded.values()):
-        descriptor = acquire_lock()
-        try:
-            for name, value in recorded.items():
-                write_current(name, value)
-        finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
     try:
         stamp.unlink()
     except OSError as error:
@@ -898,9 +940,10 @@ def prepare_main(argv):
     asusd = run_systemctl(["is-active", "--quiet", "asusd.service"])
     if asusd.returncode == 0:
         print(
-            "asusd is active. This command does not mask it. PPT limits can be overwritten until the Ally asusd mask task does.",
+            "asusd is active. Not masking power-profiles-daemon, because the writer would then refuse every limit. Mask asusd in its own task first.",
             file=sys.stderr,
         )
+        return 0
     if not stamp.is_file():
         enabled = run_systemctl(["is-enabled", PPD_UNIT])
         previous = enabled.stdout.strip().split()[0] if enabled.stdout.strip() else "unknown"
@@ -1121,11 +1164,6 @@ def shim_main(_argv):
         )
         return 2
     state = Shim()
-    try:
-        state.seed()
-    except TdpError as error:
-        print(f"ally-tdp-shim: TDP is visible but writes are refused ({error})", file=sys.stderr)
-
     bus = dbus.SessionBus()
     try:
         # BusName releases the well-known name when the object is collected.
@@ -1346,6 +1384,13 @@ def shim_main(_argv):
             )
         except Exception as error:
             print(f"ally-tdp-shim: not watching resume or AC ({error})", file=sys.stderr)
+
+    try:
+        state.seed()
+    except TdpError as error:
+        print(f"ally-tdp-shim: TDP is visible but writes are refused ({error})", file=sys.stderr)
+    else:
+        service._changed(TDP_IFACE, self_tdp(state))
 
     print("ally-tdp-shim: ready", file=sys.stderr, flush=True)
     loop = GLib.MainLoop()

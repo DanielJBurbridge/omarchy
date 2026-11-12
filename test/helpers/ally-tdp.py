@@ -88,6 +88,7 @@ def environment(root, **extra):
         "OMARCHY_ALLY_HWMON_PATH": str(root / "hwmon"),
         "OMARCHY_ALLY_TDP_STATE_DIR": str(root / "state"),
         "OMARCHY_ALLY_TDP_RUN_DIR": str(root / "run"),
+        "OMARCHY_ALLY_TDP_FIXTURE_ROOT": str(root),
         "OMARCHY_ALLY_TDP_BOOT_ID": extra.pop("boot_id", "boot-1"),
         "OMARCHY_HANDHELD_VARIANT_PATH": str(variant),
         "OMARCHY_DMI_SYS_VENDOR_PATH": str(root / "dmi" / "sys_vendor"),
@@ -161,9 +162,18 @@ def policy_cases():
             fail("30 W on AC restores the stock AC tuple", str(currents(armoury)))
         ok("30 W on AC restores the stock AC tuple")
 
+        result = run([str(APPLY), "--set", "31"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (30, 43, 53) or preference.get("requested_spl") != 30:
+            fail("31 W on AC clamps to 30/43/53", f"{currents(armoury)} {preference}")
+        ok("31 W on AC clamps to 30/43/53")
+        result = run([str(APPLY), "--set", "6"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (7, 15, 15) or preference.get("requested_spl") != 6:
+            fail("6 W clamps up to the firmware floor", f"{currents(armoury)} {preference}")
+        ok("6 W clamps up to the firmware floor")
+
         for args, description in (
-            (["--set", "31"], "31 W on AC is rejected"),
-            (["--set", "6"], "a value below the firmware minimum is rejected"),
             (["--set", "-1"], "a negative limit is rejected"),
             (["--set", "15.5"], "a fractional limit is rejected"),
             (["--set", "1e1"], "scientific notation is rejected"),
@@ -217,7 +227,16 @@ def policy_cases():
         if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 25:
             fail("25 W on battery clamps to 20/20/25", f"{currents(armoury)} {preference}")
         ok("25 W on battery clamps to 20/20/25")
-        test_rejects_without_writes(root, armoury, env, ["--set", "26"], "26 W on battery is outside the absolute window")
+        result = run([str(APPLY), "--set", "26"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 26:
+            fail("26 W on battery clamps to 20/20/25", f"{currents(armoury)} {preference}")
+        ok("26 W on battery clamps to 20/20/25")
+        result = run([str(APPLY), "--set", "99"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 30:
+            fail("99 W on battery clamps to 20/20/25 and remembers the AC cap", f"{currents(armoury)} {preference}")
+        ok("99 W on battery clamps to 20/20/25 and remembers the AC cap")
         result = run([str(APPLY), "--set", "14"], env, check=True)
         if currents(armoury) != (14, 19, 23):
             fail("14 W on battery derives bursts under the DC defaults", str(currents(armoury)))
@@ -251,7 +270,11 @@ def policy_cases():
         if currents(armoury) != (16, 16, 20):
             fail("the battery tuple follows a non-stock DC default", str(currents(armoury)))
         ok("the battery tuple follows a non-stock DC default")
-        test_rejects_without_writes(root, armoury, env, ["--set", "26"], "a watt above the battery absolute window is rejected")
+        result = run([str(APPLY), "--set", "26"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (16, 16, 20) or preference.get("requested_spl") != 26:
+            fail("26 W on a tight battery table clamps to the ordering cap", f"{currents(armoury)} {preference}")
+        ok("26 W on a tight battery table clamps to the ordering cap")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-ratio-") as temporary:
         root = Path(temporary)
@@ -261,7 +284,7 @@ def policy_cases():
         limit(armoury, "ppt_pl3_fppt", 40, 5, 80, 40)
         env = environment(root)
         result = run([str(APPLY), "--set", "15"], env, check=True)
-        if currents(armoury) != (15, 30, 60):
+        if currents(armoury) != (15, 20, 40):
             fail("burst ratio comes from the fixture defaults", str(currents(armoury)))
         ok("burst ratio comes from the fixture defaults")
 
@@ -381,7 +404,7 @@ def probe_and_prepare():
                   exit 0
                 fi
                 if [[ $1 == is-active && $3 == asusd.service ]]; then
-                  exit 0
+                  exit 3
                 fi
                 if [[ $1 == is-active ]]; then
                   exit 3
@@ -417,8 +440,6 @@ def probe_and_prepare():
             fail("prepare masks power-profiles-daemon when the handheld variant and the writer are installed", logged)
         if "mask --now asusd" in logged or "mask asusd" in logged:
             fail("prepare does not mask asusd", logged)
-        if "asusd is active" not in result.stderr:
-            fail("prepare tells the operator that asusd is still active", result.stderr)
         if not (root / "run" / "ceilings.json").is_file():
             fail("prepare snapshots the boot ceilings before masking")
         receipt = json.loads((root / "state" / "ppd-mask.json").read_text())
@@ -462,10 +483,12 @@ def policy_file():
     resume = (ROOT / "default/handheld/omarchy-ally-tdp-resume.service").read_text()
     prepare = (ROOT / "default/handheld/omarchy-ally-tdp-prepare.service").read_text()
     shim = (ROOT / "default/handheld/omarchy-ally-tdp-shim.service").read_text()
-    if "omarchy-ally-tdp-apply --reassert" not in resume or "asus-armoury" not in resume:
+    if "omarchy-ally-tdp-apply --reassert" not in resume or "asus-armoury" not in resume or "SuccessExitStatus=75" not in resume:
         fail("resume unit reasserts through the same writer and only when asus-armoury exists")
     if "RestartPreventExitStatus=2" not in shim:
         fail("the shim unit does not restart when the bus name is taken")
+    if "omarchy-gaming-session.target" not in shim or "Requires=" in shim or "BindsTo=" in shim:
+        fail("the shim unit follows the gaming session without depending on that target")
     rules = (ROOT / "default/handheld/99-omarchy-ally-tdp.rules").read_text()
     source = (ROOT / "default/handheld/omarchy-ally-tdp-source.service").read_text()
     if 'SUBSYSTEM=="power_supply"' not in rules or "omarchy-ally-tdp-source.service" not in rules:
@@ -562,14 +585,9 @@ def shim_cases():
                 fail("shim signals PropertiesChanged only after the write")
             if props.Get(TDP, "TdpLimit") != 15:
                 fail("TdpLimit reads back the applied watts")
-            try:
-                props.Set(TDP, "TdpLimit", dbus.UInt32(99))
-            except dbus.exceptions.DBusException:
-                pass
-            else:
-                fail("an out-of-range slider value is a D-Bus error")
-            if currents(armoury) != (15, 22, 27):
-                fail("a rejected slider value writes nothing", str(currents(armoury)))
+            props.Set(TDP, "TdpLimit", dbus.UInt32(99))
+            if currents(armoury) != (30, 43, 53) or props.Get(TDP, "TdpLimit") != 30:
+                fail("a slider value above the cap clamps to the AC tuple", f"{currents(armoury)}")
             try:
                 props.Set(BUS + ".GpuPerformanceLevel1", "ManualGpuClock", dbus.UInt32(2200))
             except dbus.exceptions.DBusException:
@@ -697,9 +715,10 @@ def review_cases():
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         result = run([str(APPLY), "--set", "15"], env)
         os.close(descriptor)
-        if result.returncode == 0 or currents(armoury) != (30, 43, 53) or "lock" not in result.stderr:
-            fail("a held lock rejects the write", result.stderr)
-        ok("a held lock rejects the write")
+        body = payload_of(result) or {}
+        if result.returncode != 75 or currents(armoury) != (30, 43, 53) or body.get("status") != "locked":
+            fail("a held lock exits 75 without writing", f"{result.returncode} {result.stdout} {result.stderr}")
+        ok("a held lock exits 75 without writing")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-tamper-") as temporary:
         root = Path(temporary)
@@ -745,6 +764,7 @@ def review_cases():
         "OMARCHY_ALLY_TDP_HHD_STATE",
         "OMARCHY_ALLY_TDP_TUNED_STATE",
         "OMARCHY_ALLY_TDP_GAMEMODE_STATE",
+        "OMARCHY_ALLY_TDP_POWERSTATION_STATE",
     ):
         with tempfile.TemporaryDirectory(prefix="ally-tdp-conflict-") as temporary:
             root = Path(temporary)
@@ -829,7 +849,7 @@ def review_cases():
         stub = root / "bin"
         stub.mkdir()
         (stub / "systemctl").write_text(
-            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nexit 0\n"
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nif [[ $1 == is-active ]]; then exit 3; fi\nexit 0\n"
         )
         (stub / "systemctl").chmod(0o755)
         env = environment(root)
@@ -854,6 +874,249 @@ def review_cases():
         if result.returncode != 0:
             fail("the power-supply helper is quiet when the owner gate is closed", result.stderr)
         ok("the power-supply helper is quiet when the owner gate is closed")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-fppt-rollback-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        target = armoury / "ppt_pl3_fppt" / "current_value"
+        target.chmod(0o444)
+        result = run([str(APPLY), "--set", "10"], env)
+        target.chmod(0o644)
+        lines = [line for line in trace.read_text().splitlines() if line.strip()]
+        body = payload_of(result) or {}
+        if result.returncode == 0 or body.get("status") != "rolled_back" or currents(armoury) != (30, 43, 53) or not ordered(lines):
+            fail("a failed FPPT write rolls back in order to the original tuple", f"{currents(armoury)} {lines} {result.stdout}")
+        ok("a failed FPPT write rolls back in order to the original tuple")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-restore-battery-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nif [[ $1 == is-active ]]; then exit 3; fi\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        run([str(PREPARE)], env, check=True)
+        rc71_dc(armoury, current=(30, 43, 53))
+        (root / "supply" / "ADP" / "online").write_text("0\n")
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        result = run([str(PREPARE), "--restore"], env, check=True)
+        lines = [line for line in trace.read_text().splitlines() if line.strip()]
+        if currents(armoury) != (20, 20, 25) or not ordered(lines) or not lines:
+            fail("prepare --restore clamps the recorded SPL to the current source", f"{currents(armoury)} {lines} {result.stderr}")
+        ok("prepare --restore clamps the recorded SPL to the current source")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-asusd-skip-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        rc71_ac(root / "armoury")
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        result = run([str(PREPARE)], env, check=True)
+        logged = log.read_text() if log.exists() else ""
+        if result.returncode != 0 or "mask --now" in logged or (root / "state" / "ppd-mask.json").exists() or "asusd is active" not in result.stderr:
+            fail("prepare does not mask PPD while asusd is active", f"{result.returncode} {logged} {result.stderr}")
+        ok("prepare does not mask PPD while asusd is active")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-bad-ceiling-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        rc71_ac(root / "armoury")
+        (root / "run").mkdir()
+        (root / "state").mkdir()
+        ceilings = {
+            "boot_id": "boot-1",
+            "sources": {
+                "ac": {
+                    "fppt": {"default": 53, "max": 53, "min": 15},
+                    "spl": {"default": 1, "max": 30, "min": 7},
+                    "sppt": {"default": 43, "max": 43, "min": 15},
+                }
+            },
+        }
+        (root / "run" / "ceilings.json").write_text(json.dumps(ceilings) + "\n")
+        (root / "state" / "ppd-mask.json").write_text('{"fppt": 53, "previous": "enabled", "spl": 30, "sppt": 43}\n')
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        result = run([str(PREPARE)], env)
+        logged = log.read_text() if log.exists() else ""
+        if result.returncode == 0 or "mask" in logged or not (root / "state" / "ppd-mask.json").is_file():
+            fail("prepare does not mask PPD when a stored ceiling fails", f"{result.returncode} {logged} {result.stderr}")
+        ok("prepare does not mask PPD when a stored ceiling fails")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-race-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        state = root / "state"
+        state.mkdir()
+        sentinel = state / "sentinel"
+        sentinel.write_text("keep\n")
+        (state / ".preference.json.race").symlink_to("sentinel")
+        env = environment(root, OMARCHY_ALLY_TDP_TEMP_NAME=".preference.json.race")
+        run([str(APPLY), "--set", "15"], env)
+        if sentinel.read_text() != "keep\n":
+            fail("a pre-created state temp name is not followed")
+        ok("a pre-created state temp name is not followed")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-parallel-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        env["OMARCHY_ALLY_TDP_WRITE_DELAY"] = "0.05"
+        lower = subprocess.Popen([str(APPLY), "--set", "10"], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        upper = subprocess.Popen([str(APPLY), "--set", "30"], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lower.wait(timeout=15)
+        upper.wait(timeout=15)
+        lines = [line for line in trace.read_text().splitlines() if line.strip()]
+        down = ["10 43 53", "10 15 53", "10 15 18"]
+        stay = ["30 43 53", "30 43 53", "30 43 53"]
+        up = ["10 15 53", "10 43 53", "30 43 53"]
+        if lower.returncode != 0 or upper.returncode != 0 or lines not in (down + up, stay + down) or currents(armoury) not in ((10, 15, 18), (30, 43, 53)):
+            fail("parallel sets stay inside one plan", f"{currents(armoury)} {lines}")
+        ok("parallel sets stay inside one plan")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-root-flags-") as temporary:
+        root = Path(temporary)
+        trace = root / "trace"
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ally_tdp_root_flags", ROOT / "default/handheld/ally_tdp.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        saved_euid = module.os.geteuid
+        module.os.geteuid = lambda: 0
+        previous = {
+            "OMARCHY_ALLY_TDP_ASUSD_STATE": os.environ.get("OMARCHY_ALLY_TDP_ASUSD_STATE"),
+            "OMARCHY_ALLY_TDP_PPD_STATE": os.environ.get("OMARCHY_ALLY_TDP_PPD_STATE"),
+            "OMARCHY_ALLY_TDP_TRACE": os.environ.get("OMARCHY_ALLY_TDP_TRACE"),
+            "OMARCHY_ALLY_TDP_WRITE_DELAY": os.environ.get("OMARCHY_ALLY_TDP_WRITE_DELAY"),
+            "OMARCHY_ALLY_TDP_FLIP_SOURCE": os.environ.get("OMARCHY_ALLY_TDP_FLIP_SOURCE"),
+            "OMARCHY_ALLY_TDP_DBUS_SERVICE": os.environ.get("OMARCHY_ALLY_TDP_DBUS_SERVICE"),
+            "OMARCHY_ALLY_TDP_HANDHELD": os.environ.get("OMARCHY_ALLY_TDP_HANDHELD"),
+            "OMARCHY_ALLY_TDP_WRITER_INSTALLED": os.environ.get("OMARCHY_ALLY_TDP_WRITER_INSTALLED"),
+        }
+        try:
+            os.environ["OMARCHY_ALLY_TDP_ASUSD_STATE"] = "active"
+            os.environ["OMARCHY_ALLY_TDP_PPD_STATE"] = "active"
+            os.environ["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+            os.environ["OMARCHY_ALLY_TDP_WRITE_DELAY"] = "5"
+            os.environ["OMARCHY_ALLY_TDP_FLIP_SOURCE"] = "1"
+            os.environ["OMARCHY_ALLY_TDP_DBUS_SERVICE"] = str(root / "missing.service")
+            os.environ["OMARCHY_ALLY_TDP_HANDHELD"] = "1"
+            os.environ["OMARCHY_ALLY_TDP_WRITER_INSTALLED"] = "1"
+            started = time.monotonic()
+            module.maybe_delay()
+            elapsed = time.monotonic() - started
+            module.trace_write()
+            handheld_on = module.handheld_variant_installed()
+            writer_on = module.writer_installed()
+            os.environ["OMARCHY_ALLY_TDP_HANDHELD"] = "0"
+            os.environ["OMARCHY_ALLY_TDP_WRITER_INSTALLED"] = "0"
+            if (
+                module.unit_active("omarchy-ally-tdp-not-a-unit.service", "OMARCHY_ALLY_TDP_ASUSD_STATE")
+                or module.flip_source_once()
+                or module.handheld_variant_installed() != handheld_on
+                or module.writer_installed() != writer_on
+                or module.activation_file() != module.Path("/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service")
+                or trace.exists()
+                or elapsed > 1
+            ):
+                fail("root ignores runtime overrides")
+            ok("root ignores runtime overrides")
+        finally:
+            module.os.geteuid = saved_euid
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-pkexec-") as temporary:
+        root = Path(temporary)
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "pkexec").write_text("#!/bin/bash\nsleep 30\n")
+        (stub / "pkexec").chmod(0o755)
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ally_tdp_pkexec", ROOT / "default/handheld/ally_tdp.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        saved_path = os.environ.get("PATH")
+        saved_fixture = os.environ.get("OMARCHY_ALLY_TDP_FIXTURE")
+        os.environ["PATH"] = f"{stub}:/usr/bin:/bin"
+        os.environ.pop("OMARCHY_ALLY_TDP_FIXTURE", None)
+        started = time.monotonic()
+        try:
+            try:
+                module.run_apply(["--show"], True)
+                fail("pkexec is bounded by a timeout")
+            except module.TdpError as error:
+                if "timed out" not in str(error) or time.monotonic() - started > 20:
+                    fail("pkexec is bounded by a timeout", str(error))
+            ok("pkexec is bounded by a timeout")
+        finally:
+            if saved_path is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = saved_path
+            if saved_fixture is None:
+                os.environ.pop("OMARCHY_ALLY_TDP_FIXTURE", None)
+            else:
+                os.environ["OMARCHY_ALLY_TDP_FIXTURE"] = saved_fixture
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-profiles-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        write_text(root / "state" / "ppd-mask.json", "{}\n")
+        log = root / "calls"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "powerprofilesctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$POWERPROFILES_LOG\"\n")
+        (stub / "omarchy-notification-send").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$POWERPROFILES_LOG\"\n")
+        (stub / "powerprofilesctl").chmod(0o755)
+        (stub / "omarchy-notification-send").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{ROOT / 'bin'}:/usr/bin:/bin"
+        env["POWERPROFILES_LOG"] = str(log)
+        listed = run([str(ROOT / "bin" / "omarchy-powerprofiles-list")], env)
+        active = run([str(ROOT / "bin" / "omarchy-powerprofiles-list"), "--active-state"], env)
+        refused = run([str(ROOT / "bin" / "omarchy-powerprofiles-set"), "ac", "balanced"], env)
+        logged = log.read_text() if log.exists() else ""
+        if (
+            listed.stdout.strip() != "Managed by Ally TDP"
+            or active.stdout.strip() != "Managed by Ally TDP\t1"
+            or refused.returncode == 0
+            or "Power profiles are managed by the Ally TDP control" not in refused.stderr
+            or "set" in logged
+        ):
+            fail("power profiles name Ally TDP and refuse a change", f"{listed.stdout} {active.stdout} {refused.stderr} {logged}")
+        ok("power profiles name Ally TDP and refuse a change")
 
 
 def start_shim(env):
@@ -942,7 +1205,7 @@ def shim_review():
         env = environment(root)
         env["DBUS_SESSION_BUS_ADDRESS"] = address
         env["OMARCHY_ALLY_TDP_DBUS_SERVICE"] = str(service)
-        result = subprocess.run([str(SHIM)], env=env, text=True, capture_output=True)
+        result = subprocess.run([str(SHIM)], env=env, text=True, capture_output=True, timeout=5)
         os.kill(pid, signal.SIGTERM)
         if result.returncode != 2 or "activation file" not in result.stderr:
             fail("a stock SteamOS Manager activation file makes the shim exit 2", f"{result.returncode} {result.stderr}")
