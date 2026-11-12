@@ -82,7 +82,7 @@ The xpad pad sends gamepad events, not keys, so a TTY ignores it. Both stages us
 | Rule (red team) | Spec |
 |---|---|
 | Hand-over | Leaving the stage: send key-up for every key the profile holds, wait for InputPlumber to report the next target ready (D-Bus, ≤ 2 s), then load the next profile (spec 02 §8 gaming entry). |
-| Daemon killed | If InputPlumber exits mid-form: firmware xpad pad returns (no keys). The form must still be finishable by touch: buffyboard has arrows, Enter, Esc, Tab. The **stage's own** unit restarts InputPlumber and reloads `tty`. The existing `Restart=on-failure` is on `default/rog-ally-input/omarchy-rog-ally-input.service` (`feat/ally-input-20261111`), the desktop bridge (`graphical-session.target`, Hyprland only). It does not run on tty1 and is not InputPlumber's unit. |
+| Daemon killed | If InputPlumber exits mid-form: firmware xpad pad returns (no keys). The form must still be finishable by touch: buffyboard has arrows, Enter, Esc, Tab and Backspace (§3.1). The **stage's own** unit restarts InputPlumber and reloads `tty`. The existing `Restart=on-failure` is on `default/rog-ally-input/omarchy-rog-ally-input.service` (`feat/ally-input-20261111`), the desktop bridge (`graphical-session.target`, Hyprland only). It does not run on tty1 and is not InputPlumber's unit. |
 | Boot race | Form starts only after the composite device is on D-Bus (≤ 10 s, signal-driven) or the timeout passes; on timeout show “Controller not ready — use the touchscreen” and continue. |
 | Unknown device | No `omarchy-hw-rog-ally` ⇒ no `tty` profile, no buffyboard; ordinary keyboard install. |
 
@@ -92,8 +92,8 @@ The xpad pad sends gamepad events, not keys, so a TTY ignores it. Both stages us
 
 1. It runs only as a child of first-boot provisioning (`BindsTo` and `PartOf` `omarchy-provision-owner.service`). It is stopped before `display-manager.service`. It is never a standalone enabled unit. It does not run on the live ISO and it does not keep running into SDDM, Gamescope or the lock.
 2. It runs as root. It is not granted to a user, and uinput, input and tty access are not granted to a user or to the `input` group.
-3. While it is up, the vconsole keymap is forced to `us`. The wizard still skips the layout step and takes the language default, but the keys buffyboard sends are US scancodes, so the stored password has to match that layout. When buffyboard stops, the language keymap is restored.
-4. The shipped layout has no Ctrl, no Alt and no F-keys. It cannot send Ctrl+C (the form's 130 side channel) or an Alt+Fn VT switch.
+3. For the whole W1 account screen, and while any later text field has buffyboard up, the vconsole keymap is `us` and the screen shows “Keyboard layout: US”. A physical keyboard in that field types US scancodes too. The wizard still skips the layout step and takes the language default for the installed system. When buffyboard stops, the language keymap is restored. The stored password has to match what was typed under `us`.
+4. The shipped layout has no Ctrl, no Alt and no F-keys. It cannot send Ctrl+C (the form's 130 side channel) or an Alt+Fn VT switch. It still has arrows, Enter, Esc, Tab and Backspace.
 5. Upstream resets the VT size only on SIGINT and SIGTERM. The stage unit's `ExecStopPost` resets the console size, including after SIGKILL.
 6. Start and stop are the stage unit. There is no in-process show/hide. The unit starts buffyboard for a text field and stops it when that field is left.
 7. Pin the version and the checksums. Review the PKGBUILD diff on every bump, the same way `wvkbd` 0.21-1 is pinned.
@@ -133,7 +133,7 @@ Runs inside `omarchy-provision-owner` (Δ-P1). One step per screen; footer alway
 
 Wizard state is journalled per step under `/var/lib/omarchy/provisioning/` (like `luks-rekey.sh`) so a power loss resumes at the last unfinished step; W1's password is never written to the journal.
 
-A journal that cannot be parsed is not a resume. The stage starts again at W1, and creating the user is idempotent. Each crash of buffyboard is counted. After two, the stage stops starting buffyboard and shows the plain baseline form, with the notice “A physical keyboard is needed.” The stage never leaves `display-manager.service` blocked when no user exists.
+A journal that cannot be parsed is not a resume. The stage starts again at W1, and creating the user is idempotent. Each crash of buffyboard is counted. After two, the stage stops starting buffyboard and shows the plain baseline form, with the notice “A physical keyboard is needed.” Failures of the whole stage are counted too (`OnFailure=` and `StartLimit`). After three, the plain form comes up and can create a user. The stage never leaves `display-manager.service` blocked when no user exists, and it does not stop on an SDDM greeter that has no account.
 
 ## 6. Password screen (D5)
 
@@ -205,7 +205,7 @@ A journal that cannot be parsed is not a resume. The stage starts again at W1, a
 21. At W9, a marker read that fails with EACCES or EIO writes `desktop-lock` `on`, not `default-off`.
 22. Desktop only, then install `omarchy-gaming-session`: `desktop-lock` is the explicit value `on`. The next desktop entry is locked. `default-off` is not written.
 23. Buffyboard is not running once SDDM starts. It is not enabled on its own. No user and no `input` group holds uinput, input or tty access for it. A non-US language, with the password set while buffyboard is up, is accepted unchanged by `sudo` and by the SDDM Qt keyboard. The layout under test has no Ctrl, Alt or F-keys. SIGKILL of buffyboard leaves tty1 at its previous size.
-24. After two buffyboard crashes the plain baseline form is shown, with the physical-keyboard notice. A third start reaches that form, and a user can be created there. A journal that cannot be parsed starts at W1. SDDM is not held with no user.
+24. After two buffyboard crashes the plain baseline form is shown, with the physical-keyboard notice. A third start reaches that form, and a user can be created there. Killing the stage itself 3 times also reaches that form, and a user can be created there. A journal that cannot be parsed starts at W1. SDDM is not held with no user.
 
 ## 11. Open questions
 
