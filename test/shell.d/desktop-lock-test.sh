@@ -171,7 +171,7 @@ pass "the Ally's internal keyboard interface is not a physical keyboard"
 # Before K07, the handheld locks on suspend only with a physical keyboard.
 # Other machines still lock when desktop-lock is off. That is the case-4
 # override, and it stops once the K07 marker is present.
-sleep_log=$work/sleep
+export sleep_log=$work/sleep
 mkdir -p "$stub"
 cat > "$stub/omarchy-shell" <<EOF
 #!/bin/bash
@@ -192,6 +192,15 @@ exit "${LOCK_KEYBOARD:-1}"
 EOF
 cat > "$stub/busctl" <<'EOF'
 #!/bin/bash
+if [[ $1 == status && $2 == org.omarchy.Handheld.Suspend1 ]]; then
+  if [[ ${LOCK_BROKER:-0} == 1 ]]; then exit 0; fi
+  exit 1
+fi
+if [[ $1 == call && $2 == org.omarchy.Handheld.Suspend1 ]]; then
+  printf '%s\n' "broker:$*" >> "$sleep_log"
+  if [[ ${LOCK_BROKER:-0} == 1 ]]; then exit 0; fi
+  exit 1
+fi
 printf '%s\n' 't 15000000'
 EOF
 cat > "$stub/omarchy-hyprland-monitor-clamshell" <<'EOF'
@@ -200,6 +209,11 @@ exit 0
 EOF
 cat > "$stub/omarchy-notification-send" <<'EOF'
 #!/bin/bash
+exit 0
+EOF
+cat > "$stub/omarchy-brightness-display" <<EOF
+#!/bin/bash
+printf '%s\n' "blank:\$*" >> "$sleep_log"
 exit 0
 EOF
 cat > "$stub/omarchy-lock-host" <<'EOF'
@@ -224,28 +238,38 @@ assert_unlocked() {
   fi
 }
 
+sleep_status=0
+run_sleep() {
+  sleep_status=0
+  "$@" || sleep_status=$?
+}
 root_do rm -f "$marker" "$value"
 : > "$sleep_log"
 LOCK_HW=laptop LOCK_PKG=yes LOCK_KEYBOARD=1
-"$ROOT/bin/omarchy-system-sleep-lock"
+run_sleep "$ROOT/bin/omarchy-system-sleep-lock"
+[[ $sleep_status == 0 ]] || fail "a confirmed lock exits 0" "$sleep_status"
 assert_locked "a non-handheld suspend still locks when desktop-lock is absent"
 : > "$sleep_log"
 write_value explicit-off
-"$ROOT/bin/omarchy-system-sleep-lock"
+run_sleep "$ROOT/bin/omarchy-system-sleep-lock"
+[[ $sleep_status == 0 ]] || fail "a non-handheld explicit-off still confirms the lock" "$sleep_status"
 assert_locked "a non-handheld suspend still locks when desktop-lock is explicit-off"
 pass "non-handheld suspend lock ignores desktop-lock"
 
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1
 root_do rm -f "$marker" "$value"
 : > "$sleep_log"
-"$ROOT/bin/omarchy-system-sleep-lock"
+run_sleep "$ROOT/bin/omarchy-system-sleep-lock"
+[[ $sleep_status == 10 ]] || fail "a skipped handheld lock exits 10" "$sleep_status"
 assert_unlocked "pre-K07 handheld suspend locks with no keyboard and desktop-lock off"
 : > "$sleep_log"
 write_value explicit-off
-"$ROOT/bin/omarchy-system-sleep-lock"
+run_sleep "$ROOT/bin/omarchy-system-sleep-lock"
+[[ $sleep_status == 10 ]] || fail "an explicit-off skip exits 10" "$sleep_status"
 assert_unlocked "pre-K07 handheld explicit-off still locks on suspend without a keyboard"
 : > "$sleep_log"
-LOCK_KEYBOARD=0 "$ROOT/bin/omarchy-system-sleep-lock"
+LOCK_KEYBOARD=0 run_sleep "$ROOT/bin/omarchy-system-sleep-lock"
+[[ $sleep_status == 0 ]] || fail "a physical keyboard confirms the lock" "$sleep_status"
 assert_locked "a physical keyboard still locks a pre-K07 handheld whose desktop-lock is off"
 pass "pre-K07 handheld suspend locks only while a physical keyboard is attached"
 
@@ -254,7 +278,7 @@ write_value on
 status=0
 LOCK_KEYBOARD=1 HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
   "$ROOT/bin/omarchy-system-sleep-lock" || status=$?
-[[ $status == 1 ]] || fail "explicit on without a keyboard cancels suspend" "$status"
+[[ $status == 11 ]] || fail "explicit on without a keyboard cancels suspend" "$status"
 assert_unlocked "explicit on without a keyboard still locks on suspend"
 grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on without a keyboard returns to gaming" "$(cat "$sleep_log")"
 pass "explicit on with no keyboard returns to gaming instead of locking"
@@ -273,7 +297,7 @@ write_value on
 status=0
 LOCK_KEYBOARD=1 LOCK_HOST_MODE=shell HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
   "$ROOT/bin/omarchy-system-sleep-lock" || status=$?
-[[ $status == 1 ]] || fail "a shell-owned session after K07 must not lock without a keyboard" "$status"
+[[ $status == 11 ]] || fail "a shell-owned session after K07 must not lock without a keyboard" "$status"
 assert_unlocked "a shell-owned session after K07 still locks without a keyboard"
 grep -q 'launch:--confirm' "$sleep_log" || fail "a shell-owned session after K07 did not return to gaming" "$(cat "$sleep_log")"
 : > "$sleep_log"
@@ -397,6 +421,60 @@ LOCK_HW=laptop HOME=$laptop_home "$ROOT/bin/omarchy-setup-handheld-lock-host"
 LOCK_HW=ally
 HOME=$work/home
 pass "the next Ally session latches the trusted lock host"
+
+# A required lock that the shell refuses is not a confirmed surface.
+cat > "$stub/omarchy-shell" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$sleep_log"
+if [[ \$1 == lock && \$2 == lock ]]; then
+  printf '%s\n' missing-pam
+fi
+exit 0
+EOF
+: > "$sleep_log"
+LOCK_HW=laptop LOCK_PKG=yes LOCK_KEYBOARD=1 run_sleep "$ROOT/bin/omarchy-system-sleep-lock" 400
+[[ $sleep_status == 1 ]] || fail "an unconfirmed lock exits 1" "$sleep_status"
+pass "sleep-lock exits 1 when the lock surface is not confirmed"
+cat > "$stub/omarchy-shell" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$sleep_log"
+if [[ \$1 == lock && \$2 == status ]]; then
+  printf '%s\n' '{"secure":true}'
+fi
+exit 0
+EOF
+
+# Idle on the handheld: a physical keyboard locks, none with desktop-lock on
+# returns to gaming, and off blanks the outputs without locking or suspending.
+: > "$sleep_log"
+root_do rm -f "$marker"
+write_value explicit-off
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+[[ $sleep_status == 0 ]] || fail "idle with desktop-lock off exits quietly" "$sleep_status"
+assert_unlocked "idle locks when desktop-lock is off and no keyboard is attached"
+grep -q 'blank:off' "$sleep_log" || fail "idle with desktop-lock off does not blank" "$(cat "$sleep_log")"
+if grep -q 'launch:' "$sleep_log"; then fail "idle with desktop-lock off returns to gaming" "$(cat "$sleep_log")"; fi
+if grep -q 'broker:' "$sleep_log"; then fail "idle with desktop-lock off calls the broker" "$(cat "$sleep_log")"; fi
+: > "$sleep_log"
+write_value default-off
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+[[ $sleep_status == 0 ]] || fail "idle with default-off exits quietly" "$sleep_status"
+grep -q 'blank:off' "$sleep_log" || fail "idle with default-off does not blank" "$(cat "$sleep_log")"
+if grep -q 'launch:\|broker:\|lock lock' "$sleep_log"; then fail "idle with default-off locks or suspends" "$(cat "$sleep_log")"; fi
+: > "$sleep_log"
+write_value on
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=0 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+assert_unlocked "idle locks when desktop-lock is on and no keyboard is attached"
+grep -q 'launch:--confirm' "$sleep_log" || fail "idle without a broker does not return to gaming" "$(cat "$sleep_log")"
+: > "$sleep_log"
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+grep -q 'broker:call org.omarchy.Handheld.Suspend1' "$sleep_log" || fail "idle does not call the suspend broker" "$(cat "$sleep_log")"
+if grep -q 'launch:' "$sleep_log"; then fail "idle calls the broker and also switches session" "$(cat "$sleep_log")"; fi
+: > "$sleep_log"
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=0 LOCK_BROKER=0 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+[[ $sleep_status == 0 ]] || fail "idle with a physical keyboard exits 0" "$sleep_status"
+assert_locked "idle with a physical keyboard locks"
+pass "handheld idle locks only while a physical keyboard is attached"
 
 if "$ROOT/bin/omarchy-setup-gaming-session" desktop-lock off >/dev/null 2>"$work/off.err"; then
   fail "desktop-lock off without a terminal must not succeed"

@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# omarchy:summary=Lock after idle, or leave a keyboard-less handheld unlocked
+# omarchy:hidden=true
+
+# Quickshell's idle service calls this at lockTimeoutSeconds (300 by default).
+# On the handheld variant a physical keyboard is required before that lock.
+# With none, desktop-lock on ends the desktop back to gaming through the
+# suspend broker when that bus name is up, and otherwise through the session
+# switch. default-off and explicit-off blank the outputs and do not lock
+# or suspend. Other machines keep the ordinary idle lock.
+
+source "$OMARCHY_PATH/default/gaming/session.sh"
+
+if ! gaming_handheld_variant 2>/dev/null; then
+  exec "$OMARCHY_PATH/bin/omarchy-system-lock"
+fi
+
+if omarchy-hw-physical-keyboard >/dev/null 2>&1; then
+  exec "$OMARCHY_PATH/bin/omarchy-system-lock"
+fi
+
+if [[ $(gaming_desktop_lock_effective) != "on" ]]; then
+  # Spec 02: a keyboard-less handheld with desktop-lock off blanks the
+  # outputs. It does not lock and it does not suspend.
+  omarchy-brightness-display off >/dev/null 2>&1 || true
+  exit 0
+fi
+
+# The broker owns this system-bus name when its unit is running. A missing
+# name is not an error: the session switch is the fallback.
+if busctl status org.omarchy.Handheld.Suspend1 >/dev/null 2>&1; then
+  exec busctl call org.omarchy.Handheld.Suspend1 /org/omarchy/Handheld/Suspend1 \
+    org.omarchy.Handheld.Suspend1 Suspend
+fi
+
+exec omarchy-launch-gaming-session --confirm

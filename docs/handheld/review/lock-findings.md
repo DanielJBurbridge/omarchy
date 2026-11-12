@@ -44,6 +44,14 @@ A physical keyboard is a udev keyboard that is not the Ally N-KEY interface (USB
 
 Covered by `test/shell.d/desktop-lock-test.sh`.
 
+## Sleep-lock exit codes
+
+`omarchy-system-sleep-lock` exits 0 only after `lock status` confirms the lock surface is secure. The suspend broker runs that command as the desktop user and does not suspend on any other exit, or on a timeout. Exit 1 means a required lock was not confirmed. Exit 10 means the handheld skipped the lock because no physical keyboard is attached and desktop-lock is not on. Exit 11 means desktop-lock is on with no physical keyboard, so the desktop is sent back to gaming instead of locking. `test/shell.d/desktop-lock-test.sh` covers each code.
+
+## Handheld idle lock
+
+Quickshell's idle service (`shell/plugins/services/idle/Service.qml`, default 300 s) calls `omarchy-system-idle-lock`. On the handheld variant that locks only when a physical keyboard is attached. With none and desktop-lock on, it calls `org.omarchy.Handheld.Suspend1.Suspend` when that system bus name is present, and otherwise `omarchy-launch-gaming-session --confirm`. With `default-off` or `explicit-off` it blanks the outputs through `omarchy-brightness-display off` and does not lock or suspend. That is spec 02 revision 9 (acceptance 53). Open pull requests do not edit this idle file. `origin/t3-code` and `origin/t3-theme-support` still call `omarchy-system-lock` from an older copy of the service; neither has a commit past the release tip that changes it. Covered by `test/shell.d/desktop-lock-test.sh`.
+
 ## A1. wvkbd above the lock
 
 On the Ally, wvkbd must not be shown above hyprlock and must not take touches over it. A Shift latched before the lock must not change the typed password. `omarchy-toggle-desktop-keyboard stop` sends USR1, which in wvkbd 0.21 releases held keys, then TERM. The hotkey lock, the suspend lock, and the lock plugin's `beginLock` all call it once a lock is actually taken. A skipped lock leaves the desktop keyboard alone. `stop` exits 0 when wvkbd is not running, and a missing command does not fail the lock.

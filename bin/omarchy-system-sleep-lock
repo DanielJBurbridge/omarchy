@@ -4,6 +4,13 @@
 # omarchy:group=system
 # omarchy:hidden=true
 
+# The suspend broker runs this as the desktop user and treats any exit but 0,
+# and any timeout, as "the screen is not locked", so it does not suspend.
+#   0   the lock surface is confirmed secure
+#   1   a lock was required and was not confirmed
+#   10  skipped: handheld, no physical keyboard, desktop-lock is not on
+#   11  refused: handheld, no physical keyboard, desktop-lock is on; the
+#       desktop is sent back to gaming instead of locking
 # Before K07 the handheld skips this suspend lock unless a physical keyboard
 # is attached now. Explicit desktop-lock on, with none, returns to gaming
 # instead. The K07 marker restores the ordinary lock. Other machines do not
@@ -13,8 +20,8 @@ if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/session.sh ]]; the
   source "$OMARCHY_PATH/default/gaming/session.sh"
   gaming_apply_lock_gate
   gate=$?
-  if (( gate == 10 )); then exit 0; fi
-  if (( gate == 11 )); then exit 1; fi
+  if (( gate == 10 )); then exit 10; fi
+  if (( gate == 11 )); then exit 11; fi
 fi
 
 # Same hide as the hotkey lock. A keyboard-less suspend must not leave wvkbd
@@ -107,10 +114,10 @@ sync_clamshell() {
     omarchy-hyprland-monitor-clamshell >/dev/null 2>&1 || true
 }
 
-# logind suspends whether or not this wait succeeded, so a failure here means
-# the machine slept with the session exposed. The notification is the only way
-# anyone finds out, and it lands on the screen they unlock into. The journal
-# gets the reason in English ($1), the notification the user's language ($2).
+# A non-zero exit tells the broker not to suspend. The notification is what
+# the user sees if a caller suspends anyway, and it lands on the screen they
+# unlock into. The journal gets the reason in English ($1), the notification
+# the user's language ($2).
 report_unsecured() {
   printf 'omarchy-system-sleep-lock: suspending without a secure lock (%s)\n' \
     "$1" >&2

@@ -76,7 +76,9 @@ Item {
     screensaverLaunchGraceTimer.stop()
     root.idledThisCycle = false
     root.screensaverStartedThisCycle = false
-    runProcess(lockProcess, "lock", "omarchy-system-lock")
+    // On the handheld this locks only with a physical keyboard. Otherwise it
+    // returns to gaming or does nothing, and never leaves a keyboard-less lock.
+    runProcess(lockProcess, "lock", "omarchy-system-idle-lock")
   }
 
   function startIdleCycle() {
