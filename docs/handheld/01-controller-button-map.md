@@ -1,9 +1,9 @@
 # 01 · Controller and button map
 
-Status: draft for dev-lead review, revision 2, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
+Status: draft for dev-lead review, revision 3, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
 Related: [README](README.md) · 02 mode switch + dock (TODO) · 04 quick-access overlay (TODO) · 07 OSK (TODO). No lock-screen design here.
 
-Revision 1 incorporates the dev-red review and the 12 Nov hardware research. The decisions are in §2. They replace the first draft's "Armoury long takes a screenshot" proposal.
+Revision 1 incorporates the dev-red review and the 12 Nov hardware research. The decisions are in §2. They replace the first draft's "Armoury long takes a screenshot" proposal. Revision 3 gates Δ7 on OQ-17, and requires explicit key-ups before InputPlumber grabs the device again after a crash.
 
 ## 1. Baseline: what is already built
 
@@ -136,12 +136,12 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 
 | Paddle | Raw (TBC) | Game default | Game suggested | Desktop baseline | Desktop proposed | Δ |
 |---|---|---|---|---|---|---|
-| M1 (left grip) | Whichever capability the press test shows is the left grip. Do not assume `LeftPaddle1` or `KEY_F14`. | Xbox Elite passthrough on the shipped `gamepad` profile. On `ds5-edge`, passthrough unless the press test shows the `dualsense.yaml` paddle-2 remap is required. | Unbound in Steam Input until a game layout uses it | `LeftPaddle1` → Left Shift, **if** that capability is this grip | **Left Super (held)** on the capability that is this grip | **Δ7** |
-| M2 (right grip) | The other paddle capability. `aly1`'s F14/F15 labels may be swapped relative to the kernel comment. | Same, other side | Same | `RightPaddle1` → Left Ctrl, if that capability is this grip | Left Ctrl (held) | Keep. |
+| M1 (left grip) | Whichever capability the press test shows is the left grip. Do not assume `LeftPaddle1` or `KEY_F14`. | Xbox Elite passthrough on the shipped `gamepad` profile. On `ds5-edge`, passthrough unless the press test shows the `dualsense.yaml` paddle-2 remap is required. | Unbound in Steam Input until a game layout uses it | `LeftPaddle1` → Left Shift, **if** that capability is this grip | **Left Super (held), only after OQ-17.** Until then, no mapping. | **Δ7**, gated |
+| M2 (right grip) | The other paddle capability. `aly1`'s F14/F15 labels may be swapped relative to the kernel comment. | Same, other side | Same | `RightPaddle1` → Left Ctrl, if that capability is this grip | Left Ctrl (held), only once OQ-17 confirms the grip arrives. Until then, no mapping. | Keep the action. Same gate as Δ7. |
 
 Δ7 rationale: Omarchy is driven by Super. Shift-as-paddle only helps Shift+click (A-drag already selects). Super on the left grip unlocks existing Hyprland binds (§8). Shift remains on the OSK (one-shot). Steam Deck precedent: L5 = Super in desktop. A bare tap is Super down and Super up, and Super alone is unbound, so a tap does nothing.
 
-**Dependency (OQ-17).** InputPlumber programs Ally paddles through the out-of-tree `hid-asus-ally` driver (`asus_rog_ally` / `asus_ally_hid`). That driver is not in mainline and not in kernel `7.2.15-2-omarchy`. HHD can program paddles over hidraw without it. Until the press test, treat "M1 is Super" as the design and treat "the event arrives" as unproven. Do not ship Δ7 as working on the stock kernel without that test.
+**Gate (OQ-17).** Grip-Super applies only once paddles are confirmed working. InputPlumber programs Ally paddles through the out-of-tree `hid-asus-ally` driver (`asus_rog_ally` / `asus_ally_hid`). That driver is not in mainline and not in kernel `7.2.15-2-omarchy`. HHD can program paddles over hidraw without it. While OQ-17 is open, or if the press test shows no grip events, the desktop profile maps neither grip: no Super from M1, no Ctrl from M2. The desktop uses only the non-paddle bindings (sticks, face buttons, bumpers, triggers, View, Menu, and the OEM buttons). Δ8 is off with Δ7, because it needs the grip. Close a window from the Omarchy menu or the quick-access overlay (spec 04). Do not install the Super mapping on a kernel that does not deliver the grips.
 
 ### 5.4 Community comparison
 
@@ -198,7 +198,7 @@ The bridge emits a synthetic key-up for every modifier and mouse button it has p
 - lock, and unlock
 - suspend (`PrepareForSleep`) and the matching resume
 - bridge SIGTERM / SIGINT, before the process exits
-- InputPlumber restart: if the composite device disappears, the virtual device goes with it and the kernel drops its keys; when the device returns, do not restore a latched modifier
+- InputPlumber restart, including a crash while a grip is held. Removing the virtual device does not always clear the compositor's modifier state. When the composite device comes back, and **before** InputPlumber grabs it again, the bridge emits an explicit key-up for every modifier and every other key or mouse button that might still be down (`KeyLeftMeta`, `KeyLeftCtrl`, and the rest), even if the crash wiped the bridge's own held-set. It does not restore a modifier from before the crash. Only then does it load the profile.
 
 A userspace injector such as `wtype` is the wrong tool. `default/hypr/bindings/clipboard.lua` already notes that a physically held Super merges into an injected chord.
 
@@ -225,7 +225,7 @@ OEM taps are D-Bus actions. They do not include the paddle modifiers. Super stay
 
 ### 8.3 Paddle × pad matrix
 
-Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). Desktop profile emissions after Δ7: M1 = Super, M2 = Left Ctrl, M1+M2 = Super+Ctrl. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
+Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). This matrix is the desktop profile **with Δ7 on**, which is only after OQ-17 confirms the grips work. Until then M1 and M2 emit nothing: the M1 and M1+M2 columns do not apply, and the desktop uses the non-paddle bindings in §5.2 plus the OEM buttons. With Δ7 on, M1 = Super, M2 = Left Ctrl, M1+M2 = Super+Ctrl. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
 
 A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:273`. "No bind" means no Omarchy bind. The focused app can still see Ctrl+click or Ctrl+Tab.
 
@@ -408,8 +408,8 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 7. In Desktop, AC tap opens the Omarchy menu; D-pad moves the highlight, Y activates, Menu (Start) closes; B closes it (Δ5).
 8. In Desktop, CC tap opens the power panel (later: quick-access overlay, Δ1).
 9. In Desktop, CC long shows and hides wvkbd; with it visible B = Backspace and X = Space (Δ6). Killing wvkbd, and `omarchy-toggle-desktop-keyboard stop`, both restore the profile from before OSK without a further button press. B right-clicks again.
-10. In Desktop with Δ7, once the paddle events arrive: M1 + D-pad focuses windows; M1 + LB/RB changes workspace in the §8.2 direction; M1 + A drags; M1 + X polite-closes the focused window (Δ8) with no Omarchy confirmation; M1 + Y opens a terminal. A bare M1 tap does nothing.
-11. Releasing a held grip, trigger or mouse button across a transition leaves no stuck Super, Ctrl or click. Cover: AC long, lock, unlock, suspend, resume, OSK show, OSK hide, wvkbd killed, InputPlumber restarted, bridge restarted. After each, A is left click, not a window move, and X is not a close.
+10. Δ7 and Δ8 apply only after OQ-17 confirms the grips work. Then M1 + D-pad focuses windows; M1 + LB/RB changes workspace in the §8.2 direction; M1 + A drags; M1 + X polite-closes the focused window (Δ8) with no Omarchy confirmation; M1 + Y opens a terminal. A bare M1 tap does nothing. Without confirmed paddles there is no grip-Super: those chords do nothing, and closing a window uses the Omarchy menu or the quick-access overlay, not M1+X.
+11. Releasing a held grip, trigger or mouse button across a transition leaves no stuck Super, Ctrl or click. Cover: AC long, lock, unlock, suspend, resume, OSK show, OSK hide, wvkbd killed, bridge restarted. After each, A is left click, not a window move, and X is not a close. Separately: kill InputPlumber while Super is held (M1 down, Δ7 on). When the device returns, explicit key-ups have been sent before the new grab. The next A is left click, not a window move.
 12. `omarchy-hw-rog-ally-input status` shows exactly one virtual gamepad in `gaming` / `gamepad` and none in `desktop`. The gaming target is `ds5-edge` (or `deck-uhid` if D1 was switched).
 13. Locking a Hyprland session moves the profile to `gamepad` within 1 s after the key-ups; no Omarchy action fires from AC/CC while locked; unlock restores the previous profile. Locking during a gaming session does **not** replace `gaming` with `gamepad`.
 14. On RC71L a Command Centre long that arrives as Ctrl+Alt+Delete does not close windows unless the confirmation is accepted. Cover all of: InputPlumber never enabled; `omarchy-setup-rog-ally-input disable` then the chord; InputPlumber killed mid-session; boot race (Hyprland up, N-KEY not yet grabbed). Dismissing the prompt closes nothing. This holds whether or not the companion is installed.
@@ -440,14 +440,14 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 | OQ-14 | Gyro source and Steam visibility? | §9 | dev-research | **Resolved for capability.** `bmi323-imu` is present and is a legal IP 0.84 source. Steam sees motion only on `ds5-edge` / DualSense / `deck-uhid`, not on Xbox Elite. Mount matrix and a real Steam client are untested. |
 | OQ-15 | Why is `asusd` running? | Power ownership | dev-research | **Resolved.** asusctl was installed on this unit; its udev rule starts `asusd` on ROG DMI. The `rog-ally.sh` skip does not stop that. It writes the platform profile. Recommendation: keep asusctl off the RC71L (D6, C11). |
 | OQ-16 | Ally X / Legion Go / Deck / Claw role mapping | Secondary devices | Later | Open |
-| OQ-17 | Do M1/M2 events arrive on kernel `7.2.15-2-omarchy` without `hid-asus-ally`? | Δ7, AC 15 | Press test | Open. Dependency, not a chosen kernel. Options if they do not arrive: an opt-in handheld kernel that already carries the driver, a DKMS package of `hid-asus-ally` (GPL-2.0-or-later), or a small hidraw remap of the MCU paddle slots. HHD does not need the driver; InputPlumber's Ally driver does. |
+| OQ-17 | Do M1/M2 events arrive on kernel `7.2.15-2-omarchy` without `hid-asus-ally`? | Δ7, Δ8, AC 10, AC 15 | Press test | Open. **Gates Δ7.** Grip-Super stays off until this is confirmed. Options if the grips do not arrive: an opt-in handheld kernel that already carries the driver, a DKMS package of `hid-asus-ally` (GPL-2.0-or-later), or a small hidraw remap of the MCU paddle slots. HHD does not need the driver; InputPlumber's Ally driver does. |
 
 ## Appendix A · Profile sketch
 
-Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop Δ7, once the press test names the left grip:
+Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop Δ7 is installed only after OQ-17 confirms the grips arrive, and only on the capability the press test shows is the left grip. Until then this mapping is omitted.
 
 ```yaml
-# desktop.yaml — Δ7. Bind the capability the press test shows is the left grip.
+# desktop.yaml — Δ7, gated on OQ-17. Omit the whole mapping until the grips arrive.
   - name: Left grip Super
     source_event: { gamepad: { button: LeftPaddle1 } }   # replace LeftPaddle1 if OQ-1 says the left grip is the other name
     target_events: [ { keyboard: KeyLeftMeta } ]          # was KeyLeftShift on LeftPaddle1
@@ -467,7 +467,7 @@ Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop 
 | Bridge change | Detail |
 |---|---|
 | `MODES` | Add `gaming` and `osk`. Optional presets stay out of `MODES` until a menu row selects one. Unknown `gaming` on an old binary is §12.3, not a hard dependency on a new package. |
-| Key-ups | §8.1, before every load, lock, suspend and restart. |
+| Key-ups | §8.1, before every load, lock, suspend and restart. After an InputPlumber crash, explicit key-ups for every held modifier and key before the new grab. |
 | Gaming entry | `run_gaming` calls `omarchy-hw-rog-ally-input gaming` instead of `gamepad`, with the 1.0.3-1 fallback. |
 | Overlay | `omarchy_overlay`: spec 04 entry point, else the target QAM event. |
 | OSK | On show, remember the current profile and load `osk` only from `desktop`. On hide, stop, or process death, restore the remembered profile. |
