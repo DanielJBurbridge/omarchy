@@ -42,13 +42,39 @@ Rectangle {
     item.errorColor = root.errorColor
   }
 
+  // "1" or "0" in handheld-variant beside this file forces the branch under
+  // test. Otherwise the RC71L DMI name plus the handheld session desktop is
+  // the variant. Laptops, including a laptop that only has the session
+  // package, keep the form that does not import Qt Virtual Keyboard.
+  function readText(url) {
+    try {
+      var xhr = new XMLHttpRequest()
+      xhr.open("GET", url, false)
+      xhr.send()
+      if (xhr.status === 200 || xhr.status === 0) return String(xhr.responseText || "")
+    } catch (e) {}
+    return ""
+  }
+
+  function detectHandheld() {
+    var forced = readText(Qt.resolvedUrl("handheld-variant")).trim()
+    if (forced === "1") return true
+    if (forced === "0") return false
+    var vendor = readText("file:///sys/class/dmi/id/sys_vendor").trim()
+    var product = readText("file:///sys/class/dmi/id/product_name").trim()
+    var board = readText("file:///sys/class/dmi/id/board_name").trim()
+    var ally = vendor === "ASUSTeK COMPUTER INC." && (product.indexOf("ROG Ally RC71L") === 0 || board === "RC71L")
+    if (!ally) return false
+    var session = readText("file:///usr/share/wayland-sessions/omarchy-handheld.desktop")
+    return session.indexOf("[Desktop Entry]") !== -1
+  }
+
   Loader {
     id: styledLogin
     objectName: "loginStyledLoader"
     anchors.fill: parent
-    source: "LoginForm.qml"
+    active: false
     onLoaded: root.bindForm(item)
-    onStatusChanged: if (status === Loader.Error) fallbackLogin.active = true
   }
 
   Loader {
@@ -58,6 +84,16 @@ Rectangle {
     active: false
     sourceComponent: fallbackForm
     onLoaded: root.bindForm(item)
+  }
+
+  Component.onCompleted: {
+    // The handheld sign-in screen keeps Qt Virtual Keyboard. A missing
+    // module must not swap in the laptop form, which has no touch keyboard.
+    if (root.detectHandheld()) {
+      styledLogin.source = "LoginForm.qml"
+    } else {
+      fallbackLogin.active = true
+    }
   }
 
   Component {
