@@ -29,12 +29,19 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     command('omarchy-hw-rog-ally', '#!/bin/bash\n[[ ${HARDWARE:-ally} == ally ]]\n')
     command('omarchy-pkg-present', '#!/bin/bash\n[[ ${INPUT:-absent} != absent ]]\n')
     command('omarchy-hw-rog-ally-input', '#!/bin/bash\necho "input:$*" >> "$TEST_ROOT/actions"\n[[ $INPUT == good ]]\n')
-    command('omarchy-cmd-present', '#!/bin/bash\n[[ ${MISSING:-} != "$1" ]] && command -v "$1" >/dev/null\n')
+    command('omarchy-cmd-present', '''#!/bin/bash
+        if [[ $1 == wvkbd-mobintl && ${WVKBD:-present} == missing ]]; then exit 1; fi
+        [[ ${MISSING:-} != "$1" ]] && command -v "$1" >/dev/null
+    ''')
     command('pgrep', '#!/bin/bash\n[[ ${BUSY:-0} == 1 ]]\n')
     command('omarchy-notification-send', '#!/bin/bash\nexit 0\n')
     command('omarchy-system-lock', '#!/bin/bash\necho "lock" >> "$TEST_ROOT/actions"\nexit 0\n')
     command('omarchy-system', '#!/bin/bash\necho "system:$*" >> "$TEST_ROOT/actions"\nif [[ $MODE == logout-fail && ${2:-} == --execute ]]; then sleep 0.05; exit 42; fi\n')
-    command('omarchy-toggle-desktop-keyboard', '#!/bin/bash\necho "keyboard:$*:$WAYLAND_DISPLAY" >> "$TEST_ROOT/actions"\n')
+    command('wvkbd-mobintl', '#!/bin/bash\nexit 0\n')
+    command('omarchy-toggle-desktop-keyboard', '''#!/bin/bash
+        echo "keyboard:$*:$WAYLAND_DISPLAY" >> "$TEST_ROOT/actions"
+        [[ ${KEYBOARD_STOP:-ok} == ok ]]
+    ''')
     command('uwsm', '''#!/bin/bash
         echo "desktop:$*" >> "$TEST_ROOT/actions"
         if [[ $MODE == switch && ! -f $TEST_ROOT/switched ]]; then
@@ -145,7 +152,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
             run(env, selector, 'preferred')
             assert (directory / 'actions').read_text().count('gamescope:') == before
         if mode == 'switch':
-            assert 'keyboard:stop:wayland-test' in actions and 'system:logout' in actions
+            stop_at = actions.index('keyboard:stop:')
+            assert stop_at < actions.index('system:logout')
+            assert stop_at < actions.index('gamescope:')
         print('PASS lifecycle', mode)
 
     for name, updates in [('hardware', {'HARDWARE': 'laptop'}), ('busy', {'BUSY': '1'}),
@@ -165,6 +174,22 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert not (directory / 'actions').read_text()
     assert not (active / 'switch').exists()
     print('PASS absent Gamescope never stops keyboard or logs out')
+
+    def launch_from_desktop(name, **updates):
+        directory, env = case(name, WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture', **updates)
+        active = directory / 'runtime/omarchy-gaming-c71'
+        active.mkdir()
+        (active / 'active').write_text('desktop\n')
+        run(env, repo / 'bin/omarchy-launch-gaming-session')
+        return (directory / 'actions').read_text()
+
+    missing_keyboard = launch_from_desktop('keyboard-missing', WVKBD='missing')
+    assert 'keyboard:' not in missing_keyboard and 'system:logout' in missing_keyboard, missing_keyboard
+    print('PASS a missing wvkbd does not block the Gamescope switch')
+
+    stuck_keyboard = launch_from_desktop('keyboard-stuck', KEYBOARD_STOP='fail')
+    assert stuck_keyboard.index('keyboard:stop:') < stuck_keyboard.index('system:logout'), stuck_keyboard
+    print('PASS a failing keyboard stop still requests the switch')
 
     directory, env = case('failed-logout-job', MODE='logout-fail', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')
     active = directory / 'runtime/omarchy-gaming-c71'

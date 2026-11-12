@@ -31,8 +31,12 @@ if ! omarchy-cmd-present gamescope || ! omarchy-cmd-present steam; then
   gaming_fail 'install the optional gaming session dependencies first.'
   exit 1
 fi
-# Stop while the departing desktop still owns its Wayland connection.
-omarchy-toggle-desktop-keyboard stop
+# Release wvkbd while this desktop still owns its Wayland connection, and
+# before Gamescope is handed the session. A missing helper or keyboard is a
+# no-op, and a stuck helper cannot hold the switch.
+if omarchy-cmd-present omarchy-toggle-desktop-keyboard && omarchy-cmd-present wvkbd-mobintl; then
+  timeout --kill-after=1s 2s omarchy-toggle-desktop-keyboard stop >/dev/null 2>&1 || true
+fi
 # The worker survives desktop teardown and owns the marker through the actual
 # logout result. Submitting omarchy-system's asynchronous job is not completion.
 systemd-run --user --collect --quiet --property=Type=exec --property=RuntimeMaxSec=30s \
