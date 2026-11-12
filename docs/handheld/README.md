@@ -1,6 +1,6 @@
 # Omarchy Handheld UX specs
 
-Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 1 (red review and the 12 Nov hardware research).
+Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 2 (OQ-13 closed; matrix re-checked after the quattro sync).
 
 Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Secondary (design for, verify later): Ally X (RC72LA), Xbox Ally (RC73X/Y), Lenovo Legion Go, Steam Deck, MSI Claw.
 
@@ -8,7 +8,7 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 
 | # | Spec | Status |
 |---|---|---|
-| 01 | [Controller and button map](01-controller-button-map.md) | Draft, revision 1 |
+| 01 | [Controller and button map](01-controller-button-map.md) | Draft, revision 2 |
 | 02 | Mode switch (gaming ⇄ desktop) and dock/undock auto-switch | TODO |
 | 03 | First boot and install flow (handheld variant) | TODO |
 | 04 | Quick-access overlay: TDP, fan, RGB, brightness, performance profile | TODO |

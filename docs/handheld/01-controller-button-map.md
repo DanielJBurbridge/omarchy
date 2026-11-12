@@ -1,13 +1,13 @@
 # 01 · Controller and button map
 
-Status: draft for dev-lead review, revision 1, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
+Status: draft for dev-lead review, revision 2, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
 Related: [README](README.md) · 02 mode switch + dock (TODO) · 04 quick-access overlay (TODO) · 07 OSK (TODO). No lock-screen design here.
 
 Revision 1 incorporates the dev-red review and the 12 Nov hardware research. The decisions are in §2. They replace the first draft's "Armoury long takes a screenshot" proposal.
 
 ## 1. Baseline: what is already built
 
-This spec builds on `feat/ally-input-20261111` (head `95a0992ce5`, companion `omarchy-rog-ally-input 1.0.3-1`). That mapping is the **baseline** in every table below. Columns marked **Δ** are proposed changes. Hyprland line numbers are from `feat/ally-parity-integration-20261111` at `3f800d118` (`default/hypr/bindings/`). The same mouse, Super and close-all binds are on the fork default branch `quattro`.
+This spec builds on `feat/ally-input-20261111` (head `95a0992ce5`, companion `omarchy-rog-ally-input 1.0.3-1`). That mapping is the **baseline** in every table below. Columns marked **Δ** are proposed changes. Hyprland line numbers are from `feat/ally-parity-integration-20261111` at `9f8b3572f` (`default/hypr/bindings/`), after PR #21 merged upstream `quattro` `36b70f1bc`. That sync added one bind this spec has to treat as taken: `SUPER + CTRL + X` (Agents panel).
 
 | Piece | Path | What it does |
 |---|---|---|
@@ -22,7 +22,7 @@ This spec builds on `feat/ally-input-20261111` (head `95a0992ce5`, companion `om
 
 Hardware facts (read-only dump, 12 Nov 2026, Daniel's RC71L; the dump is not a file in this repo): kernel `7.2.15-2-omarchy`, BIOS RC71L.339; pad is **xpad** (11 buttons, **no paddle codes**); OEM buttons arrive on **N-KEY if2** (`hid-asus`). `Unmapped Asus vendor usagepage code 0xa2` was logged twice. The kernel printed `The MCU firmware version must be 319 or greater` and `mcu_powersave` was 0, so this unit's MCU firmware is below 319. InputPlumber, HHD and the companion are **not installed**. `asusd` 6.5.0 is running next to `power-profiles-daemon`. The power key is tagged `STEAMOS_POWER_BUTTON`. There is no `omarchy-system-power-button` command on this branch or on `feat/ally-input-20261111`. logind ignores the key (`etc/systemd/logind.conf.d/10-ignore-power-button.conf`, `HandlePowerKey=ignore`). Short-press suspend stays with RELIABILITY (parity plan row R01) and spec 02.
 
-Omarchy binds driven by this spec (`default/hypr/bindings/` at `3f800d118`):
+Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`):
 
 | Bind | Action | File |
 |---|---|---|
@@ -44,6 +44,8 @@ Omarchy binds driven by this spec (`default/hypr/bindings/` at `3f800d118`):
 | `XF86AudioRaise/LowerVolume`, `XF86MonBrightnessUp/Down` | Volume / brightness (OSD) | `media.lua:2-3`, `media.lua:6-7` |
 
 `SUPER` alone is unbound. No `o.bind`, `o.bind_toggle` or `o.bind_hold` in `default/hypr/bindings/` uses the chord `SUPER` with no other key. A bare Super tap does nothing. `mouse:274` (middle click) is also unbound. Left is `mouse:272`, right is `mouse:273`.
+
+`SUPER + CTRL + X` is taken (`utilities.lua:120`, "Agents", panel `omarchy.agents`). It is not an Ally chord. The face button X does not emit the letter X, so M1+M2+X is not this bind (§8.3). Do not reuse it.
 
 `hl.dsp.window.close()` is a polite close. The keybindings fixture records its dispatcher as `killactive` (`test/shell.d/keybindings-menu-test.sh`). Hyprland asks the client to close. It does not send SIGKILL. The app may show a save prompt, or it may drop unsaved work. There is no confirmation in the bind.
 
@@ -122,7 +124,7 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 | Y (North) | Y | Enter | Enter (activate highlighted) | Enter | Keep. |
 | LB / RB | LB / RB | Scroll down / up (`LeftBumper` wheel down, `RightBumper` wheel up) | Scroll | Scroll | Keep. |
 | LT / RT | LT / RT | Right / left click (deadzone 0.25) | Same | Same | Keep. |
-| L3 | L3 | Unmapped | Unmapped | Unmapped | Keep. `Super+Ctrl+Z` zoom (`utilities.lua:134`) stays a keyboard chord, not a paddle chord. |
+| L3 | L3 | Unmapped | Unmapped | Unmapped | Keep. `Super+Ctrl+Z` zoom (`utilities.lua:135`) stays a keyboard chord, not a paddle chord. `Super+Ctrl+X` is the Agents panel (`utilities.lua:120`) and is not a paddle chord either. |
 | R3 | R3 | Left click | Left click | Left click | Keep. Same Hyprland event as A (`mouse:272`). |
 | D-pad | D-pad | Arrow keys | Move highlight | Arrow keys | Keep. |
 | View (Select) | View | Tab | Tab | Tab | Keep. |
@@ -206,14 +208,14 @@ A userspace injector such as `wtype` is the wrong tool. `default/hypr/bindings/c
 |---|---|---|---|
 | Move pointer | Right stick | mouse motion | — |
 | Focus window | Hold M1 + D-pad | `Super + arrows` | `tiling.lua:18-21` |
-| Swap window | No paddle route | — | `tiling.lua:51-54` needs Shift. Δ7 removed Shift from the grip. M1+M2+D-pad is `Super+Ctrl+arrows`, and that bind exists only for left/right, where it is group focus (`tiling.lua:98-99`), not swap. Up/down have no `SUPER + CTRL` bind. OQ-13. |
+| Swap window | Omarchy menu, or the quick-access overlay (spec 04) | — | `tiling.lua:51-54` needs Shift, which the pad does not emit. No new Ally bind (OQ-13). M1+M2+D-pad is not swap: left/right are already group focus (`tiling.lua:98-99`). Paddles stay free for games. |
 | Move window (drag) | Hold M1 + hold A, right stick | `Super + mouse:272` | `tiling.lua:84`. RT and R3 emit the same button, so they drag too. |
 | Resize window | Hold M1 + hold B or LT, right stick | `Super + mouse:273` | `tiling.lua:85` |
 | Next workspace | Hold M1 + LB | `Super + mouse_down` | `tiling.lua:81` (forward) |
 | Previous workspace | Hold M1 + RB | `Super + mouse_up` | `tiling.lua:82` (backward) |
 | Next workspace (alt) | Hold M1 + View | `Super + Tab` | `tiling.lua:37` |
 | Close window | Hold M1 + X | `Super + mouse:274` | **Δ8, new.** Unbound today (no `mouse:274` in `default/hypr/bindings/`). Same dispatcher as `tiling.lua:1-2`: `hl.dsp.window.close()` / `killactive`. Polite close, **no confirmation**. An app may prompt to save, or it may discard the document. Easy to hit: M1 held for a drag, X brushed. Accepted, and called a close, not a force-close or a kill. |
-| Full screen | Omarchy menu | — | `Super + F` is `tiling.lua:8`. The pad has no F. M1+Y is Terminal. OQ-13. |
+| Full screen | Omarchy menu, or the quick-access overlay (spec 04) | — | `Super + F` is `tiling.lua:8`. The pad has no F. No new Ally bind (OQ-13). M1+Y stays Terminal and is not reused. Paddles stay free for games. |
 | Terminal | Hold M1 + Y | `Super + Return` | `applications.lua:2` |
 | System menu | Hold M1 + Menu | `Super + Escape` | `utilities.lua:8`. Opens the menu. Does not log out, reboot or shut down by itself. |
 | Launcher (Apps) | AC tap → Omarchy menu → Apps | — | `utilities.lua:2` is `Super+Alt+Space`, which the pad cannot emit (no Alt). Use the menu. |
@@ -223,7 +225,7 @@ OEM taps are D-Bus actions. They do not include the paddle modifiers. Super stay
 
 ### 8.3 Paddle × pad matrix
 
-Checked against every bind in `default/hypr/bindings/` at `3f800d118`. Desktop profile emissions after Δ7: M1 = Super, M2 = Left Ctrl, M1+M2 = Super+Ctrl. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`).
+Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). Desktop profile emissions after Δ7: M1 = Super, M2 = Left Ctrl, M1+M2 = Super+Ctrl. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
 
 A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:273`. "No bind" means no Omarchy bind. The focused app can still see Ctrl+click or Ctrl+Tab.
 
@@ -231,7 +233,7 @@ A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:2
 |---|---|---|---|---|
 | A / RT / R3 | `mouse:272` | **Move window** `tiling.lua:84`. Intended for A. RT and R3 are the same drag. | No bind | No bind |
 | B / LT | `mouse:273` | **Resize** `tiling.lua:85`. Intended. | No bind | No bind |
-| X | `mouse:274` | **No bind today.** Δ8 adds polite close, no confirmation. | No bind | No bind |
+| X | `mouse:274` | **No bind today.** Δ8 adds polite close, no confirmation. | No bind | No bind on `Super+Ctrl+mouse:274`. The letter chord `SUPER + CTRL + X` is **taken** (Agents, `utilities.lua:120`). Face X does not emit it. Do not use that chord. |
 | Y | Return | **Terminal** `applications.lua:2`. Intended. | No bind | **Collision: Herdr** `applications.lua:13`. Not a power, logout, close-all or kill bind. Unintended. |
 | View | Tab | **Next workspace** `tiling.lua:37`. Intended. | No bind (`CTRL + ALT + TAB` at `tiling.lua:63` needs Alt) | **Collision: former workspace** `tiling.lua:39`. Unintended. |
 | Menu | Escape | **System menu** `utilities.lua:8`. Intended. Does not log out. | No bind | No bind. There is no `SUPER + CTRL + ESCAPE`. |
@@ -241,15 +243,15 @@ A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:2
 | D-pad down | Down | **Focus down** `tiling.lua:21` | No bind | No bind. Not group focus. |
 | RB | `mouse_up` | **Previous workspace** `tiling.lua:82` | No bind | No bind. `SUPER + ALT + mouse_up` (`tiling.lua:102`) needs Alt. |
 | LB | `mouse_down` | **Next workspace** `tiling.lua:81` | No bind | No bind |
-| L3 | nothing | Bare Super, unbound | No bind | No bind. Does not zoom (`utilities.lua:134` needs Z). |
+| L3 | nothing | Bare Super, unbound | No bind | No bind. Does not zoom (`utilities.lua:135` needs Z) and does not open Agents (`utilities.lua:120` needs the letter X). |
 | Left stick | none, or notched wheel (Δ4) | Not a Super chord | Not a Ctrl chord | Not a Super+Ctrl chord |
 | CC / AC | D-Bus, not a key | The D-Bus action runs; Super stays down if M1 is held | Ctrl stays down if M2 is held | Both stay down |
 
-`SUPER + CTRL` binds that the pad cannot hit, including the dangerous ones: tiled full screen (`tiling.lua:9`, F), power (`utilities.lua:119`, P), lock (`utilities.lua:143`, L), emojis (`utilities.lua:3`), capture menu (`utilities.lua:4`), display toggle (`utilities.lua:32`, Delete, not the close-all chord), zoom (`utilities.lua:134`, Z), and the bar-panel number keys (`utilities.lua:126-131`). `CTRL + ALT + DELETE` (`tiling.lua:3`) needs Alt as well as Delete. Paddles cannot produce it. The firmware Command Centre long can, which is Δ9, not a paddle chord.
+`SUPER + CTRL` binds that the pad cannot hit, including the dangerous ones and the chord that is now taken: Agents (`utilities.lua:120`, X), tiled full screen (`tiling.lua:9`, F), power (`utilities.lua:119`, P), lock (`utilities.lua:144`, L), emojis (`utilities.lua:3`), capture menu (`utilities.lua:4`), display toggle (`utilities.lua:32`, Delete, not the close-all chord), zoom (`utilities.lua:135`, Z), and the bar-panel number keys (`utilities.lua:127-132`). `CTRL + ALT + DELETE` (`tiling.lua:3`) needs Alt as well as Delete. Paddles cannot produce it. The firmware Command Centre long can, which is Δ9, not a paddle chord. `SUPER + CTRL + X` stays the Agents panel on every machine, including the RC71L. Δ8's close is `SUPER + mouse:274`, not this chord.
 
 Close-window letters `SUPER + W` and `SUPER + Q` (`tiling.lua:1-2`) are unreachable. The only pad route to `killactive` is the new Δ8 bind. There is no SIGKILL bind in `default/hypr/bindings/`.
 
-OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above does not apply to those two buttons while `osk` is loaded:
+OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above does not apply to those two buttons while `osk` is loaded. M1+M2+X is then `SUPER + CTRL + SPACE` (`utilities.lua:14`), not the taken Agents chord `SUPER + CTRL + X`.
 
 | Pad control | M1 | M2 | M1+M2 |
 |---|---|---|---|
@@ -434,7 +436,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 | OQ-10 | Show/hide signal from `omarchy-toggle-desktop-keyboard` without polling. | Δ6 show path | TOUCH owner | Open for the show signal. The **exit** path is specified (§6): watch the process. |
 | OQ-11 | A desktop screenshot chord on the pad, or menu only? | §7 | dev-ux/dev-lead | Open. Not a hold-only route either way. |
 | OQ-12 | Is Steam menu → Exit game enough for a frozen game? | §7 | Hardware test | Open. A kill macro is not in this spec. |
-| OQ-13 | Swap and full screen have no paddle route. Menu only, or extra Ally binds? | §8.2 | dev-lead | Open |
+| OQ-13 | Swap window and full screen | §8.2 | dev-lead | **Resolved.** Menu only: the quick-access overlay (spec 04) or the Omarchy menu. No extra Ally binds. Paddles stay free for games. |
 | OQ-14 | Gyro source and Steam visibility? | §9 | dev-research | **Resolved for capability.** `bmi323-imu` is present and is a legal IP 0.84 source. Steam sees motion only on `ds5-edge` / DualSense / `deck-uhid`, not on Xbox Elite. Mount matrix and a real Steam client are untested. |
 | OQ-15 | Why is `asusd` running? | Power ownership | dev-research | **Resolved.** asusctl was installed on this unit; its udev rule starts `asusd` on ROG DMI. The `rog-ally.sh` skip does not stop that. It writes the platform profile. Recommendation: keep asusctl off the RC71L (D6, C11). |
 | OQ-16 | Ally X / Legion Go / Deck / Claw role mapping | Secondary devices | Later | Open |
@@ -505,5 +507,5 @@ Detection today is RC71L-only (`omarchy-hw-rog-ally`). Do not broaden it to othe
 
 ## Sources
 
-Repo: [`feat/ally-input-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-input-20261111) at `95a0992ce5`, [`feat/ally-parity-integration-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-parity-integration-20261111) at `3f800d118`, PR #3 [`cursor/rog-ally-rc71l-3178`](https://github.com/DanielJBurbridge/omarchy/pull/3), [`feat/ally-touch-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-touch-20261111), [`feat/ally-session-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-session-20261111), [`feat/ally-display-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-display-20261111) (`default/hypr/rog-ally-touch.lua`).
+Repo: [`feat/ally-input-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-input-20261111) at `95a0992ce5`, [`feat/ally-parity-integration-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-parity-integration-20261111) at `9f8b3572f`, PR #3 [`cursor/rog-ally-rc71l-3178`](https://github.com/DanielJBurbridge/omarchy/pull/3), [`feat/ally-touch-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-touch-20261111), [`feat/ally-session-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-session-20261111), [`feat/ally-display-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-display-20261111) (`default/hypr/rog-ally-touch.lua`).
 External: [InputPlumber](https://github.com/ShadowBlip/InputPlumber) `aly1` and `50-rog_ally.yaml` · [Arch inputplumber 0.84.0](https://archlinux.org/packages/extra/x86_64/inputplumber/) · [ASUS RC71L manual](https://dlcdnets.asus.com/pub/ASUS/IOTHMD/RC71L/0421_ID25271_NR2301L_V5_A.pdf?model=ROG+Ally+%282023%29) · [SteamOS #2853](https://github.com/ValveSoftware/SteamOS/issues/2853) · [Bazzite ASUS wiki](https://docs.bazzite.gg/Handheld_and_HTPC_edition/Handheld_Wiki/ASUS_ROG_Ally/) · [HHD](https://github.com/hhd-dev/hhd) · [Steam Deck shortcuts](https://www.pcgamingwiki.com/wiki/Steam_Deck) · [mainline hid-asus Ally key map](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-asus.c).
