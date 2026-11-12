@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+# CI has no passwordless sudo. A user namespace supplies a uid 0 that can
+# create the directories and a second uid that sees them the way the desktop
+# user does. This machine's sudo -n path stays the default.
+if [[ ${DESKTOP_LOCK_NS:-} != 1 ]] && { [[ ${DESKTOP_LOCK_FORCE_NS:-} == 1 ]] || ! sudo -n true 2>/dev/null; }; then
+  exec unshare --user --map-auto --map-root-user --mount --propagation private \
+    env DESKTOP_LOCK_NS=1 bash "$0"
+fi
+
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 source "$ROOT/default/gaming/session.sh"
 
@@ -27,10 +35,39 @@ export PATH="$stub:$PATH"
 export HOME=$work/home
 export LOCK_HW=ally LOCK_PKG=yes
 mkdir -p "$HOME/.local/state/omarchy"
+chmod -R a+rX "$work"
+
+if [[ ${DESKTOP_LOCK_NS:-} == 1 ]]; then
+  mount -t tmpfs tmpfs /var/lib
+fi
+
+root_do() {
+  if [[ $EUID == 0 ]]; then
+    "$@"
+  else
+    sudo -n "$@"
+  fi
+}
+
+as_user() {
+  if [[ ${DESKTOP_LOCK_NS:-} == 1 && $EUID == 0 ]]; then
+    setpriv --reuid=1 --regid=1 --clear-groups "$@"
+  else
+    "$@"
+  fi
+}
+
+user_state() {
+  as_user bash -c 'source "$1"; gaming_k07_marker_state' bash "$ROOT/default/gaming/session.sh"
+}
+
+user_effective() {
+  as_user bash -c 'source "$1"; gaming_desktop_lock_effective' bash "$ROOT/default/gaming/session.sh"
+}
 
 restore_tree() {
-  sudo "$ROOT/bin/omarchy-setup-handheld-dirs" >/dev/null 2>&1 || true
-  sudo rm -f "$marker" "$value"
+  root_do "$ROOT/bin/omarchy-setup-handheld-dirs" >/dev/null 2>&1 || true
+  root_do rm -f "$marker" "$value"
   rm -rf "$work"
 }
 trap restore_tree EXIT
@@ -40,68 +77,68 @@ assert_dir() {
   owner=$(stat -c %u -- "$dir")
   mode=$(stat -c %a -- "$dir")
   [[ $owner == 0 && $mode == 755 ]] || fail "$dir is root-owned mode 0755" "owner=$owner mode=$mode"
-  [[ ! -w $dir ]] || fail "$dir is not writable by the desktop user"
+  as_user test ! -w "$dir" || fail "$dir is not writable by the desktop user"
   (( (8#$mode & 8#022) == 0 )) || fail "$dir is not writable by group or other" "$mode"
 }
 
 # A too-tight directory is what locked the Ally out before K07. The creator
 # has to open it to 0755, root-owned, without making it writable.
-sudo mkdir -p "$state_dir"
-sudo chmod 0700 "$state_dir"
-sudo "$ROOT/bin/omarchy-setup-handheld-dirs"
+root_do mkdir -p "$state_dir"
+root_do chmod 0700 "$state_dir"
+root_do "$ROOT/bin/omarchy-setup-handheld-dirs"
 assert_dir "$state_dir"
 assert_dir "$handheld_dir"
 pass "install creates /var/lib/omarchy root-owned and not writable"
 
-sudo rm -f "$marker"
-[[ $(gaming_k07_marker_state) == absent ]] || fail "a missing marker in a 0755 directory is absent"
+root_do rm -f "$marker"
+[[ $(user_state) == absent ]] || fail "a missing marker in a 0755 directory is absent"
 LOCK_HW=ally LOCK_PKG=yes
-[[ $(gaming_desktop_lock_effective) == default-off ]] || fail "pre-K07 handheld desktop-lock is off when the marker is absent" "$(gaming_desktop_lock_effective)"
+[[ $(user_effective) == default-off ]] || fail "pre-K07 handheld desktop-lock is off when the marker is absent" "$(user_effective)"
 pass "pre-K07 absence is visible to the desktop user and desktop-lock is off"
 
-sudo chmod 0700 "$state_dir"
-[[ $(gaming_k07_marker_state) == present ]] || fail "an unreadable /var/lib/omarchy counts as the marker being present" "$(gaming_k07_marker_state)"
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "an unreadable marker turns desktop-lock on" "$(gaming_desktop_lock_effective)"
+root_do chmod 0700 "$state_dir"
+[[ $(user_state) == present ]] || fail "an unreadable /var/lib/omarchy counts as the marker being present" "$(user_state)"
+[[ $(user_effective) == on ]] || fail "an unreadable marker turns desktop-lock on" "$(user_effective)"
 pass "an unreadable state directory fails closed to desktop-lock on"
-sudo "$ROOT/bin/omarchy-setup-handheld-dirs"
+root_do "$ROOT/bin/omarchy-setup-handheld-dirs"
 
-sudo rm -rf "$handheld_dir"
-echo 'not-a-directory' | sudo tee "$handheld_dir" >/dev/null
-[[ $(gaming_k07_marker_state) == present ]] || fail "a stat error other than ENOENT counts as present" "$(LC_ALL=C stat -c %u -- "$marker" 2>&1 || true)"
+root_do rm -rf "$handheld_dir"
+echo 'not-a-directory' | root_do tee "$handheld_dir" >/dev/null
+[[ $(user_state) == present ]] || fail "a stat error other than ENOENT counts as present" "$(LC_ALL=C stat -c %u -- "$marker" 2>&1 || true)"
 pass "a non-ENOENT marker error fails closed"
-sudo rm -f "$handheld_dir"
-sudo "$ROOT/bin/omarchy-setup-handheld-dirs"
+root_do rm -f "$handheld_dir"
+root_do "$ROOT/bin/omarchy-setup-handheld-dirs"
 
 printf '%s\n' explicit-off > "$HOME/.local/state/omarchy/desktop-lock"
-[[ $(gaming_desktop_lock_effective) == default-off ]] || fail "a user-writable copy cannot store explicit-off" "$(gaming_desktop_lock_effective)"
+[[ $(user_effective) == default-off ]] || fail "a user-writable copy cannot store explicit-off" "$(user_effective)"
 pass "a user-writable desktop-lock copy is ignored"
 
-sudo install -o root -g root -m 0644 /dev/null "$marker"
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "post-K07 a missing value is on" "$(gaming_desktop_lock_effective)"
-printf '%s\n' 'not-a-value' | sudo tee "$value" >/dev/null
-sudo chown root:root "$value"
-sudo chmod 0644 "$value"
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "post-K07 a corrupt value is on" "$(gaming_desktop_lock_effective)"
-printf '%s\n' explicit-off | sudo tee "$value" >/dev/null
-sudo chown root:root "$value"
-sudo chmod 0644 "$value"
-[[ $(gaming_desktop_lock_effective) == explicit-off ]] || fail "post-K07 explicit-off stays off" "$(gaming_desktop_lock_effective)"
+root_do install -o root -g root -m 0644 /dev/null "$marker"
+[[ $(user_effective) == on ]] || fail "post-K07 a missing value is on" "$(user_effective)"
+printf '%s\n' 'not-a-value' | root_do tee "$value" >/dev/null
+root_do chown root:root "$value"
+root_do chmod 0644 "$value"
+[[ $(user_effective) == on ]] || fail "post-K07 a corrupt value is on" "$(user_effective)"
+printf '%s\n' explicit-off | root_do tee "$value" >/dev/null
+root_do chown root:root "$value"
+root_do chmod 0644 "$value"
+[[ $(user_effective) == explicit-off ]] || fail "post-K07 explicit-off stays off" "$(user_effective)"
 printf '%s\n' off > "$HOME/.local/state/omarchy/desktop-lock"
-[[ $(gaming_desktop_lock_effective) == explicit-off ]] || fail "a user off does not replace a root value"
-printf '%s\n' on | sudo tee "$value" >/dev/null
-sudo chown root:root "$value"
-sudo chmod 0644 "$value"
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "root on wins over a user off" "$(gaming_desktop_lock_effective)"
-sudo chmod 0666 "$value"
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "a group-writable value is ignored after K07" "$(gaming_desktop_lock_effective)"
+[[ $(user_effective) == explicit-off ]] || fail "a user off does not replace a root value"
+printf '%s\n' on | root_do tee "$value" >/dev/null
+root_do chown root:root "$value"
+root_do chmod 0644 "$value"
+[[ $(user_effective) == on ]] || fail "root on wins over a user off" "$(user_effective)"
+root_do chmod 0666 "$value"
+[[ $(user_effective) == on ]] || fail "a group-writable value is ignored after K07" "$(user_effective)"
 pass "post-K07 missing and corrupt lock, and only explicit-off stays off"
 
-sudo rm -f "$marker" "$value"
+root_do rm -f "$marker" "$value"
 LOCK_HW=laptop
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "a laptop with the package stays on" "$(gaming_desktop_lock_effective)"
+[[ $(user_effective) == on ]] || fail "a laptop with the package stays on" "$(user_effective)"
 LOCK_HW=ally
 LOCK_PKG=no
-[[ $(gaming_desktop_lock_effective) == on ]] || fail "an Ally without the session package stays on" "$(gaming_desktop_lock_effective)"
+[[ $(user_effective) == on ]] || fail "an Ally without the session package stays on" "$(user_effective)"
 LOCK_PKG=yes
 pass "desktop-lock stays on unless the machine is the handheld pair"
 
@@ -166,9 +203,9 @@ EOF
 chmod +x "$stub/"*
 export LOCK_KEYBOARD=1
 write_value() {
-  printf '%s\n' "$1" | sudo tee "$value" >/dev/null
-  sudo chown root:root "$value"
-  sudo chmod 0644 "$value"
+  printf '%s\n' "$1" | root_do tee "$value" >/dev/null
+  root_do chown root:root "$value"
+  root_do chmod 0644 "$value"
 }
 assert_locked() {
   grep -q 'lock lock' "$sleep_log" || fail "$1" "$(cat "$sleep_log")"
@@ -179,7 +216,7 @@ assert_unlocked() {
   fi
 }
 
-sudo rm -f "$marker" "$value"
+root_do rm -f "$marker" "$value"
 : > "$sleep_log"
 LOCK_HW=laptop LOCK_PKG=yes LOCK_KEYBOARD=1
 "$ROOT/bin/omarchy-system-sleep-lock"
@@ -191,7 +228,7 @@ assert_locked "a non-handheld suspend still locks when desktop-lock is explicit-
 pass "non-handheld suspend lock ignores desktop-lock"
 
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1
-sudo rm -f "$marker" "$value"
+root_do rm -f "$marker" "$value"
 : > "$sleep_log"
 "$ROOT/bin/omarchy-system-sleep-lock"
 assert_unlocked "pre-K07 handheld suspend locks with no keyboard and desktop-lock off"
@@ -214,16 +251,16 @@ assert_unlocked "explicit on without a keyboard still locks on suspend"
 grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on without a keyboard returns to gaming" "$(cat "$sleep_log")"
 pass "explicit on with no keyboard returns to gaming instead of locking"
 
-sudo install -o root -g root -m 0644 /dev/null "$marker"
+root_do install -o root -g root -m 0644 /dev/null "$marker"
 write_value explicit-off
 : > "$sleep_log"
 LOCK_KEYBOARD=1 "$ROOT/bin/omarchy-system-sleep-lock"
 assert_locked "the K07 marker restores suspend lock without a physical keyboard"
-sudo rm -f "$marker"
+root_do rm -f "$marker"
 pass "the K07 marker brings the ordinary suspend lock back"
 
 : > "$sleep_log"
-sudo rm -f "$value"
+root_do rm -f "$value"
 printf '%s\n' 'boolean false' | LOCK_KEYBOARD=1 "$ROOT/bin/omarchy-system-sleep-monitor" --consume
 assert_unlocked "resume locks a keyboard-less handheld before K07"
 printf '%s\n' 'boolean false' | LOCK_KEYBOARD=0 "$ROOT/bin/omarchy-system-sleep-monitor" --consume
@@ -233,7 +270,7 @@ assert_unlocked "the before-sleep path locks a keyboard-less handheld before K07
 pass "resume and before-sleep do not lock a keyboard-less handheld before K07"
 
 : > "$sleep_log"
-sudo rm -f "$value"
+root_do rm -f "$value"
 LOCK_KEYBOARD=1 "$ROOT/bin/omarchy-system-lock"
 assert_unlocked "idle locks a keyboard-less handheld before K07"
 : > "$sleep_log"
@@ -297,11 +334,11 @@ run_desktop_entry() {
     grep -q 'returning to gaming' "$log" || fail "$2 did not return to gaming" "$(cat "$log" 2>/dev/null)"
   fi
 }
-sudo rm -f "$marker"
+root_do rm -f "$marker"
 write_value on
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1
 run_desktop_entry 1 "switch to desktop with explicit on and no keyboard" return
-sudo rm -f "$value"
+root_do rm -f "$value"
 run_desktop_entry 0 "switch to desktop with default-off and no keyboard" desktop
 write_value on
 LOCK_KEYBOARD=0 run_desktop_entry 0 "switch to desktop with a keyboard and explicit on" locked

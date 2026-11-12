@@ -77,9 +77,11 @@ run_suite
 pass "failures remain fatal while skips and later test results stay visible"
 
 printf '#!/bin/bash\necho "CLI fixture passed"\n' >"$test_dir/test/cli"
-chmod +x "$test_dir/test/cli"
+mkdir -p "$test_dir/test/handheld"
+printf '#!/bin/bash\nexit 0\n' >"$test_dir/test/handheld/run"
+chmod +x "$test_dir/test/cli" "$test_dir/test/handheld/run"
 run_suite all
-(( status == 1 )) && [[ $output == *"CLI fixture passed"* && $output == *"Skipped checks in 3 of 5 test files:"* && $output == *$'1 of 2 suites failed:\n  test/shell'* ]] ||
+(( status == 1 )) && [[ $output == *"CLI fixture passed"* && $output == *"Skipped checks in 3 of 5 test files:"* && $output == *$'1 of 3 suites failed:\n  test/shell'* ]] ||
   fail "the aggregate runner preserves shell failures and skip reporting" "$output"
 pass "the aggregate runner preserves shell failures and skip reporting"
 
