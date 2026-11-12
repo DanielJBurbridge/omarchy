@@ -1,0 +1,5 @@
+# The handheld gamescope session starts this target and stops it when
+# switching to the desktop. The gaming bridge and the overlay bind here
+# with PartOf= and WantedBy=. It is not part of the desktop session.
+[Unit]
+Description=Omarchy handheld gaming session

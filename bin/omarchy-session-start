@@ -56,8 +56,10 @@ gaming_state_init && gaming_runtime_init || exit 1
 exec 9>"$gaming_runtime/lock"
 flock -n 9 || { gaming_fail 'a managed session is already running.'; exit 1; }
 scope=omarchy-gamescope-$XDG_SESSION_ID.scope
+gaming_session_target=omarchy-gaming-session.target
 scope_pid='' ready_pid='' return_pid=''
 started_power_units=()
+gaming_target_started=0
 
 stop_gaming() {
   if [[ -n $scope_pid ]]; then
@@ -75,6 +77,12 @@ stop_gaming() {
     systemctl --user stop "$unit" || true
   done
   started_power_units=()
+  # Drop the session target before the desktop starts, so units bound with
+  # PartOf= stop with the gamescope session and stay down on the desktop.
+  if (( gaming_target_started )); then
+    systemctl --user stop "$gaming_session_target" || true
+    gaming_target_started=0
+  fi
 }
 cleanup() { stop_gaming; rm -f "$gaming_runtime/active" "$gaming_runtime/switch"; }
 trap cleanup EXIT
@@ -127,6 +135,9 @@ run_gaming() {
   # establish logind session membership or target DRM/libseat access.
   # Scope stop owns only this session's subtree, including games and helpers.
   # Spec 04's overlay sits on the root Xwayland, so Gamescope always gets two.
+  # The target is handheld-only: this function runs after the Ally gate above.
+  systemctl --user start "$gaming_session_target" || return 1
+  gaming_target_started=1
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
     gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
