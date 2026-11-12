@@ -1,6 +1,6 @@
 # 07 · On-screen keyboard
 
-Status: draft, revision 6, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 6 cites spec 02 §7.7 for suspend teardown, including the broker `omarchy-handheld-suspend.service`, and does not restate that mechanism. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1).
+Status: draft, revision 7, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 7 cites spec 02 §7.7 for suspend teardown, including the broker `omarchy-handheld-suspend.service`, and does not restate that mechanism. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1).
 
 ## 0. Decisions in one table
 
@@ -122,15 +122,15 @@ Applied by the helper at launch; a `theme-set` hook restarts a **hidden** keyboa
 
 The Armoury Crate escape belongs to a Gaming Mode instance of the bridge, `omarchy-rog-ally-input-gaming.service`. `omarchy-rog-ally-input.service` is the Hyprland-only instance and is not this owner. The gaming unit has no Hyprland condition.
 
-The tree has no gamescope session unit yet. `docs/rog-ally-gaming-session.md` only has the transient scope `omarchy-gamescope-$XDG_SESSION_ID.scope`. Dev-blue provides `omarchy-gamescope-session.target` (PR #33). The gaming bridge is `WantedBy=`, `BindsTo=` and `After=` that target. Until the target exists, this escape does not ship.
+Dev-blue's Task B provides the user target `omarchy-gaming-session.target` (PR #34). This escape depends on that target. The gaming bridge is `WantedBy=`, `BindsTo=` and `After=` it. The tree today only has the transient scope `omarchy-gamescope-$XDG_SESSION_ID.scope` (`docs/rog-ally-gaming-session.md`).
 
-There is no `Conflicts=` between the two bridge units. systemd applies `Conflicts=` before it checks conditions, so a desktop start job that then fails its condition would still stop the gaming bridge if Gaming Mode pulled in `graphical-session.target`. The units use mutually exclusive conditions instead. The desktop unit starts only in the Hyprland session. The gaming unit starts only while `omarchy-gamescope-session.target` is active. The gaming unit is also `After=omarchy-rog-ally-input.service`, so the desktop unit's stop, including the `ExecStopPost` that loads the safe profile (§3.3), finishes before the gaming profile loads. That keeps `QuickAccess2` mapped to `omarchy_overlay`.
+There is no `Conflicts=` between the two bridge units. systemd applies `Conflicts=` before it checks conditions, so a desktop start job that then fails its condition would still stop the gaming bridge if Gaming Mode pulled in `graphical-session.target`. The units use mutually exclusive conditions instead. The desktop unit starts only in the Hyprland session. The gaming unit starts only while `omarchy-gaming-session.target` is active. The gaming unit is also `After=omarchy-rog-ally-input.service`, so the desktop unit's stop, including the `ExecStopPost` that loads the safe profile (§3.3), finishes before the gaming profile loads. That keeps `QuickAccess2` mapped to `omarchy_overlay`.
 
 `Restart=always` for the life of the gamescope session. At the start limit the bound overlay stops, and AC long opens QAM.
 
-While intercept is on, the bridge reads the Armoury event from InputPlumber's intercept D-Bus target, the same target the overlay reads. Armoury long arrives once, at about 1 s, as `omarchy_overlay` (`Action::Custom`, from `QuickAccess2` / `KEY_F17`). There is no release event. It is not `ui_quick2`. An InputPlumber profile rule is not used.
+While intercept is on, the bridge reads the Armoury event from InputPlumber's intercept D-Bus target, the same target the overlay reads. The event is `omarchy_overlay` (`Action::Custom`, from `QuickAccess2` / `KEY_F17`). It is not `ui_quick2`. An InputPlumber profile rule is not used, and there is no release-rule fallback.
 
-One second after that `KEY_F17`, if `InterceptMode` is still non-zero (2 or 3, including `GamepadOnly`), the bridge sets it to 0. It does not act when the mode is already 0. Setting a value that is already current is a no-op.
+AC 23 records what that target emits for a 1 s hold and a 3 s hold: event, value and timestamps. That recording gates the implementation pull request. It does not gate this spec or #27. If it shows a held down state, the trigger is that down held for ≥ 3 s. If it does not, the trigger is an `omarchy_overlay` press while `InterceptMode` is non-zero, with `InterceptMode` still non-zero 1 s later, which forces 0. The bridge acts only when the mode is still non-zero at that deadline, and it clears any non-zero mode, including 3 (`GamepadOnly`). Setting a value that is already current is a no-op.
 
 The overlay's own watchdog (spec 04, `WatchdogSec=1s`) stays a second route, so this is not the only way out (spec 01 D5). When the bridge sets 0, the overlay watches `PropertiesChanged` and, on a 0 it did not set, closes fully. That close is specified in spec 04.
 
@@ -198,13 +198,13 @@ If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard s
 14. Before K07, effective value `on`, no usable keyboard: the overlay row is shown disabled and reads “Connect a keyboard to unlock”. Steam → Switch to Desktop, and any other call into `desktop()`, returns to gaming. There is no unlocked Hyprland frame and no lock screen.
 15. Suspend teardown is spec 02 §7.7 (`omarchy-handheld-suspend.service`). The input cut is that section: every evdev device, including touch and the keyboard HID. This criterion adds no mechanism of its own.
 16. Resume after a lock-on-suspend whose keyboard is no longer attached: the session is back in gaming, the lock is not left up, and nothing auto-unlocked. No desktop frame is shown on wake. The next desktop entry is spec 02 §7.4, and criterion 14 while K07 has not landed.
-17. `omarchy-rog-ally-input-gaming.service` is active in Gaming Mode and absent or inactive on the Hyprland desktop. It is `WantedBy=`, `BindsTo=` and `After=` `omarchy-gamescope-session.target`, and `After=` `omarchy-rog-ally-input.service`. It has no Hyprland condition and no `Conflicts=`. `omarchy-rog-ally-input.service` does not own the hold.
-18. A test drop-in sets the overlay unit's `WatchdogSec=0` and an empty `ExecStopPost=`, or a scratch process sets `InterceptMode` to 2 with `busctl` and is then stopped. The sticks are moving. One second after `KEY_F17`, `InterceptMode` reads 0, and `busctl monitor` shows that Set coming from the gaming bridge's unique name. With the gaming unit stopped, the same test leaves the mode at 2.
+17. `omarchy-rog-ally-input-gaming.service` is active in Gaming Mode and absent or inactive on the Hyprland desktop. It is `WantedBy=`, `BindsTo=` and `After=` the user target `omarchy-gaming-session.target` (dev-blue Task B, PR #34), and `After=` `omarchy-rog-ally-input.service`. It has no Hyprland condition and no `Conflicts=`. `omarchy-rog-ally-input.service` does not own the escape.
+18. A test drop-in sets the overlay unit's `WatchdogSec=0` and an empty `ExecStopPost=`, or a scratch process sets `InterceptMode` to 2 with `busctl` and is then stopped. The sticks are moving. `InterceptMode` reads 0 within 1 s of the §3.6 trigger, and `busctl monitor` shows that Set coming from the gaming bridge's unique name. With the gaming unit stopped, the same test leaves the mode at 2.
 19. Over one session, `busctl monitor` shows the gaming bridge making only `InterceptMode` Sets. There is no `LoadProfilePath` and no uinput device from it. It sets 0 only when the mode is still non-zero at its deadline, and it clears mode 3 as well as mode 2.
 20. The overlay takes intercept only when `omarchy-rog-ally-input-gaming.service` has `ActiveState=active`. Any other state, including `activating`, `auto-restart` and `failed`, makes it refuse and fall back to QAM. The unit uses `Restart=always`. At the start limit the bound overlay is stopped and AC long opens QAM.
 21. With the overlay open, stop the gaming bridge. Within 1 s `InterceptMode` is 0 and the overlay is closed. The overlay unit is `BindsTo=` and `After=` the gaming bridge.
 22. Desktop, then gaming, then desktop, five times, including a dock hot-plug. Each time exactly one bridge is active, and after each gaming entry `QuickAccess2` still maps to `omarchy_overlay`.
-23. Device check for the implementation pull request, not for this spec and not for merging #27: with full intercept on and the overlay `SIGSTOP`ped, `KEY_F17` (`omarchy_overlay`) reaches the gaming bridge.
+23. Device check for the implementation pull request, not a gate on this spec or on #27: record what the intercept D-Bus target emits for a 1 s Armoury hold and a 3 s Armoury hold (event, value, timestamps). The result selects the §3.6 trigger.
 
 ## 9. Open questions
 
@@ -217,7 +217,7 @@ If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard s
 | OQ-5 | Is `deskintl` (larger desktop layout) better than `mobintl` at 1280×720 logical? | Daniel |
 | OQ-6 | Show/hide signal from the helper to the bridge: D-Bus signal vs inotify on the state file (spec 01 OQ-10). | dev-lead |
 | OQ-7 | SDDM greeter controller navigation for the Qt keyboard. | AUTH |
-| OQ-8 | Record what the intercept D-Bus target emits for an Armoury long: event, value and timestamps. This does not gate this spec or #27. AC 23, on the implementation pull request, checks that `KEY_F17` reaches the gaming bridge under full intercept while the overlay is `SIGSTOP`ped. | Hardware test |
+| OQ-8 | What does the intercept D-Bus target emit for a 1 s Armoury hold and a 3 s hold (event, value, timestamps)? AC 23. The answer selects the §3.6 trigger. It gates the implementation pull request, not this spec and not #27. | Hardware test |
 
 ## 10. Branch conflicts
 
