@@ -44,6 +44,18 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     ''')
     command('uwsm', '''#!/bin/bash
         echo "desktop:$*" >> "$TEST_ROOT/actions"
+        if [[ $MODE == return-up ]]; then
+          sig=$XDG_RUNTIME_DIR/hypr/handoff
+          mkdir -p "$sig"
+          python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1)' "$sig/.socket.sock"
+          next=$XDG_STATE_HOME/omarchy/gaming-session/next
+          for _ in $(seq 1 40); do
+            [[ -f $next ]] || exit 0
+            sleep 0.05
+          done
+          echo 'next-stuck' >> "$TEST_ROOT/actions"
+          exit 1
+        fi
         if [[ $MODE == switch && ! -f $TEST_ROOT/switched ]]; then
           touch "$TEST_ROOT/switched"
           # UWSM excludes XDG_SESSION_ID from the desktop user manager.
@@ -63,6 +75,12 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         import os, pathlib, signal, sys
         with open(os.environ['TEST_ROOT'] + '/actions', 'a') as out:
             out.write('scope-stop:' + ' '.join(sys.argv[1:]) + '\\n')
+            if 'stop' in sys.argv and sys.argv[-1].endswith('.scope'):
+                next_path = pathlib.Path(os.environ['XDG_STATE_HOME'], 'omarchy', 'gaming-session', 'next')
+                if next_path.is_file():
+                    out.write('next-at-scope-stop:' + next_path.read_text())
+                else:
+                    out.write('next-at-scope-stop:absent\\n')
         if 'is-active' in sys.argv:
             sys.exit(0 if sys.argv[-1] in os.environ.get('ACTIVE_UNITS', '').split(',') else 3)
         if 'start' in sys.argv:
@@ -92,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     ''')
     command('steam', '''#!/bin/bash
         echo "steam:$*:DISPLAY=$DISPLAY" >> "$TEST_ROOT/actions"
-        if [[ $MODE == return ]]; then
+        if [[ $MODE == return || $MODE == return-up ]]; then
           steamos-session-select plasma
           exec sleep 10
         fi
@@ -116,10 +134,16 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         env.update(updates)
         return directory, env
 
-    def run(env, executable, *args, status=0):
-        result = subprocess.run([str(executable), *args], env=env, capture_output=True, text=True, timeout=6)
+    def run(env, executable, *args, status=0, timeout=6):
+        result = subprocess.run([str(executable), *args], env=env, capture_output=True, text=True, timeout=timeout)
         assert result.returncode == status, (args, result)
         return result
+
+    def relogin(env):
+        script = 'source "$OMARCHY_PATH/default/gaming/session.sh"\ngaming_entry_selection relogin\n'
+        result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, (result.returncode, result.stderr)
+        return result.stdout.strip()
 
     def state(directory):
         return directory / 'state/omarchy/gaming-session'
@@ -143,13 +167,20 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     run(env, setup, 'reset')
     print('PASS persistent, consumed one-shot, display parser and reset')
 
-    for mode in ('crash', 'early', 'timeout', 'steam-fail', 'return', 'switch'):
+    for mode in ('crash', 'early', 'timeout', 'steam-fail', 'return', 'return-up', 'switch'):
         directory, env = case(mode, MODE=mode)
         run(env, setup, 'default', 'gaming')
-        if mode != 'switch':
-            run(env, selector, 'preferred')
-        else:
+        if mode == 'switch':
             run(env, setup, 'default', 'desktop')
+            run(env, selector, 'preferred')
+        elif mode in ('return', 'return-up'):
+            # Steam switches at startup. The default 0.2s ready timeout can
+            # win that race under a loaded CI runner and stop the scope
+            # before the return FIFO is read. Give the explicit return time
+            # to land, which is what writes next=desktop.
+            env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
+            run(env, selector, 'preferred', timeout=25)
+        else:
             run(env, selector, 'preferred')
         actions = (directory / 'actions').read_text()
         assert 'desktop:' in actions, (mode, actions)
@@ -157,10 +188,33 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         assert not list((directory / 'runtime').rglob('active')), mode
         assert not list((directory / 'runtime').rglob('return')), mode
         if mode in ('crash', 'early', 'timeout', 'steam-fail'):
+            assert 'next-at-scope-stop:desktop' not in actions, (mode, actions)
+            assert not (state(directory) / 'next').exists(), mode
             assert (state(directory) / 'recovery').exists(), mode
             before = actions.count('gamescope:')
             run(env, selector, 'preferred')
             assert (directory / 'actions').read_text().count('gamescope:') == before
+        if mode in ('return', 'return-up'):
+            # Steam's steamos-session-select plasma is the explicit return.
+            assert 'next-at-scope-stop:desktop\n' in actions, (mode, actions)
+            assert not (state(directory) / 'recovery').exists(), mode
+        if mode == 'return':
+            next_file = state(directory) / 'next'
+            assert next_file.read_text() == 'desktop\n', next_file.read_text() if next_file.exists() else 'missing'
+            assert next_file.stat().st_mode & 0o777 == 0o600, oct(next_file.stat().st_mode)
+            assert next_file.stat().st_uid == os.getuid()
+            state_dir = state(directory)
+            assert state_dir.stat().st_mode & 0o777 == 0o700, oct(state_dir.stat().st_mode)
+            assert state_dir.stat().st_uid == os.getuid()
+            (state_dir / 'recovery').write_text('failed\n')
+            assert relogin(env) == 'desktop', 'one relogin lands in the desktop'
+            assert not next_file.exists()
+            assert (state_dir / 'recovery').is_file()
+            assert relogin(env) == 'gaming', 'the following relogin returns to gaming'
+        if mode == 'return-up':
+            assert not (state(directory) / 'next').exists(), actions
+            (state(directory) / 'recovery').write_text('failed\n')
+            assert relogin(env) == 'gaming', 'Hyprland coming up clears the one-shot'
         if mode == 'switch':
             stop_at = actions.index('keyboard:stop:')
             assert stop_at < actions.index('system:logout')
@@ -174,6 +228,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         actions = (directory / 'actions').read_text()
         assert 'gamescope:' not in actions, actions
         assert 'desktop:' in actions, actions
+        assert not (state(directory) / 'next').exists(), (name, actions)
         print('PASS entry guard', name)
 
     directory, env = case('missing-before-logout', MISSING='gamescope', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')

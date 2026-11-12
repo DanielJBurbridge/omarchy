@@ -21,6 +21,14 @@ if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds(ally) then
     },
   })
 end
+-- Switch to Gaming uses the same Ally predicate as the menu row. Absolute
+-- paths: Hyprland's PATH at config load is not the session PATH. A binding
+-- loader that stubs o.shell_quote gets nil back; skip the gate instead of
+-- concatenating that.
+local pkg_present = o.shell_quote(paths.omarchy_path .. "/bin/omarchy-pkg-present")
+if type(ally) == "string" and type(pkg_present) == "string" and o.shell_succeeds(ally .. " && " .. pkg_present .. " omarchy-gaming-session") then
+  o.bind("SUPER + CTRL + G", "Switch to Gaming", "omarchy-launch-gaming-session")
+end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
 o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = true })

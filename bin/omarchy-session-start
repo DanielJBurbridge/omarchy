@@ -4,11 +4,56 @@
 # omarchy:args=<preferred|gaming|relogin>
 
 set -uo pipefail
+# Set when an explicit Switch to Desktop wrote next=desktop for this process.
+gaming_desktop_next=0
 # This is a pre-UWSM login boundary; use the canonical environment bootstrap.
 # shellcheck source=/dev/null
 source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 (( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
+
+# Hyprland instance sockets already on disk belong to an earlier compositor.
+existing_hypr_sockets() {
+  local signature_root=${XDG_RUNTIME_DIR:-}/hypr entry
+  [[ -n ${XDG_RUNTIME_DIR:-} && -d $signature_root ]] || return 0
+  for entry in "$signature_root"/*/.socket.sock "$signature_root"/*/.socket2.sock; do
+    if [[ -S $entry ]]; then
+      printf '%s\n' "$entry"
+    fi
+  done
+}
+
+# Hyprland is up when a new $XDG_RUNTIME_DIR/hypr/<instance>/.socket.sock
+# appears. Nothing pushes that creation, so this waits only until the socket
+# shows or the handoff gives up. The caller stops it when uwsm returns.
+drop_desktop_next_after_hyprland() {
+  local before=$1 signature_root=${XDG_RUNTIME_DIR:-}/hypr waited=0 entry prior found
+  # The session flock is on fd 9. Drop it before waiting so a child cannot
+  # keep the next login out after this supervisor exits.
+  exec 9>&-
+  [[ -n ${XDG_RUNTIME_DIR:-} && -n ${gaming_state:-} ]] || return 0
+  while (( waited < 600 )); do
+    if [[ -d $signature_root ]]; then
+      for entry in "$signature_root"/*/.socket.sock "$signature_root"/*/.socket2.sock; do
+        [[ -S $entry ]] || continue
+        found=0
+        while IFS= read -r prior; do
+          if [[ $prior == "$entry" ]]; then
+            found=1
+          fi
+        done <<< "$before"
+        if (( found == 0 )); then
+          rm -f -- "$gaming_state/next"
+          return 0
+        fi
+      done
+    fi
+    # Builtin timeout, so stopping this waiter does not leave an external
+    # sleep holding inherited descriptors.
+    read -r -t 0.1 _ </dev/zero || true
+    waited=$(( waited + 1 ))
+  done
+}
 
 start_hyprland() {
   export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
@@ -20,8 +65,17 @@ start_hyprland() {
     rm -f "$gaming_state/preference-reset"
     omarchy-notification-send 'Omarchy' 'Session preference reset' || true
   fi
+  local next_watch_pid=''
+  if (( gaming_desktop_next )); then
+    drop_desktop_next_after_hyprland "$(existing_hypr_sockets)" &
+    next_watch_pid=$!
+  fi
   uwsm start -g -1 -e -D Hyprland hyprland.desktop
   local status=$?
+  if [[ -n $next_watch_pid ]]; then
+    kill "$next_watch_pid" 2>/dev/null || true
+    wait "$next_watch_pid" 2>/dev/null || true
+  fi
   unset OMARCHY_HANDHELD_SESSION
   return "$status"
 }
@@ -206,6 +260,17 @@ run_gaming() {
   elif ! $started; then
     status=1
     echo 'Gamescope exited before starting its Steam child.' >> "$gaming_state/session.log"
+  fi
+  # Explicit Switch to Desktop only. Crash, timeout, a missing gamescope or
+  # steam, and a non-zero Steam exit do not write it. The file is the session
+  # user's ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next,
+  # mode 0600, in the mode 0700 state directory from gaming_state_init. It is
+  # written before the gamescope scope stops. Relogin consumes desktop once.
+  # Once this handoff's Hyprland socket appears, the file is removed so a
+  # later logout returns to gaming. If this process dies before that socket,
+  # the file is still there and that one relogin starts Hyprland.
+  if $returned && gaming_save next desktop; then
+    gaming_desktop_next=1
   fi
   stop_gaming
   # Append after Gamescope's log redirection has closed, so its exit text

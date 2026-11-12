@@ -79,6 +79,34 @@ grep -q 'omarchy-session-start relogin' "$ROOT/bin/omarchy-handheld-autologin" |
   fail "the autologin session uses the Relogin entry"
 pass "Relogin forces gaming and ignores the recovery latch and dock auto-switch"
 
+# next=desktop is the session user's one-shot, mode 0600. Relogin consumes
+# that value once even when the recovery latch and a dock are set, then the
+# following Relogin is gaming again. A different next value stays put.
+gaming_state_init
+printf 'failed\n' > "$gaming_state/recovery"
+gaming_save next desktop
+next_mode=$(stat -c %a -- "$gaming_state/next")
+next_owner=$(stat -c %u -- "$gaming_state/next")
+[[ $next_mode == 600 && $next_owner == "$(id -u)" ]] ||
+  fail "next=desktop is the session user's mode 0600 file" "mode=$next_mode owner=$next_owner"
+export DOCKED=1
+[[ $(gaming_entry_selection relogin) == desktop ]] ||
+  fail "Relogin consumes next=desktop once through a latch and a dock"
+[[ ! -e $gaming_state/next ]] || fail "consuming next=desktop deletes the one-shot"
+[[ -f $gaming_state/recovery ]] || fail "consuming next=desktop leaves the recovery latch"
+[[ $(gaming_entry_selection relogin) == gaming ]] || fail "the next Relogin returns to gaming"
+printf 'gaming\n' > "$gaming_state/next"
+[[ $(gaming_entry_selection relogin) == gaming ]] || fail "Relogin ignores a next value other than desktop"
+[[ $(cat "$gaming_state/next") == gaming ]] || fail "Relogin leaves a non-desktop one-shot in place"
+rm -f "$gaming_state/next"
+printf 'stop\n' > "$work/run/stop"
+[[ $(gaming_entry_selection relogin) == gaming ]] ||
+  fail "Relogin without next=desktop stays on gaming while autologin is stopped"
+[[ -f $work/run/stop ]] || fail "the one-shot path does not delete the autologin stop file"
+grep -q '^Relogin=true$' "$dropin" || fail "consuming the one-shot does not change Relogin" "$(cat "$dropin")"
+rm -f "$work/run/stop"
+pass "Relogin consumes next=desktop once and otherwise stays on gaming"
+
 user_dir=$work/user-run
 mkdir -p "$user_dir"
 chown 1:1 "$user_dir"

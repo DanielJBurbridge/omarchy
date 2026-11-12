@@ -32,6 +32,9 @@
   "system": {
     "label": "System"
   },
+  "system.switch-gaming": {
+    "label": "Switch to Gaming"
+  },
   "system.screensaver": {
     "label": "Screensaver"
   },
