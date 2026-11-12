@@ -1,13 +1,13 @@
 # 05 · Notifications (gaming and desktop)
 
-Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [02](02-mode-switch-and-dock.md) (dock prompt, gaming-fail notice), [03](03-first-boot-and-install.md) (lock migration notice), [04](04-quick-access-overlay.md) (overlay client, intercept rules). Rulings applied: PPD masked on RC71L; backlog #10 (power writer) and backlog #11 (Steam TDP shim) own power (`tdp-decision-review.md`); `desktop-lock` ships off until K07. Revision 2 takes the dev-red review of PR #30. While `desktop-lock` is off, the quick overlay hides “Switch to Desktop”; that switch is only Steam’s own menu, which honours Steam’s PIN. While `desktop-lock` is on, our switch runs the lock first (spec 02 §7.4).
+Status: draft, revision 3, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [02](02-mode-switch-and-dock.md) (dock prompt, gaming-fail notice), [03](03-first-boot-and-install.md) (lock migration notice), [04](04-quick-access-overlay.md) (overlay client, intercept rules). Rulings applied: PPD masked on RC71L; backlog #10 (power writer) and backlog #11 (Steam TDP shim) own power (`tdp-decision-review.md`); `desktop-lock` ships off until K07. Revision 3 takes the second dev-red review of PR #30. While `desktop-lock` is off, the quick overlay hides “Switch to Desktop”; that switch is only Steam’s own menu, which honours Steam’s PIN. While it is on and a usable keyboard is attached, or once K07 counts as landed, our switch runs the lock first (spec 02 §7.4, D10). Before K07, with the effective value `on` and no usable keyboard, that row is shown disabled and reads “Connect a keyboard to unlock” (spec 07 §4.1, spec 02 §7.4).
 
 ## 0. Decisions in one table
 
 | # | Decision | Source |
 |---|---|---|
 | D1 | Desktop keeps **Omarchy's own notifier** (`omarchy-shell`, `omarchy.notifications`). It replaced mako in this fork; no mako on the handheld variant. | `docs/notifications.md` |
-| D2 | Gaming gets an `org.freedesktop.Notifications` server, `omarchy-gaming-notifier`, as a D-Bus front end only. It does **not** open a Gamescope external-overlay window. Gamescope paints one such window. Spec 04 (`omarchy-quick-overlay`, D9 and §6.1) owns that slot: it takes the slot from mangoapp while its panel is open and gives it back on close or crash. Critical battery and thermal alerts never depend on the slot. They use Steam’s notification path, or they ask that slot owner to hide mangoapp and show them. Same senders (`omarchy-notification-send`) work in both sessions. | Spec 04 D9, §6.1 |
+| D2 | Gaming gets an `org.freedesktop.Notifications` server, `omarchy-gaming-notifier`, as a D-Bus front end only. It does **not** open a Gamescope external-overlay window. Gamescope paints one such window. Spec 04 (`omarchy-quick-overlay`, D9 and §6.1) owns that slot: it takes the slot from mangoapp while its panel is open and gives it back on close or crash. Critical battery and thermal alerts are always sent on Steam’s notification path, which is a hard dependency of the handheld gaming session, and are also offered to the spec 04 slot owner. Delivery does not wait on that owner. Same senders (`omarchy-notification-send`) work in both sessions. | Spec 04 D9, §6.1 |
 | D3 | Toasts in gaming are **display-only**. Acting on one means opening the overlay (AC long) → Notifications; the game never loses focus, and controller input reaches a notification only through InputPlumber intercept. | Red review, spec 04 D4 |
 | D4 | **Game-running quiet**: while a game runs (gaming scope game process, or a real fullscreen window on desktop) only **P0** shows; P1 shows as a one-line banner; P2/P3 go straight to history and are summarised when the game exits. | Brief |
 | D5 | Four priority levels (P0–P3) map onto freedesktop urgency + Omarchy's existing Do Not Disturb bypass rules. No new bypass for third-party apps. | `shell/plugins/notifications/Delivery.js` |
@@ -32,18 +32,18 @@ Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [02](0
 
 | | SteamOS | Bazzite / ChimeraOS | CachyOS Handheld | Omarchy (this spec) |
 |---|---|---|---|---|
-| Gaming notifications | `steam_notif_daemon` started by the Game Mode session forwards freedesktop notifications into Steam toasts ([ChimeraOS session script](https://github.com/ChimeraOS/gamescope-session-steam/blob/main/usr/share/gamescope-session-plus/sessions.d/steam), [Jovian mirror](https://github.com/Jovian-Experiments/steam_notif_daemon), [SteamOS unit](https://gitlab.com/evlaV/jupiter-PKGBUILD/-/blob/4d9e68d8e5a7d2c902d42df6a51e50a2af79155b/gamescope/steam-notif-daemon.service)) | Same session scripts start it **if present** | gamescope-session-cachyos (not checked) | D-Bus front end only (D2). Critical battery and thermal use Steam’s toasts or the spec 04 slot owner. `steam_notif_daemon` remains the candidate for the Steam path (OQ-1) |
+| Gaming notifications | `steam_notif_daemon` started by the Game Mode session forwards freedesktop notifications into Steam toasts ([ChimeraOS session script](https://github.com/ChimeraOS/gamescope-session-steam/blob/main/usr/share/gamescope-session-plus/sessions.d/steam), [Jovian mirror](https://github.com/Jovian-Experiments/steam_notif_daemon), [SteamOS unit](https://gitlab.com/evlaV/jupiter-PKGBUILD/-/blob/4d9e68d8e5a7d2c902d42df6a51e50a2af79155b/gamescope/steam-notif-daemon.service)) | Same session scripts start it **if present** | gamescope-session-cachyos (not checked) | D-Bus front end (D2). `steam_notif_daemon` is a hard dependency. Critical battery and thermal always use it, and are also offered to the spec 04 slot owner (OQ-1 closed) |
 | Without a daemon | `notify-send` goes nowhere in Game Mode ([SteamOS #813](https://github.com/ValveSoftware/SteamOS/issues/813)) | — | — | — |
 | Desktop | KDE Plasma | KDE / GNOME | KDE | omarchy-shell |
 | Mid-game DND | Steam's own “Do not disturb” for Steam toasts | Steam | Steam | D4 game-running quiet |
 
-Why not mako in Gamescope: mako is a `wlr-layer-shell` client; Gamescope's clients are Xwayland windows and Steam's overlay atoms, so a layer surface has nowhere to go (**unverified**, OQ-2). The overlay client already solves stacking without focus (spec 04 §6).
+Why not mako in Gamescope: mako is a `wlr-layer-shell` client. Gamescope treats a layer-shell surface as its one external overlay, and only when the session was started with `--expose-wayland` (PR #31). That is the same slot spec 04 already owns, so a second layer-shell client does not get its own surface. OQ-2 is closed. The overlay client still solves stacking without focus (spec 04 §6).
 
 ## 3. Where each priority appears
 
 | Level | Meaning | Urgency / sender | Desktop | Desktop, fullscreen game | Gaming, no game | Gaming, game running |
 |---|---|---|---|---|---|---|
-| **P0** | Act now or lose data/hardware | critical, `omarchy-action` | Toast, waits; DND bypass | Toast over game | Toast, waits | Critical battery and thermal: Steam’s toast, or the spec 04 slot owner hiding mangoapp. Other P0: the slot owner when it already holds the slot; otherwise history. Repeats once after 60 s if still true |
+| **P0** | Act now or lose data/hardware | critical, `omarchy-action` | Toast, waits; DND bypass | Toast over game | Toast, waits | Critical battery and thermal: Steam’s toast always, and the spec 04 owner as well when it confirms within 1 s. Other P0: the slot owner when it already holds the slot; otherwise history. Repeats once after 60 s if still true |
 | **P1** | Needs a decision soon | normal, `omarchy-action` | Toast 8 s | Toast | Toast | **One-line banner** 4 s, no buttons; full card in overlay |
 | **P2** | Good to know | low | Toast 5 s | History only | Toast 5 s | History; summary on game exit |
 | **P3** | Background | low, `--transient` or history-only | History | History | History | History |
@@ -56,12 +56,12 @@ Silencing (user DND, `SUPER + CTRL + ALT + comma` or overlay toggle) keeps basel
 | Event | Level | Detected by | Text (title · body) | Action | Notes |
 |---|---|---|---|---|---|
 | Battery low (≤ 15 %) | P1 | UPower `Percentage` + discharging (shell service on desktop; gaming notifier in gaming) | Battery low · “15 % left, about 40 min.” | Overlay → Performance (Quiet) | Desktop threshold 10 % today; handheld raises to 15 % (OQ-5). Fires once per discharge. |
-| Battery critical (≤ 5 %) | P0 | UPower | Battery critical · “Plug in now. Suspending at 3 %.” | — | Suspend handled by logind/`HandlePowerKey` owner, not by the notifier. |
+| Battery critical | P0 | UPower `Percentage` at the configured `PercentageAction` | Battery critical · “Plug in now.” plus the configured action | — | The notifier does not suspend. UPower `CriticalPowerAction` and `PercentageAction` do. The upstream default is HybridSleep at 2 %. The toast names the action and percentage that are configured, not a fixed 3 %. |
 | Charge complete / limit reached | P2 | UPower `State = fully-charged`, or level ≥ writer's charge limit | Charged · “Battery at 80 % (limit).” | — | Once per plug-in. |
-| Thermal throttle / cap | P1 | backlog #10 (power writer) event: cap reduced for temperature | Running hot · “Power limited to 15 W to cool down.” | Overlay → Performance | Event name TBC from backlog #10 (power writer) (OQ-3). See `tdp-decision-review.md`. |
+| Thermal throttle / cap | P1 | backlog #10 (power writer) event on its own read-only interface: cap reduced for temperature | Running hot · “Power limited to 15 W to cool down.” | Overlay → Performance | Event name TBC from backlog #10 (OQ-3). Not carried on backlog #11. See `tdp-decision-review.md`. |
 | Thermal critical | P0 | Writer or `thermal_zone` trip `critical` | Too hot · “Shutting down to protect the device.” | — | Only if a shutdown is actually scheduled. |
 | Competing power writer | P1 | Writer reports `asusd`/`hhd`/`powerstation`/unmasked PPD | Power controls paused · “asusd is changing power settings.” | Hub → Status | Once per boot. |
-| Dock detected (prompt) | P1 | spec 02 §5 | Docked · “Switch to Desktop?” | **Stay** (focused) / Switch | Never while a game is starting; game running ⇒ deferred until exit (spec 02 D5). 500 ms arm, new presses only (D7). While `desktop-lock` is off there is no Switch action: the overlay hides it, and the user uses Steam’s own menu (Steam’s PIN). While `desktop-lock` is on, Switch runs the lock first (spec 02 §7.4). In gaming the prompt is inside the spec 04 overlay client: key-ups, `intercept all` confirmed, and `ExecStopPost` restores `intercept none`. If that client is unavailable, defer the prompt to the desktop. |
+| Dock detected (prompt) | P1 | spec 02 §5 | Docked · “Switch to Desktop?” | **Stay** (focused) / Switch | Never while a game is starting; game running ⇒ deferred until exit (spec 02 D5). 500 ms arm, new presses only (D7). While `desktop-lock` is off there is no Switch action: the overlay hides it, and the user uses Steam’s own menu (Steam’s PIN). While it is on and a usable keyboard is attached, or once K07 has landed, Switch runs the lock first (spec 02 §7.4). Before K07, with the effective value `on` and no usable keyboard, that row is shown disabled and reads “Connect a keyboard to unlock” (spec 07 §4.1). In gaming the prompt is inside the spec 04 overlay client: key-ups, `intercept all` confirmed, and `ExecStopPost` restores `intercept none`. If that client is unavailable, defer the prompt to the desktop. |
 | Undock in desktop (prompt) | P1 | spec 02 §5 | Undocked · “Switch to Gaming?” | **Stay** / Switch | As above. |
 | Gaming failed, desktop fallback | P0 | spec 02 §7.2 | Gaming Mode didn't start · reason + log path | Try Gaming again | Shown after desktop start (after unlock if lock `on`). |
 | Desktop lock now on (K07 migration) | P1 | spec 03 §7 migration | Desktop Mode now asks for your password | Settings | Once. |
@@ -83,8 +83,8 @@ Silencing (user DND, `SUPER + CTRL + ALT + comma` or overlay toggle) keeps basel
 
 | Item | Spec |
 |---|---|
-| Process | `omarchy-gaming-notifier`, started in the gaming scope after Gamescope provides DISPLAY (same ownership pattern as the power-button helper); claims `org.freedesktop.Notifications` on the session bus **only if unowned**. |
-| Rendering | Does not create an overlay window. Non-critical cards are drawn by the spec 04 client when that client already holds the slot. Critical battery and thermal alerts use one of two paths, and both still deliver when the slot is busy or the overlay client has crashed: Steam’s own notification window, or a request to the spec 04 slot owner to set mangoapp’s overlay atom to 0, show the alert, then give the slot back (§6.1 of spec 04). A dead slot owner falls through to the Steam path. |
+| Process | `omarchy-gaming-notifier`, started in the gaming scope after Gamescope provides DISPLAY (same ownership pattern as the power-button helper); claims `org.freedesktop.Notifications` on the session bus **only if unowned**. A same-user process can take that name first and spoof the `omarchy-action` bypass. That squat is a baseline gap; this spec does not close it. |
+| Rendering | Does not create an overlay window. Non-critical cards are drawn by the spec 04 client when that client already holds the slot. Critical battery and thermal alerts are sent on the Steam path every time (`steam_notif_daemon`, required), and are also offered to the spec 04 slot owner so it can hide mangoapp and show them. If the owner does not confirm within 1 s, including when it is dead or stopped, nothing waits. The Steam toast is the delivery. |
 | Game detection | Same detector as spec 04 D3 / spec 02 OQ-9. Unknown ⇒ treat as **game running** (quieter is safer). |
 | History | Appends rows to `~/.local/state/omarchy/notifications/history.json` using `shell/plugins/notifications/Store.js` row rules (redaction, caps), via a lock shared with the shell; the shell picks them up at next start (OQ-4). |
 | Steam toasts | Untouched; Steam keeps its own. |
@@ -96,8 +96,8 @@ Silencing (user DND, `SUPER + CTRL + ALT + comma` or overlay toggle) keeps basel
 | # | Flow | Steps |
 |---|---|---|
 | F1 | Battery low mid-game | Banner “Battery low” 4 s → AC long → Notifications/Performance → Quiet → A → B. |
-| F2 | Critical battery mid-game | P0 still appears with the Performance HUD up, and still appears if the overlay client has crashed: Steam’s toast, or the spec 04 owner hiding mangoapp. Repeats once after 60 s → plug in → P2 history “Charging”. |
-| F3 | Dock during a game | Nothing on screen; after game exit, prompt with Stay focused. While `desktop-lock` is off the prompt has no Switch action. While it is on, Switch runs the lock first. |
+| F2 | Critical battery mid-game | Steam’s toast appears with the Performance HUD up, with the overlay client killed, and with that client stopped (`SIGSTOP`). The spec 04 owner is also asked; a missing confirmation within 1 s does not delay the Steam toast. Repeats once after 60 s → plug in → P2 history “Charging”. |
+| F3 | Dock during a game | Nothing on screen; after game exit, prompt with Stay focused. While `desktop-lock` is off the prompt has no Switch action. While it is on and a keyboard is usable, Switch runs the lock first. Before K07 with no usable keyboard, the row is shown disabled and reads “Connect a keyboard to unlock” (spec 07 §4.1). |
 | F4 | Update during play | History only; on desktop next time, history shows “Updates available”. |
 | F5 | Built-in pad drops | P0 “Controller disconnected” (touch still works). The gaming overlay is controller-only (v1), so the toast says “Use the touchscreen: Steam ▸ Settings ▸ Controller” (OQ-6). |
 | F6 | Desktop, act on a notification | CC tap → Notifications → card → A → baseline click routing runs. |
@@ -117,17 +117,17 @@ Silencing (user DND, `SUPER + CTRL + ALT + comma` or overlay toggle) keeps basel
 11. Notifier killed with SIGKILL in gaming restarts once; a second kill leaves the session running with history-only delivery.
 12. History entries from gaming carry the same redaction as desktop (verification code stored as placeholder).
 13. No new Hyprland or Ally binds are added (diff check); `SUPER + CTRL + X` stays unused by this spec.
-14. With the Performance HUD holding the external-overlay slot, a critical battery alert and a thermal alert each still draw, once via Steam’s notification path and once via the spec 04 slot owner preempting mangoapp. Repeating each with the overlay client killed still draws, via Steam when the slot owner is dead.
+14. With the Performance HUD holding the external-overlay slot, a critical battery alert and a thermal alert each still draw on Steam’s path within 1 s, and the spec 04 owner is also asked to preempt mangoapp. Repeating each with the overlay client killed, and again with that client `SIGSTOP`ped, still draws on Steam within 1 s. `steam_notif_daemon` is running; the handheld gaming session does not treat it as optional.
 15. A verification code sent in gaming does not draw its body and does not bypass quiet. No toast from this notifier draws above Steam’s lock screen or above hyprlock.
-16. A gaming dock prompt with the overlay client up receives A and B only after intercept is confirmed. If the client cannot take intercept, the prompt waits for the desktop. While `desktop-lock` is off the prompt has no Switch action. While it is on, Switch runs the lock first (spec 02 §7.4).
+16. A gaming dock prompt with the overlay client up receives A and B only after intercept is confirmed. If the client cannot take intercept, the prompt waits for the desktop. While `desktop-lock` is off the prompt has no Switch action. While it is on and a usable keyboard is attached, or once K07 has landed, Switch runs the lock first (spec 02 §7.4). Before K07, with the effective value `on` and no usable keyboard, the row is shown disabled and reads “Connect a keyboard to unlock” (spec 07 §4.1).
 
 ## 9. Open questions
 
 | # | Question | Owner |
 |---|---|---|
-| OQ-1 | Use Valve's `steam_notif_daemon` (native Steam toasts) instead of D2? Source is a mirror “until upstream is public”; licence and Omarchy theming unclear. | dev-research |
-| OQ-2 | Confirm Gamescope exposes no `wlr-layer-shell` to clients (mako impossible). | dev-research |
-| OQ-3 | backlog #10 (power writer) event names for thermal cap / competing owner; are they on the session bus via backlog #11 (Steam TDP shim)? See `tdp-decision-review.md`. | POWER |
+| OQ-1 | **Closed.** `steam_notif_daemon` is a hard dependency of the handheld gaming session. Critical battery and thermal alerts always use it (D2, §6). The Jovian tree is a mirror until upstream is public; that does not make the dependency optional. | dev-lead |
+| OQ-2 | **Closed.** PR #31: Gamescope treats a layer-shell surface as the external overlay, and only with `--expose-wayland`. Mako would take the slot spec 04 owns, so it is not used (§2). | dev-research |
+| OQ-3 | backlog #10 (power writer) event names for thermal cap and competing owner, on backlog #10’s own read-only interface. Backlog #11 stays the public SteamOSManager1 surface and does not carry those events. See `tdp-decision-review.md`. | POWER |
 | OQ-4 | `shell/plugins/notifications/Store.js` reads history once at start: safe concurrent append from the gaming notifier, or a separate `gaming.json` merged at start? | dev-lead |
 | OQ-5 | Handheld low-battery threshold 15 % vs baseline 10 % (`shell/plugins/services/battery/Service.qml` `batteryThreshold`); does `shell/plugins/services/battery/BatteryModel.js` accept a per-device threshold? | dev-lead |
 | OQ-6 | Touch on the gaming overlay (spec 04 OQ-2) — needed for “controller disconnected” recovery. | dev-research |

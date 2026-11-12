@@ -1,6 +1,6 @@
 # 06 · Accessibility
 
-Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [`docs/handheld/research/accessibility.md`](research/accessibility.md). Depends on: [01](01-controller-button-map.md) (profiles), [03](03-first-boot-and-install.md) (first boot), [04](04-quick-access-overlay.md) §4.1 (quick toggles), [07](07-on-screen-keyboard.md) (OSK). Rulings applied: no extra Ally binds (swap/fullscreen are menu/overlay only); `SUPER + CTRL + X` is taken (Agents); Steam accessibility via steamos-manager stays an unverified OQ. Revision 2 takes the dev-red review of PR #30. While `desktop-lock` is off, the quick overlay hides “Switch to Desktop”; that switch is only Steam’s own menu, which honours Steam’s PIN. While `desktop-lock` is on, our switch runs the lock first (spec 02 §7.4). This spec does not add a switch of its own.
+Status: draft, revision 3, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [`docs/handheld/research/accessibility.md`](research/accessibility.md). Depends on: [01](01-controller-button-map.md) (profiles), [03](03-first-boot-and-install.md) (first boot), [04](04-quick-access-overlay.md) §4.1 (quick toggles), [07](07-on-screen-keyboard.md) (OSK). Rulings applied: no extra Ally binds (swap/fullscreen are menu/overlay only); `SUPER + CTRL + X` is taken (Agents); Steam accessibility via steamos-manager stays an unverified OQ. Revision 3 takes the second dev-red review of PR #30. Switching to desktop is spec 02 D12 and spec 07 §4.1. This spec does not add a switch of its own.
 
 ## 0. Decisions in one table
 
@@ -49,9 +49,9 @@ Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [
 | Colour filter | Off · Greyscale · Invert · Deuteranopia · Protanopia · Tritanopia | `decoration:screen_shader` with proposed GLSL in `default/hypr/shaders/` (Δ-A1). That directory is absent on the integration tip, `feat/ally-input-20261111`, `feat/ally-session-20261111` and `feat/ally-parity-release-20261111`. | Overlay | Yes |
 | Reduce motion | On/off | `animations:enabled` + shell animation scale 0 | Overlay | Yes |
 | Sticky keys | On/off | `keyd` (`extra`) `oneshot` modifiers for physical keyboards. The toggle is an interactive password prompt (sudo or polkit that asks). No passwordless polkit rule, and no grant of the `input` group. keyd must not grab InputPlumber’s virtual devices or the bridge’s uinput keyboard (spec 01 §8.1). It is not installed or enabled until the user turns it on, including on a laptop. wvkbd modifiers are already one-shot | Menu | Yes |
-| Mono audio | On/off | `~/.config/pipewire/pipewire.conf.d/omarchy-mono.conf` (`filter.smart` loopback, `audio.position=[MONO]`), PipeWire restart | Overlay (both sessions) | Yes |
+| Mono audio | On/off | Load PipeWire’s loopback module on the running daemon (`filter.smart`, `audio.position=[MONO]`). Do not restart PipeWire. The row warns that a game which drops its stream may not reconnect until that game is restarted | Overlay (both sessions) | Yes |
 | On-screen keyboard | Show/hide, size | wvkbd (spec 07) | CC long / menu / bar | — |
-| Haptics strength | 0–100 % | `gamepad_vibration_intensity` (`hid-asus-ally`, out of tree) or InputPlumber force-feedback D-Bus | Overlay | Yes; **hidden on stock kernel** |
+| Haptics strength | 0–100 % | InputPlumber D-Bus only. No write to `gamepad_vibration_intensity`, and no udev chmod of that node | Overlay | Yes; hidden when InputPlumber does not expose the control |
 | Key repeat | Delay/rate | Hyprland `input:repeat_*` | Menu | Yes |
 | Text size | Normal (1.5) · Larger (1.75) · Largest (2.0) | Monitor scale on the internal panel + Omarchy font scale | Overlay / menu | Yes |
 | Contrast theme | High Contrast Dark / Light | Omarchy theme | Menu → Theme | Yes |
@@ -63,7 +63,7 @@ Red-team rules for toggles:
 |---|---|
 | Revert | Colour filter, text size and contrast are a trial until Keep. The 15 s deadline is stored outside the UI process. No answer, a shell crash, or a reboot inside the window reverts. **Revert** is focused. Only a press that starts after 500 ms counts; a button held when the card appears does not act on release. |
 | Unknown value | Unreadable setting ⇒ default (off / scale 1.5), never a partial state. |
-| Daemon death | PipeWire restart failure ⇒ remove the mono file and restart again (stereo). keyd crash ⇒ keyboard works unmodified. |
+| Daemon death | A failed loopback load leaves stereo and does not restart PipeWire. keyd crash ⇒ keyboard works unmodified. |
 
 ## 4. Text size on a 7" 1080p panel
 
@@ -132,7 +132,7 @@ Spec 01 §11.2 already defines `hand-left` and `hand-right` as desktop-only, off
 | F1 | Low vision first boot | ISO Accessibility → Larger text + High contrast → install → first boot form in large font → desktop/overlay at scale 1.75 with High Contrast Dark. |
 | F2 | Colour filter | CC tap → Accessibility → Colour filter → Deuteranopia → A → “Keep this?” (Revert focused) → → Keep → A. |
 | F3 | One-handed play | AC long → Controller → One-handed left → A. After unlock the loaded profile is `desktop` again until the row is chosen once more (spec 01 AC 20). |
-| F4 | Mono audio in game | AC long → Accessibility → Mono → A (PipeWire restarts; brief audio gap). |
+| F4 | Mono audio in game | AC long → Accessibility → Mono → A. The loopback loads on the running PipeWire. The daemon is not restarted. The row warns that some games will not reconnect a dropped stream. |
 | F5 | Magnify | CC tap → Accessibility → Zoom 2× → right stick pans → Zoom off. |
 
 ## 10. Acceptance criteria
@@ -140,12 +140,12 @@ Spec 01 §11.2 already defines `hand-left` and `hand-right` as desktop-only, off
 1. Every accessibility toggle is reachable by controller without a long press, from the overlay or Omarchy menu.
 2. Colour filter, text size and contrast stay a trial until Keep. Revert is focused. Holding A across the first 500 ms and releasing does not confirm. Killing the shell within 15 s, and rebooting within 15 s, both come back reverted. The deadline survives the UI process.
 3. Each colour filter applies on the internal and an external monitor on desktop; in gaming the row is disabled with its reason.
-4. Mono toggle produces identical L/R output (loopback measurement) in both sessions and restores stereo when off; a failed PipeWire restart ends in stereo.
+4. Mono toggle produces identical L/R output (loopback measurement) in both sessions and restores stereo when off. PipeWire is not restarted: its PID is unchanged. A failed load leaves stereo. The control warns that some games will not reconnect a dropped stream.
 5. Sticky keys via keyd: Ctrl tap then C copies in a GTK app; disabling restores normal modifiers. Turning it on asks for a password. A passwordless polkit rule cannot write the keyd config or restart the unit. keyd does not grab InputPlumber’s virtual devices or the bridge keyboard.
 6. At scale 1.75 and 2.0 the bar, overlay, Omarchy menu and wvkbd are fully usable (no clipped controls) on the 1080p panel.
 7. High Contrast themes meet 7:1 for body text (automated contrast check of theme colours).
 8. One-handed presets load with key-ups first and fall back to Standard on failure. They are not the profile after boot, unlock or gaming start until a menu row selects one. Every preset that uses M1 or M2 is hidden while OQ-17 is open. A gaming profile that this spec adds still has `QuickAccess2` → `omarchy_overlay` and `Keyboard` → Guide+West.
-9. Haptics row is hidden on the stock Omarchy kernel and present when the attribute exists.
+9. Haptics is InputPlumber D-Bus only. The slider does not write `gamepad_vibration_intensity` and does not chmod it via udev. The row is hidden when InputPlumber does not expose the control.
 10. Orca starts from the menu and reads a GTK app's focused button; the docs state the key-command limit.
 11. ISO/first-boot accessibility choices carry into the installed user's desktop.
 12. No new Hyprland/Ally binds are added (zoom keeps its existing binds; `SUPER + CTRL + X` untouched).

@@ -1,6 +1,6 @@
 # 07 · On-screen keyboard
 
-Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 2 takes the dev-red review of PR #30 and the dev-lead suspend-lock ruling. While `desktop-lock` is off, the quick overlay hides “Switch to Desktop”; that switch is only Steam’s own menu, which honours Steam’s PIN. While `desktop-lock` is on, our switch runs the lock first (spec 02 §7.4).
+Status: draft, revision 3, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 3 takes the second dev-red review of PR #30. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1). Suspend outcomes are spec 02 §7.7.
 
 ## 0. Decisions in one table
 
@@ -79,13 +79,15 @@ The restore target is the **previous** profile, never a hard-coded `desktop`. Co
 
 Restores run through one serial queue. A second restore whose target is already loaded is a no-op, so hide followed by process exit is one load. The bridge arms a generation from the helper state file: PID, start time and executable. An exit applies only when it matches that generation. A stale exit (the previous process, a reused PID, or a generation the bridge did not arm) is ignored. Once the session is gaming or locked, a pidfd event does not load another profile.
 
+The remembered profile and the armed generation are written under `$XDG_RUNTIME_DIR`, not kept only in the bridge process. `ExecStopPost` and a bridge that has just started read that file. If the file, the profile or the generation is missing or unreadable, the restore is `gamepad` (rule 2), unless a gaming session is in progress (rule 1). Rule 1 comes from the session, not from the file.
+
 | Event | Bridge action |
 |---|---|
 | Helper `show` succeeded | Send key-ups. If the current profile is `desktop`, remember it and load `osk`, then confirm within 500 ms. Any other current profile stays as it is. Failure leaves the previous profile and notifies once. |
 | Helper `hide` / `stop` | Key-ups, then one restore of the target above. |
 | **wvkbd exits unexpectedly** (crash, `kill -9`, OOM) | If the exit matches the armed generation: key-ups on the InputPlumber target, one restore, clear the state. A mismatched generation is ignored. The next CC long starts a new wvkbd. |
-| Bridge dies while `osk` | The bridge unit's `ExecStopPost` loads the safe profile from the order above, including when `Restart=on-failure` has hit its start limit. `osk` must not survive the bridge. |
-| Bridge starts | Re-read the helper state. Verify PID, start time and executable, and only then open the pidfd (a reused PID must not win). Keep `osk` only when that wvkbd is live and visible. Otherwise one restore. |
+| Bridge dies while `osk` | The bridge unit's `ExecStopPost` reads the runtime file and loads the safe profile from the order above, including when `Restart=on-failure` has hit its start limit. A missing or unreadable file loads `gamepad` unless a gaming session is in progress. `osk` must not survive the bridge. |
+| Bridge starts | Re-read the helper state and the runtime file. Verify PID, start time and executable, and only then open the pidfd (a reused PID must not win). Keep `osk` only when that wvkbd is live and visible. Otherwise one restore. |
 | InputPlumber dies | Firmware pad; wvkbd stays usable by touch. |
 | Lock / session inactive | Load `gamepad` (C7) and `hide`. The hide restore must not land `desktop` after that `gamepad`. |
 | Leaving desktop for gaming | Session calls `stop` (baseline) then the gaming hand-over (spec 02 §8). A delayed wvkbd exit does not load the remembered desktop profile over `gaming`. |
@@ -122,14 +124,13 @@ Same bar as spec 03 §3.1. Buffyboard is not on the live ISO and not on the inst
 
 ## 4.1 Suspend before K07
 
-Closed. Before K07, on the handheld variant, the desktop locks on suspend **only** when a physical keyboard (the PR #24 gate in §3.4) is attached at suspend. Never lock without a usable keyboard. The stored value and the migration that turns `default-off` into `on` are spec 02 §7.4. From K07 on, those rules apply and this section does not replace them.
+Who locks, who returns to gaming, and who stays on the unlocked desktop are spec 02 §7.7 (D11) and its AC 35–38. The marker `/var/lib/omarchy/handheld/k07-landed`, ENOENT versus any other read, and the laptop exception are spec 02 §7.4. This section does not restate those tables. It is lock-on-suspend only. Desktop entry stays spec 02 §7.4 and D10, and this section does not let `desktop()` start an unlocked Hyprland.
 
-| At suspend, before K07 | Result |
-|---|---|
-| Physical keyboard attached | Lock on suspend |
-| Stored value `on`, no physical keyboard | End the desktop session back to gaming. No lock screen |
-| `default-off` or `explicit-off`, no physical keyboard | Do not lock. Do not show a lock screen |
-| From K07 on | Spec 02 §7.4. This section does not replace it |
+When spec 02 §7.7 ends the desktop session instead of locking, hold a logind `delay` sleep inhibitor for the teardown. On `PrepareForSleep`, blank every output and cut input first (InputPlumber intercept or disable), then end the session. If it has not exited before `InhibitDelayMaxSec` (default 5 s), run `loginctl terminate-session`. Do not release the inhibitor while the desktop is visible or receiving input. The triggers are the power button, idle, low battery, Steam suspend and `systemctl suspend`. The RC71L has no lid, so there is no lid trigger. No desktop frame is shown on wake.
+
+Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and its label is “Connect a keyboard to unlock”. `desktop()` returns to gaming (spec 02 §7.4). The user does not reach a lock screen. With a usable keyboard, or once the marker is present, the row and the lock are spec 02 D12 and §7.4.
+
+If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard spec 02 §7.7 counts), end the session back to gaming. Never auto-unlock. The next entry is spec 02 §7.4.
 
 ## 5. Gaming: Steam OSK
 
@@ -165,7 +166,7 @@ Closed. Before K07, on the handheld variant, the desktop locks on suspend **only
 2. CC long, bar button, Apps entry, menu entry and `SUPER + CTRL + Y` all toggle wvkbd on RC71L; no new bind is added.
 3. With wvkbd visible, B types Backspace and X types Space; hidden, B is right-click and X is middle-click.
 4. Killing wvkbd with SIGKILL while visible restores the previous profile within 1 s, not a hard-coded `desktop`. A key held on the keyboard at the signal, and a latched Shift or Ctrl, is released: `wev` shows the release and the focused client does not autorepeat. `input:virtualkeyboard:release_pressed_on_close` is true on the handheld variant.
-5. Killing the bridge while `osk` is loaded restores the §3.3 target. If wvkbd is still live and the restarted bridge verifies its PID, start time and executable, `osk` stays. If the start limit is hit, `osk` does not remain.
+5. Killing the bridge while `osk` is loaded restores the §3.3 target from the `$XDG_RUNTIME_DIR` file, not from process memory. If that file is missing or unreadable, the profile is `gamepad` unless a gaming session is in progress. If wvkbd is still live and the restarted bridge verifies its PID, start time and executable, `osk` stays. If the start limit is hit, `osk` does not remain.
 6. A failed `osk` load leaves the previous profile loaded and shows one notice.
 7. Locking with wvkbd visible hides it and ends on `gamepad`, even if the hide restore races the lock. Unlock does not reshow wvkbd. Entering gaming with wvkbd visible, then a delayed wvkbd exit, leaves the gaming profile in place. Hide followed by process exit is one load. An exit whose generation does not match is ignored.
 8. wvkbd colours and font match the active theme at launch; a theme change restyles a hidden keyboard and never restarts a visible one.
@@ -173,7 +174,10 @@ Closed. Before K07, on the handheld variant, the desktop locks on suspend **only
 10. Steam OSK opens with CC long in Steam search and in one game's text field on the gaming target in use.
 11. buffyboard appears on text fields in first boot only, types the expected characters with the US console keymap, and is stopped before SDDM. After SDDM starts there is no buffyboard uinput device in `/proc/bus/input/devices`, and touch on Hyprland or Steam types nothing through it. No user and no `input` group holds uinput, input or tty access for it. It does not run on the live ISO.
 12. Entering gaming from a desktop with wvkbd visible stops it before Gamescope starts (no orphan process). A delayed exit does not replace the gaming profile.
-13. Before K07, suspend with a physical keyboard attached locks. Suspend with `desktop-lock` explicitly `on` and no physical keyboard returns to gaming and shows no lock screen. Suspend with `default-off` or `explicit-off` and no physical keyboard does not lock. From K07 on, suspend follows spec 02 §7.4. No path shows a lock screen when there is no usable keyboard.
+13. Suspend from the desktop follows spec 02 §7.7 and AC 35–38, and the marker rule in spec 02 §7.4. The triggers are the power button, idle, low battery, Steam suspend and `systemctl suspend`. The RC71L has no lid trigger. On the row that returns to gaming, no desktop frame is shown on wake. This criterion does not change desktop entry.
+14. Before K07, effective value `on`, no usable keyboard: the overlay row is shown disabled and reads “Connect a keyboard to unlock”. Steam → Switch to Desktop, and any other call into `desktop()`, returns to gaming. There is no unlocked Hyprland frame and no lock screen.
+15. A desktop process that ignores SIGTERM for 10 s is running. Suspend from the power button, from idle, from low battery, from Steam, and from `systemctl suspend`. The device never sleeps with the desktop visible or interactive: outputs are blank and input is cut before the session ends, and `loginctl terminate-session` has run if the session is still up at the inhibitor timeout. No desktop frame is shown on wake.
+16. Resume after a lock-on-suspend whose keyboard is no longer attached: the session is back in gaming, the lock is not left up, and nothing auto-unlocked. No desktop frame is shown on wake. The next desktop entry is spec 02 §7.4, and criterion 14 while K07 has not landed.
 
 ## 9. Open questions
 
