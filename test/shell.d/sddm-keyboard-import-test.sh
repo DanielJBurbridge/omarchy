@@ -27,8 +27,10 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/config" "$work/runtime" "$work/home" "$work/theme"
 chmod 700 "$work/runtime"
-ln -s "$greeter" "$work/theme/Main.qml"
-ln -s "$form" "$work/theme/LoginForm.qml"
+# Copies, not symlinks: Qt.resolvedUrl follows the document URL, and a
+# symlink would make handheld-variant resolve beside the repo file.
+cp "$greeter" "$work/theme/Main.qml"
+cp "$form" "$work/theme/LoginForm.qml"
 printf '%s\n' 0 > "$work/theme/handheld-variant"
 
 run_greeter() {
@@ -64,7 +66,7 @@ ShellRoot {
       console.log("$pass_line")
     } else {
       if (!styled || !styled.active || String(styled.source).indexOf("LoginForm.qml") === -1)
-        throw new Error("handheld greeter did not load the virtual keyboard form")
+        throw new Error("handheld greeter did not load the virtual keyboard form active=" + (styled && styled.active) + " source=" + (styled && styled.source))
       if (styled.status === Loader.Error && String(styled.sourceComponent).indexOf("VirtualKeyboard") === -1 && String(component.errorString()).indexOf("VirtualKeyboard") === -1) {
         // Loader.Error is the expected result when the module is absent.
       }
