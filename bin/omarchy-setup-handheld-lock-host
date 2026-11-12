@@ -1,0 +1,20 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Stage the trusted lock host for the next Ally session
+
+# The mode file is immutable for the current Hyprland session. Creating the
+# opt-in here makes the next graphical session latch the host, which is the
+# only process allowed to load the lock-screen touch keyboard. This file is
+# the user's preference, not the root-owned desktop-lock setting.
+
+if ! omarchy-hw-rog-ally; then
+  exit 0
+fi
+preference="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/lock-host-enabled"
+mkdir -p -- "${preference%/*}"
+if [[ -e $preference || -L $preference ]]; then
+  exit 0
+fi
+umask 077
+: > "$preference"
+chmod 600 -- "$preference"

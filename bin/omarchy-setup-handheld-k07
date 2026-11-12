@@ -1,0 +1,34 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Record that the lock-screen touch keyboard has landed
+# omarchy:requires-sudo=true
+
+# Creates the K07 marker and turns a stored handheld default-off into on.
+# explicit-off stays. A missing value stays missing; with the marker present
+# that already reads as on. Downgrading this command must not delete the marker.
+
+set -euo pipefail
+
+if (( EUID != 0 )); then
+  echo 'omarchy-setup-handheld-k07 must run as root.' >&2
+  exit 1
+fi
+
+"$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs"
+
+source "$OMARCHY_PATH/default/gaming/session.sh"
+marker=/var/lib/omarchy/handheld/k07-landed
+if [[ -L $marker ]]; then
+  echo 'omarchy-setup-handheld-k07: refusing a symlink marker.' >&2
+  exit 1
+fi
+if [[ ! -e $marker ]]; then
+  temporary=$(mktemp)
+  : > "$temporary"
+  install -o root -g root -m 0644 "$temporary" "$marker"
+  rm -f "$temporary"
+fi
+
+if [[ $(gaming_desktop_lock_stored) == default-off ]]; then
+  "$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs" --value on
+fi

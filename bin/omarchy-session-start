@@ -10,7 +10,7 @@ source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 (( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" ]] || exit 2
 
-desktop() {
+start_hyprland() {
   export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
   # UWSM intentionally removes XDG_SESSION_ID from the user manager. Carry our
   # managed login identity through its normal environment import/cleanup.
@@ -22,8 +22,29 @@ desktop() {
   return "$status"
 }
 
+# Before K07 on the handheld, do not lock without a physical keyboard. Explicit
+# on with none returns to gaming. Off with none starts the desktop unlocked.
+# The K07 marker restores the ordinary lock once the touch keyboard can run.
+desktop() {
+  case $(gaming_lock_decision) in
+    return)
+      echo 'No physical keyboard is attached; returning to gaming instead of locking.' >> "$gaming_state/session.log"
+      return 1
+      ;;
+    allow)
+      if [[ $(gaming_desktop_lock_effective) == on ]]; then
+        if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
+          echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+          return 1
+        fi
+      fi
+      ;;
+  esac
+  start_hyprland
+}
+
 if ! omarchy-hw-rog-ally; then
-  desktop
+  start_hyprland
   exit $?
 fi
 gaming_state_init && gaming_runtime_init || exit 1

@@ -4,6 +4,23 @@
 # omarchy:group=system
 # omarchy:hidden=true
 
+# Before K07 the handheld skips this suspend lock unless a physical keyboard
+# is attached now. Explicit desktop-lock on, with none, returns to gaming
+# instead. The K07 marker restores the ordinary lock. Other machines do not
+# consult the handheld value here.
+if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/session.sh ]]; then
+  # shellcheck source=/dev/null
+  source "$OMARCHY_PATH/default/gaming/session.sh"
+  gaming_apply_lock_gate
+  gate=$?
+  if (( gate == 10 )); then exit 0; fi
+  if (( gate == 11 )); then exit 1; fi
+fi
+
+# Same hide as the hotkey lock. A keyboard-less suspend must not leave wvkbd
+# on top of the password field. Skipping the lock above leaves it alone.
+omarchy-toggle-desktop-keyboard stop >/dev/null 2>&1 || true
+
 # Overrunning the budget is the failure this whole path exists to prevent:
 # logind stops honouring the inhibitor and suspends mid-lock. Every call below
 # is bounded by what is left of the budget, so the deadline enforces itself

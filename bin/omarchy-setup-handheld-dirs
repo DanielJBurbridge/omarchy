@@ -1,0 +1,55 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Create the root-owned handheld state directory
+# omarchy:requires-sudo=true
+# omarchy:args=[--value <on|default-off|explicit-off>]
+
+# Spec 02: /var/lib/omarchy/handheld is 0755 root:root so the desktop user can
+# see that /var/lib/omarchy/handheld/k07-landed is missing. /var/lib/omarchy
+# itself is root-owned and not writable by group or other. The marker path is
+# the one constant in default/gaming/session.sh.
+
+set -euo pipefail
+
+if (( EUID != 0 )); then
+  echo 'omarchy-setup-handheld-dirs must run as root.' >&2
+  exit 1
+fi
+
+value=''
+if (( $# == 0 )); then
+  :
+elif (( $# == 2 )) && [[ $1 == --value ]]; then
+  case $2 in
+    on | default-off | explicit-off) value=$2 ;;
+    *) exit 2 ;;
+  esac
+else
+  exit 2
+fi
+
+state_dir=/var/lib/omarchy
+handheld_dir=/var/lib/omarchy/handheld
+for dir in "$state_dir" "$handheld_dir"; do
+  if [[ -L $dir ]]; then
+    echo "omarchy-setup-handheld-dirs: refusing a symlink at $dir" >&2
+    exit 1
+  fi
+done
+
+install -d -o root -g root -m 0755 "$state_dir" "$handheld_dir"
+
+if [[ -z $value ]]; then
+  exit 0
+fi
+
+source "$OMARCHY_PATH/default/gaming/session.sh"
+if [[ $value == default-off && $(gaming_k07_marker_state) != absent ]]; then
+  echo 'omarchy-setup-handheld-dirs: refusing default-off once the K07 marker is present.' >&2
+  exit 1
+fi
+
+temporary=$(mktemp)
+printf '%s\n' "$value" > "$temporary"
+install -o root -g root -m 0644 "$temporary" /var/lib/omarchy/handheld/desktop-lock
+rm -f "$temporary"
