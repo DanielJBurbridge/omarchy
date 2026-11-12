@@ -40,7 +40,7 @@ When the owner gate is open (RC71L, handheld variant marker present, and `omarch
 
 `PropertiesChanged` is emitted after the writer has read the three PPT values back. `BatteryChargeLimit1` is left out; charge limit is a later task.
 
-The shim calls `/usr/bin/omarchy-ally-tdp-apply` through `pkexec` for `--set` and `--reassert`, with a 10 second timeout. `--show` is unprivileged. In the fixture it calls the checkout binary and skips `pkexec`. On startup, a stored `requested_spl` is reasserted and is not overwritten. A battery start that remembers 30 W therefore keeps 30 in the preference and applies the battery tuple. If no request is stored, the shim does not invent one. `TdpLimitMax` is 20 on battery and 30 on AC with the stock tables, and `PropertiesChanged` includes `TdpLimit`, `TdpLimitMin`, and `TdpLimitMax` when that bound changes even if the applied SPL does not. The shim tests declare `python-dbus` and `python-gobject` and refuse to run without them. There is no handheld package list. `python-gobject` is already in the base package set. `python-dbus` is not added there. Installing it is a packaging gate for #11, not part of this spike.
+The shim calls `/usr/bin/omarchy-ally-tdp-apply` through `pkexec` for `--set` and `--reassert`, with a 10 second timeout. `--show` is unprivileged. In the fixture it calls the checkout binary and skips `pkexec`. On startup, a stored `requested_spl` is reasserted and is not overwritten. A battery start that remembers 30 W therefore keeps 30 in the preference and applies the battery tuple. If no request is stored, the shim does not invent one. `TdpLimitMax` is 20 on battery and 30 on AC with the stock tables, and `PropertiesChanged` includes `TdpLimit`, `TdpLimitMin`, and `TdpLimitMax` when that bound changes even if the applied SPL does not. The shim tests declare `python-dbus` and `python-gobject` and refuse to run without them. Both are in `install/omarchy-base.packages`, next to each other, which is where a stock install picks up the session-bus bindings.
 
 ## Writer
 
@@ -77,7 +77,7 @@ The first time a source is seen in a boot, min/max/default are stored under `/ru
 
 Power source follows the same idea as `omarchy-power-present`. A `Mains` or `USB` supply with `online` 1 is AC. USB-type online supplies count as AC. Those types present but offline means battery. No mains-type supply is a refusal; the writer does not guess AC. After a successful write the writer reads the source again and, if it changed, re-plans under the same lock.
 
-The write is one transaction under an exclusive flock on `/run/omarchy/ally-tdp/lock`. A lock that is still held after five seconds exits 75 with status `locked` and writes nothing. The resume unit treats 75 as success. When the new SPL is at least the old one, the writer tries FPPT, then SPPT, then SPL. When the new SPL is lower, it tries SPL, then SPPT, then FPPT. If that order would break SPL ≤ SPPT ≤ FPPT between writes, it uses the first permutation that keeps the invariant. Rollback uses that same order. Each write is read back and checked. Status is `rolled_back` when the restore matches, and `partial` when a restore write does not stick. JSON status goes to stdout. Errors go to stderr. The lock path and these semantics are the broker contract below. Do not rename the lock, change the exclusive flock, the five-second wait, or exit 75 without updating #36.
+The write is one transaction under an exclusive flock on `/run/omarchy/ally-tdp/lock`. A lock that is still held after five seconds exits 75 with status `locked` and writes nothing. The resume command retries that wait and then fails, and the resume unit does not treat 75 as success. When the new SPL is at least the old one, the writer tries FPPT, then SPPT, then SPL. When the new SPL is lower, it tries SPL, then SPPT, then FPPT. If that order would break SPL ≤ SPPT ≤ FPPT between writes, it uses the first permutation that keeps the invariant. Rollback uses that same order. Each write is read back and checked. Status is `rolled_back` when the restore matches, and `partial` when a restore write does not stick. JSON status goes to stdout. Errors go to stderr. The lock path and these semantics are the broker contract below. Do not rename the lock, change the exclusive flock, the five-second wait, or exit 75 without updating #36.
 
 While `power-profiles-daemon.service`, `asusd.service`, `hhd.service`, `tuned.service`, `gamemoded.service`, or `powerstation.service` is active, `--set` and `--reassert` warn and refuse. Prepare does not mask asusd, and it does not mask PPD while asusd is active, because that would leave no profile owner and a writer that refuses every limit. The fixture defaults those checks to inactive. If `systemctl` is missing outside the fixture, the PPD check refuses rather than guessing. Root ignores `OMARCHY_*` overrides, including a preserved `OMARCHY_PATH`, and loads the module only from `/usr/share/omarchy` after checking it is root-owned. A root process runs `python3 -I -B`. Do not use `sudo --preserve-env`. At euid 0 every ancestor of the state and run directories, through `/`, is refused when it is a symlink, group or world writable, or not root-owned. A non-root run stops that walk at `OMARCHY_ALLY_TDP_FIXTURE_ROOT`. Writes open a new file with `O_CREAT|O_EXCL|O_NOFOLLOW` and then rename it into place. `omarchy-ally-tdp-apply` ships on every machine, so `writer_installed` is true wherever the package is installed. The gate that matters is the hardware check plus the handheld variant marker.
 
@@ -93,28 +93,28 @@ pkexec clears the environment. A non-root run uses `$OMARCHY_PATH` when that tre
 
 Three units live next to the policy. None of them is installed or enabled by this change. `default/handheld/` is not on the automatic unit install path (`default/systemd/` is). Copying them into the systemd directories is a manual step for the on-device run, and a later packaging change should not enable them from a package scriptlet.
 
-- `omarchy-ally-tdp-shim.service` is a user unit, `ConditionEnvironment=OMARCHY_PATH`. It is `WantedBy=` and `PartOf=` both `graphical-session.target` and `omarchy-gaming-session.target`. #34 restarts the gaming target on the way from desktop to gaming, and `PartOf=` restarts the shim with it. The unit does not `Requires=` or `BindsTo=` that target, so it still starts from the graphical session when the gaming target is not installed. Claim the bus name before the startup reassert, so Steam does not probe an empty name.
+- `omarchy-ally-tdp-shim.service` is a user unit, `ConditionEnvironment=OMARCHY_PATH`. It is `WantedBy=` and `PartOf=` both `graphical-session.target` and `omarchy-gaming-session.target`. Ending the desktop stops the shim with `graphical-session.target`. `#34` restarts `omarchy-gaming-session.target` on the way from desktop to gaming, and `PartOf=` starts the shim again, so the slider is owned again after that switch. The unit does not depend on the gaming target, so a desktop without it still starts. A `Requires=` on the gamescope session unit is a merge gate for #11. This tree has no gamescope unit, so the shim does not name one. Claim the bus name before the startup reassert, so Steam does not probe an empty name.
 - `omarchy-ally-tdp-prepare.service` is a system oneshot that runs `omarchy-ally-tdp-prepare`.
-- `omarchy-ally-tdp-resume.service` is a system oneshot, `ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert`, `SuccessExitStatus=75`, ordered after suspend, hibernate, hybrid-sleep, and suspend-then-hibernate. It runs only when `/sys/class/firmware-attributes/asus-armoury` exists. Exit 75 means another holder, including the broker, still has the lock.
+- `omarchy-ally-tdp-resume.service` is a system oneshot, `ExecStart=/usr/bin/omarchy-ally-tdp-resume`, ordered after suspend, hibernate, hybrid-sleep, and suspend-then-hibernate. It runs only when `/sys/class/firmware-attributes/asus-armoury` exists. The command retries a held lock and then exits non-zero. The unit has no success status for that failure, so systemd shows it failed.
 - `omarchy-ally-tdp-source.service` is a system oneshot started by `default/handheld/99-omarchy-ally-tdp.rules` on a `power_supply` change, and only when `PROGRAM=="/usr/bin/omarchy-hw-rog-ally"` succeeds. The helper exits 0 when the owner gate is closed. On an Ally it runs the same `--reassert` without the user shim. The rule is not installed by this spike.
 
 The user shim also watches logind `PrepareForSleep(false)` and UPower `OnBattery`, and calls the same `--reassert`. Resume, the udev oneshot, and the shim all take the same flock. Neither path changes `mcu_powersave`, restarts InputPlumber, or touches Wi-Fi. Those belong to backlog task 14. The probe only prints `mcu_powersave` when the attribute exists. If the armoury snapshot fails, prepare does not mask PPD and exits non-zero. `--restore` plans the recorded SPL for the source that is live now, writes it in order, and only then unmasks PPD.
 
 ## Broker contract
 
-#36 takes `/run/omarchy/ally-tdp/lock` before suspend and before the poweroff ladder, and it suspends through logind. That is why `suspend.target` starts `omarchy-ally-tdp-resume.service` and why logind emits `PrepareForSleep(false)`. This writer does not suspend and does not take the lock on the broker's behalf.
+#36, which is not built here, takes `/run/omarchy/ally-tdp/lock` before suspend and before the poweroff ladder, and it suspends through logind. That is why `suspend.target` starts `omarchy-ally-tdp-resume.service` and why logind emits `PrepareForSleep(false)`. This writer does not suspend and does not take the lock on the broker's behalf.
 
 What #36 can rely on, and what this side will not change without telling it:
 
 - The lock file is `/run/omarchy/ally-tdp/lock`. Root ignores `OMARCHY_ALLY_TDP_RUN_DIR`, so a unit cannot point the lock somewhere else.
 - The lock is an advisory exclusive `fcntl` flock on that file. It is released when the holder exits or unlocks. A second flock in the same process does not block.
-- The writer waits five seconds, then exits 75 with status `locked` and does not write. The resume unit's `SuccessExitStatus=75` treats that as success, so a lock the broker still holds at wake does not fail the unit.
+- The writer waits five seconds, then exits 75 with status `locked` and does not write. `omarchy-ally-tdp-resume` retries that wait three times and then exits 1. The resume unit does not treat a held lock as success. A broker that still holds the lock after those retries leaves a failed resume unit, which is the visible signal.
 - Resume, the udev oneshot, `--restore`, the ceilings snapshot, and the shim's reassert all take this same lock around the whole read, plan, write, and readback.
 - Rollback and `--restore` keep SPL ≤ SPPT ≤ FPPT after every write, so a kill during the sequence does not leave a broken tuple. The broker's flock before poweroff is what stops that kill from landing mid-write.
 
 ## power-profiles-daemon and asusd
 
-`omarchy-ally-tdp-prepare` runs only as root (or in the fixture). It uses the same owner gate as the writer. The gate is open only when all three are true: `omarchy-hw-rog-ally` matches, the handheld variant marker `/var/lib/omarchy/variants/handheld` exists, and `omarchy-ally-tdp-apply` is executable (`$OMARCHY_PATH/bin` or `/usr/bin`). The marker is the handheld install's file. This spike does not create it. While the gate is open, prepare snapshots the current source's ceilings. If `asusd.service` is active it stops there and does not mask PPD, because the writer would then refuse every limit. Otherwise it runs `systemctl mask --now power-profiles-daemon.service`. It records the previous `is-enabled` state and the three PPT currents in `/var/lib/omarchy/ally-tdp/ppd-mask.json`. `omarchy-ally-tdp-prepare --restore` is root-only. It is not in the polkit action. It writes the recorded SPL for the source that is live now, in order, and only then unmasks PPD and restores that enabled state. Removing the variant and running prepare does the same.
+`omarchy-ally-tdp-prepare` runs only as root (or in the fixture). It uses the same owner gate as the writer. The gate is open only when all three are true: `omarchy-hw-rog-ally` matches, the handheld variant marker `/var/lib/omarchy/variants/handheld` exists, and `omarchy-ally-tdp-apply` is executable (`$OMARCHY_PATH/bin` or `/usr/bin`). The marker is the handheld install's file. This spike does not create it. While the gate is open, prepare snapshots the current source's ceilings. If `asusd.service` is active it stops there and does not mask PPD, because the writer would then refuse every limit. Otherwise it runs `systemctl mask --now power-profiles-daemon.service`. It records the previous `is-enabled` state and the three PPT currents in `/var/lib/omarchy/ally-tdp/ppd-mask.json`. `omarchy-ally-tdp-prepare --restore` is root-only. It is not in the polkit action. It writes the recorded SPL for the source that is live now, in order, and only then unmasks PPD and restores that enabled state. Removing the variant and running prepare does the same. On an Ally, package install enables `omarchy-ally-tdp-variant.path`, which runs prepare when `/var/lib/omarchy/variants` changes, so deleting the marker unmasks PPD. Removing the `omarchy` package runs `ally-tdp-unmask` before the files disappear, which is `--restore` when a receipt exists.
 
 An RC71L without that marker, or without the writer binary, does not call systemctl. PPD stays as it was. When the gate later stops applying and that record exists, prepare runs `systemctl unmask power-profiles-daemon.service` and, if PPD had been `enabled`, `systemctl enable --now`. A mask this command did not create is left alone. A laptop never matches the hardware half of the gate.
 
@@ -132,15 +132,23 @@ Measured on the ROG Ally RC71L, omarchy-dev `dev.67b80189-1`, kernel `7.2.15-2`,
 
 `omarchy-ally-tdp-probe` is read-only. It prints the three PPT tuples, `mcu_powersave` if present, whether PPD and asusd are active, and every hwmon power sample. It writes nothing. `--json` prints one JSON object. It refuses to run when `omarchy-hw-rog-ally` is false.
 
-## On-device merge gate
+## On-device merge gates
 
-Not run here. On battery, with the charger unplugged, request 15 W, 20 W, and 25 W and measure package power under the same CPU load as the AC run.
+Not run here. All of these stay open before this leaves draft.
+
+Battery, charger unplugged, same CPU load as the AC run, 60 s mean of package `power*_input`, and the three `current_value`s:
 
 - 15 W must apply 15/20/25, and package power should settle near 15 W.
 - 20 W must apply 20/20/25, and package power should settle near 20 W.
 - 25 W must clamp to 20/20/25. The stored request stays 25. Package power should stay near 20 W, not rise toward 25 W.
 
-Record `current_value` for all three limits and the package `power*_input` mean after 60 s for each request. A 25 W request whose package power rises with the unclamped SPL fails the gate.
+Unplug at 30 W with the user shim stopped. The `power_supply` udev rule runs the root writer. SPL must fall to 20/20/25 while the stored request stays 30. Plug back in and confirm 30/43/53.
+
+The polkit matrix below is a merge gate for #10. Record `pkaction --version` beside the result.
+
+Resume and poweroff go through the #36 broker, which is not built here. Suspend through the broker, wake, and measure package power, not only `current_value`. Then the poweroff ladder with a reassert in flight: no out-of-order tuple after boot. The broker flocks `/run/omarchy/ally-tdp/lock` before suspend and before poweroff, and it suspends through logind so this resume unit runs.
+
+The Quick Access Menu slider appears with this owner, shows max 20 on battery and 30 on AC, and still does after a desktop-to-gaming switch. The shim dies with the desktop session and comes back with `omarchy-gaming-session.target`.
 
 ## polkit matrix
 
@@ -164,7 +172,7 @@ This matrix is merge-blocking for #10. Record `pkaction --version` next to the r
 - asusd is still a second writer until its mask task lands. A sysfs readback can look right while the package power does not follow.
 - Resume is re-applied in the fixture. On device it has to be checked with `power*_input` after wake, not only with `current_value`. SteamOS #2790 (TDP stuck after resume) is a different stack; it is a reason to measure, not evidence that this writer fails.
 - polkit was checked as XML and as an exec-path allowlist. A live `pkexec` from the seat was not run.
-- The units are not packaged. `graphical-session.target` may not be the gamescope session.
+- The units under `default/handheld/` are not enabled by this spike except the variant path unit, which package install enables on an Ally. A `Requires=` on the gamescope session is a merge gate for #11. The shim follows `omarchy-gaming-session.target` without naming a gamescope unit.
 - A burst ceiling is the firmware default when that default is above 0. The stock AC table publishes default 0, so AC falls back to max. A later BIOS that publishes a lower AC default lowers the ceiling, and the frozen boot snapshot keeps the first reading for that boot. A battery default of 0 is a refusal.
 - Z1 and Z1 Extreme share the RC71 DMI match. The writer reads sysfs rather than hardcoding the Extreme table. A board the predicate accepts with a different table still gets that table's ceiling.
 
@@ -223,7 +231,7 @@ OMARCHY_PATH=/usr/share/omarchy omarchy-ally-tdp-probe --json
 
 The SPL integer should match the slider, SPPT and FPPT should match the table above, and the package sensor should move with the SPL. Set 99 from `busctl` and confirm it clamps to 30/43/53 on AC or 20/20/25 on battery. The stored request is 30.
 
-On AC, set 30, then unplug. SPL must fall to 20/20/25 while the stored request stays 30, including when the user shim is not running: the `power_supply` udev rule runs the root writer. Plug back in and confirm 30/43/53 returns. Then suspend and resume, and repeat the load probe. Readback alone is not the resume check. The battery merge gate above (15, 20, and 25 W, with 25 clamping to 20) is required before this leaves draft.
+On AC, set 30, then stop the shim and unplug. SPL must fall to 20/20/25 while the stored request stays 30. Plug back in and confirm 30/43/53 returns. Suspend and power off through the #36 broker and repeat the load probe. Readback alone is not the resume check. Move the slider to its maximum, switch from desktop to gaming, and confirm the maximum is still 20 on battery and 30 on AC. The device gates above are required before this leaves draft.
 
 On a laptop, or any machine where `omarchy-hw-rog-ally` is false, `omarchy-ally-tdp-prepare` must leave PPD enabled, and `omarchy-ally-tdp-apply --set 15` must refuse without writing `platform_profile` or the armoury attributes.
 
