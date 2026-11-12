@@ -1,7 +1,18 @@
 # Red team: TDP/power path decision review (ROG Ally RC71L)
 
-Reviewer: dev-red. Date: Thu 12 Nov 2026 (AWST). Read-only: nothing cloned, posted or written to GitHub.
-Asked by dev-lead. Inputs: `feat/ally-power-20261111` (head of compare vs release, commits d3d00ea → 6e59faa), `feat/ally-parity-release-20261111`, `/workspace/handheld-research/parity-matrix.md`, `/workspace/omarchy-handheld/backlog.md` #10/#11, upstream steamos-manager (gitlab.steamos.cloud/holo/steamos-manager) at tag `v26.4.1` (a0d399d) and branch `main` (2c51fc82, 10 Nov 2026), CachyOS PKGBUILD master (unchanged since ab15ca2, 18 Oct 2026).
+## Rulings (12 Nov 2026)
+
+These close the open items in the review below. The review text is kept as it was written.
+
+- PPD is masked only when the handheld variant (`omarchy-hw-rog-ally` and `omarchy-gaming-session`) and backlog #10 (power writer) are both installed. Not on every RC71L, and not on the handheld pair alone. The setup records the mask and unmasks when either is removed or the device goes desktop-only. The same gate is PR #33.
+- backlog #10 (power writer) owns power. Do not ship stock or patched `steamos-manager`.
+- backlog #11 (Steam TDP shim) is the Steam session-bus shim, and it waits on the spike that shows Steam's QAM TDP slider with a non-Valve owner.
+- TDP rows stay read-only until backlog #10 (power writer) lands.
+- Where the capped-apply rules below differ from [PR #33](https://github.com/DanielJBurbridge/omarchy/pull/33) (`docs/handheld/tdp-spike-findings.md`), the spike is the rule. The single action is `org.omarchy.ally.set-tdp` on `/usr/bin/omarchy-ally-tdp-apply` (`allow_active=yes`, `allow_any=no`, `allow_inactive=no`). The caller passes watts. Root derives SPPT and FPPT.
+- On battery those derived bursts must not exceed the firmware defaults for DC: SPPT 20 W, FPPT 25 W. The spike's 25/30/35 battery tuple is not the rule.
+
+Reviewer: dev-red. Date: Thu 12 Nov 2026 (AWST). Written as a read-only review; this file is the copy in the repo.
+Asked by dev-lead. Inputs: `feat/ally-power-20261111` (head of compare vs release, commits d3d00ea → 6e59faa), `feat/ally-parity-release-20261111`, `docs/handheld/research/parity-matrix.md`, backlog #10 (power writer) and backlog #11 (Steam TDP shim), upstream steamos-manager (gitlab.steamos.cloud/holo/steamos-manager) at tag `v26.4.1` (a0d399d) and branch `main` (2c51fc82, 10 Nov 2026), CachyOS PKGBUILD master (unchanged since ab15ca2, 18 Oct 2026).
 
 Line refs: power-branch files read from the compare patch (whole-file adds = branch head). Release-branch `plans/rog-ally-parity.md` fetched live today. `docs/rog-ally-power.md` and the setup script have identical rejection lines on both branches.
 
