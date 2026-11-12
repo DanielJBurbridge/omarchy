@@ -1,4 +1,5 @@
 #!/bin/bash
+# Device-only research tool for the test Ally. Not part of the product.
 # ROG Ally RC71L button press test (Omarchy Handheld research). Run ON the Ally: bash ~/ally-press-test.sh
 # Captures evtest (N-KEY kbd/if02, WMI hotkeys, Xbox pad) + raw hidraw for each prompted button.
 # OQ-2 (CC long: F20 vs Ctrl+Alt+Del), OQ-3 (long-press threshold), OQ-8 (volume rocker) covered.
@@ -30,10 +31,10 @@ cat /proc/bus/input/devices > "$OUT/proc-input-devices.txt"
 STEPS=(
  "armoury_short|Tap the Armoury Crate button (right of screen, lower) once"
  "armoury_long|HOLD the Armoury Crate button ~2 seconds, then release"
- "cc_short|Tap the Command Center button (left of screen, lower) once"
- "cc_long|HOLD the Command Center button ~2 seconds, then release"
- "cc_hold_0.5s|HOLD Command Center about HALF a second, then release (count 'one-and')"
- "cc_hold_1s|HOLD Command Center about ONE second, then release"
+ "cc_short|Tap the Command Centre button (left of screen, lower) once"
+ "cc_long|HOLD the Command Centre button ~2 seconds, then release"
+ "cc_hold_0.5s|HOLD Command Centre about HALF a second, then release (count 'one-and')"
+ "cc_hold_1s|HOLD Command Centre about ONE second, then release"
  "armoury_hold_0.5s|HOLD Armoury Crate about HALF a second, then release"
  "armoury_hold_1s|HOLD Armoury Crate about ONE second, then release"
  "vol_up|Press VOLUME UP twice"
@@ -43,7 +44,7 @@ STEPS=(
  "paddle_left_plus_A|Hold LEFT paddle, press A, release both"
  "paddle_right_plus_A|Hold RIGHT paddle, press A, release both"
  "armoury_plus_A|Hold Armoury Crate, press A, release both"
- "cc_plus_A|Hold Command Center, press A, release both"
+ "cc_plus_A|Hold Command Centre, press A, release both"
  "idle|Press NOTHING (baseline / catches stray 0xa2 reports)"
 )
 n=0; total=${#STEPS[@]}

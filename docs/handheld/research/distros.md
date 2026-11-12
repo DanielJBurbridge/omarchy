@@ -55,15 +55,15 @@ Researched 12 Nov 2026 (AWST). Focus: what Omarchy (Arch + Hyprland) can reuse d
 | Item | Source | Licence | Use |
 |---|---|---|---|
 | `steamos-manager` PKGBUILD | [CachyOS-PKGBUILDS/handheld/steamos-manager](https://github.com/CachyOS/CachyOS-PKGBUILDS/tree/master/handheld/steamos-manager) / [upstream](https://gitlab.steamos.cloud/holo/steamos-manager) | MIT | TDP slider, session switching, screen-reader plumbing |
-| `steamos-session-select`, `steam-set-session`, autologin unit, polkit policy | [CachyOS/gamescope-session@cachyos](https://github.com/CachyOS/gamescope-session/tree/cachyos) | MIT (per PKGBUILD) | Adapt to Omarchy's DM and `hyprland` session |
+| `steamos-session-select`, `steam-set-session`, autologin unit, polkit policy | [CachyOS/gamescope-session@cachyos](https://github.com/CachyOS/gamescope-session/tree/cachyos) | MIT (per PKGBUILD) | Conflicts with spec 02. That design chose user-state switching and does not edit SDDM configuration (`docs/rog-ally-gaming-session.md` on `feat/ally-session-20261111`). pkexec `steam-set-session` writes autologin config under `/etc`. A polkit rule that lets the session user rewrite display-manager autologin without authentication is a privilege surface. Do not ship this path without review |
 | `gamescope-session-plus` + `device-quirks` | [ChimeraOS/gamescope-session](https://github.com/ChimeraOS/gamescope-session) | MIT | Alternative session runner with RC71L quirks |
 | `os-session-select` via `steamosctl` | [Bazzite](https://github.com/ublue-os/bazzite/blob/main/system_files/deck/shared/usr/libexec/os-session-select) | Apache-2.0 | Thin wrapper pattern |
-| RC71L audio, logind, hid preload, LED udev | [CachyOS-Handheld](https://github.com/CachyOS/CachyOS-Handheld) | GPL-3.0-or-later | Copy with attribution |
+| RC71L audio, logind, hid preload, LED udev | [CachyOS-Handheld](https://github.com/CachyOS/CachyOS-Handheld) | GPL-3.0-or-later | Reimplement from behaviour, or vendor as separately-licensed files with LICENSE and SPDX headers. Decision for Daniel. Omarchy is MIT. These files stay GPL-3.0-or-later; attribution alone does not cover copying them in |
 | `steamos-powerbuttond` | [CachyOS PKGBUILD](https://github.com/CachyOS/CachyOS-PKGBUILDS/tree/master/handheld/steamos-powerbuttond), AUR | BSD-2-Clause | Short/long power press in gaming mode |
 
 ## Prioritised recommendations
-1. **Adopt the steamos-manager-centred design** (Bazzite 44 / SteamOS 3.8): SOM owns TDP, the performance profile and session switching, and Omarchy provides a `steamos-session-select`/`os-session-select` shim plus a desktop-session config pointing at Hyprland.
-2. **Base the session on `gamescope-session-cachyos`** (Arch-native, simplest), keeping CachyOS's oneshot/persistent semantics. Default to oneshot on RC71L.
+1. **Adopt the steamos-manager-centred design** (Bazzite 44 / SteamOS 3.8): SOM owns TDP, the performance profile and session switching, and Omarchy provides a `steamos-session-select`/`os-session-select` shim plus a desktop-session config pointing at Hyprland. The shim follows spec 02 (user-state switching, no SDDM edits). Do not ship CachyOS `steam-set-session` or its polkit autologin rule without review.
+2. **Base the session runner on `gamescope-session-cachyos`** (Arch-native, simplest). CachyOS oneshot/persistent semantics that rewrite display-manager autologin via pkexec conflict with spec 02 (user-state switching, no SDDM edits) and must not ship without review. See the reuse table.
 3. **Package `steamos-manager` and `steamos-powerbuttond`** in Omarchy's repo (neither is in Arch extra; powerbuttond is in AUR).
-4. **Copy CachyOS RC71L audio and logind configs.**
+4. **CachyOS RC71L audio and logind configs** (GPL-3.0-or-later): reimplement from behaviour, or vendor as separately-licensed files with LICENSE and SPDX headers. Decision for Daniel.
 5. **Keep Decky and OGUI out of the default.** Bazzite and ChimeraOS both note breakage and conflicts.

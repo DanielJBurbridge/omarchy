@@ -1,6 +1,6 @@
 # ROG Ally RC71L: hardware and input dump (read-only)
 
-Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing installed or changed. Raw output: `ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt`, `ally-omarchy-files.txt` (same folder).
+Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing installed or changed. Raw output was captured as `ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt` and `ally-omarchy-files.txt`. Those files are not committed.
 
 ## System
 - ASUSTeK ROG Ally RC71L_RC71L, board RC71L, BIOS RC71L.339 (2024-07-02), Ryzen Z1 Extreme.
@@ -17,7 +17,7 @@ Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing insta
 | event7, js0 | Microsoft X-Box 360 pad | 045e:028e | xpad, usb 1-2 if0 | Built-in gamepad (MCU in XInput mode). 11 buttons: A/B/X/Y, LB/RB, Select, Start, Guide (BTN_MODE), L3/R3; sticks, triggers, d-pad as ABS. **No paddle codes exposed.** |
 | event4 | N-KEY Device (kbd) | 0b05:1abe | hid-asus, usb 1-3 if0, hidraw0 | Keyboard interface (incl. F13–F24) |
 | event5 | N-KEY Device (mouse) | 0b05:1abe | hid-asus, if1, hidraw1 | Mouse (L/R/M, REL) |
-| event6 | N-KEY Device | 0b05:1abe | hid-asus, if2, hidraw2 (+hiddev96) | Vendor/consumer keys: KEY_PROG1–4, F13–F18, F21, volume, etc. **Armoury Crate / Command Center / paddle events arrive on this interface** (InputPlumber reads hidraw if2 + these keys). |
+| event6 | N-KEY Device | 0b05:1abe | hid-asus, if2, hidraw2 (+hiddev96) | Vendor/consumer keys: KEY_PROG1–4, F13–F18, F21, volume, etc. **Armoury Crate / Command Centre / paddle events arrive on this interface** (InputPlumber reads hidraw if2 + these keys). |
 | event13 | Asus WMI hotkeys | platform asus-nb-wmi | asus_nb_wmi | WMI hotkeys |
 | event11 | NVTK0603:00 touchscreen | 0603:f200 | hid-multitouch, i2c | Touchscreen 160x90 mm |
 | event0/1 | Power / Sleep Button | ACPI | | Power key (Omarchy tags it `STEAMOS_POWER_BUTTON`) |
@@ -32,7 +32,7 @@ Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing insta
 
 ## Already in Omarchy dev on the device (not enabled)
 - `omarchy-hw-rog-ally`: detection by DMI (`ASUSTeK COMPUTER INC.` + product `ROG Ally RC71L*` or board `RC71L`). It deliberately excludes the Ally X and Xbox Ally.
-- `/usr/share/omarchy/default/rog-ally-input/50-rog_ally.yaml`: InputPlumber composite-device config, derived from InputPlumber 0.84.0 (GPL-3.0-or-later). Sources are hidraw 0b05:1abe if2, the xpad pad, and N-KEY keys PROG1/F14–F17/F19/F20. It also uses the bmi323 IMU. Targets are xbox-elite, mouse and keyboard; capability map `aly1`.
+- `/usr/share/omarchy/default/rog-ally-input/50-rog_ally.yaml`: InputPlumber composite-device config, derived from InputPlumber 0.84.0 (GPL-3.0-or-later). Sources are hidraw 0b05:1abe if2, the xpad pad, and N-KEY keys PROG1/F14–F17/F19/F20. It also uses the bmi323 IMU. Targets are xbox-elite, mouse and keyboard; capability map `aly1`. Because it is derived from GPL-3.0-or-later InputPlumber, the file stays GPL-3.0-or-later. Keep its licence text and notices, and mark it with an SPDX header, or reimplement the behaviour. Decision for Daniel. Omarchy is MIT. Attribution alone does not cover copying it in.
 - Profiles `desktop.yaml`, `gamepad.yaml` and `dualsense.yaml`, switched by `bridge.py` over InputPlumber D-Bus according to session and lock state.
   - Armoury short (`QuickAccess`) opens the Omarchy menu. Armoury long (`QuickAccess2`) switches mode.
   - Command Centre short (`Guide`) is the power action. Command Centre long (`Keyboard`) does Super+Ctrl+Y on the desktop (wvkbd keyboard), or Guide+West in gamepad mode (Steam OSK).
@@ -43,12 +43,12 @@ Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing insta
 - Services `omarchy-rog-ally-input`, `omarchy-ally-power` and `inputplumber` are not installed or active. Note that `asusd` is running even though `rog-ally.sh` says RC71L skips asusctl, and `power.py` lists asusd as a conflict.
 
 ## Still needed (needs Daniel at the device)
-A per-button press test is needed to pin each extra button to its exact code and confirm 0xa2. It covers Armoury Crate short/long, Command Center short/long and the M1/M2 paddles, plus combos. It needs `evtest` and either sudo or the `input` group, so it's an install or change and is waiting on Daniel.
+A per-button press test is needed to pin each extra button to its exact code and confirm 0xa2. It covers Armoury Crate short/long, Command Centre short/long and the M1/M2 paddles, plus combos. It needs `evtest` and either sudo or the `input` group, so it's an install or change and is waiting on Daniel.
 
 ## Press test
-Script is on the Ally at `~/ally-press-test.sh` (copy: `press-test/ally-press-test.sh`). Daniel runs `bash ~/ally-press-test.sh` at the device.
+The copy in this tree is [`tools/ally-press-test.sh`](tools/ally-press-test.sh). It is a device-only research tool and not part of the product. On the Ally, Daniel runs `bash ~/ally-press-test.sh`.
 - It installs evtest via one-off sudo and logs that to `~/omarchy-handheld-deploy.log`.
-- It takes 11 prompted steps of 6 s each (about 3 min) and captures evtest on all N-KEY interfaces, WMI and the pad, plus raw hidraw and dmesg.
+- It takes 17 prompted steps. Each capture lasts `SECS` seconds (default 5) and records evtest on all N-KEY interfaces, WMI and the pad, plus raw hidraw and dmesg.
 - Output goes to `~/ally-press-test/<ts>.tar.gz`.
 
 ## Open questions from dev-ux's button map (12 Nov, 13:37 AWST)

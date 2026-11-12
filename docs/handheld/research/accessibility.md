@@ -26,7 +26,7 @@ Researched 12 Nov 2026 (AWST). **Unverified** = no primary source found.
 
 ## Prioritised recommendations
 1. **Test the Steam screen reader and colour filters under Omarchy's gamescope session with steamos-manager + orca + speech-dispatcher + espeak-ng installed.** If they appear, Omarchy gets SteamOS-level gaming-mode accessibility almost for free.
-2. **Make every hold action reachable another way** (menu item or toggle). The Ally's Command Centre has no software long-press and InputPlumber can't double-tap, so these matter for limited mobility.
+2. **Make every hold action reachable another way** (menu item or toggle). Whether the Command Centre long-press is F20 or Ctrl+Alt+Del is unverified pending the press test (`ally-hw-dump.md` OQ-2). The Omarchy dev config already maps that long-press capability (`Keyboard`) to an action. InputPlumber has no double-tap primitive found (unverified in `buttons-and-input.md`). Until the press test lands, every hold action needs a menu alternative.
 3. **Ship InputPlumber accessibility presets** (one-handed L/R, simplified, paddles-as-face-buttons) plus a haptics slider.
 4. **Desktop a11y pack:** magnifier, CVD/greyscale shaders, reduce motion, keyd sticky keys, key repeat, a mono-audio toggle. Consider adopting or crediting the "Beacon" Omarchy plugin once its licence is confirmed.
 5. **Orca on Hyprland:** document the limits now. Longer term, push for a permission-gated KeyboardMonitor in Hyprland, given the keylogging concern.
