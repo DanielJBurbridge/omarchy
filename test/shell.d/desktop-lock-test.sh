@@ -24,6 +24,9 @@ handheld_dir=/var/lib/omarchy/handheld
 work=$(mktemp -d)
 stub=$work/bin
 mkdir -p "$stub"
+# uid 1 in the user namespace cannot traverse /home (mode 0700). The reader
+# sources this copy from /tmp, which it can search.
+cp "$ROOT/default/gaming/session.sh" "$work/session.sh"
 cat > "$stub/omarchy-hw-rog-ally" <<'EOF'
 #!/bin/bash
 [[ ${LOCK_HW:-ally} == ally ]]
@@ -60,11 +63,11 @@ as_user() {
 }
 
 user_state() {
-  as_user bash -c 'source "$1"; gaming_k07_marker_state' bash "$ROOT/default/gaming/session.sh"
+  as_user bash -c 'source "$1"; gaming_k07_marker_state' bash "$work/session.sh"
 }
 
 user_effective() {
-  as_user bash -c 'source "$1"; gaming_desktop_lock_effective' bash "$ROOT/default/gaming/session.sh"
+  as_user bash -c 'source "$1"; gaming_desktop_lock_effective' bash "$work/session.sh"
 }
 
 restore_tree() {

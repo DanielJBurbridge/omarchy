@@ -43,13 +43,12 @@ ShellRoot {
 QML
 
 # No QML_IMPORT_PATH: the Omarchy style module is not on the default import path.
-if ! HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" \
+# quickshell exits non-zero when nothing is connected to Qt.quit(). The pass
+# line is the result that matters.
+HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" \
   QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_QUICK_BACKEND=software \
   QT_QUICK_CONTROLS_STYLE=Basic QML_IMPORT_PATH= \
-  timeout 20 quickshell -p "$work/config" --no-color >"$work/log" 2>&1; then
-  cat "$work/log" >&2
-  fail "greeter import check runs"
-fi
+  timeout 20 quickshell -p "$work/config" --no-color >"$work/log" 2>&1 || true
 if ! grep -q 'SDDM_KEYBOARD_IMPORT_TEST_PASS' "$work/log"; then
   cat "$work/log" >&2
   fail "greeter root loads when QtQuick.VirtualKeyboard is not installed"
