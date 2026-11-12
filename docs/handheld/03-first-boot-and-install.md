@@ -23,7 +23,7 @@ Status: draft, revision 1, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 
 ## 1. Baseline: what is already built
 
-Paths below were checked on `feat/ally-parity-integration-20261111` (`32ea89dc3`) and on the `feat/ally-*-20261111` branch that actually contains the file.
+Paths below were checked on `feat/ally-parity-integration-20261111` (`bbc819047`) and on the `feat/ally-*-20261111` branch that actually contains the file.
 
 | Area | What exists (branch / path) | Constraint for this spec |
 |---|---|---|
@@ -236,7 +236,7 @@ A journal that cannot be parsed is not a resume. The stage starts again at W1, a
 
 ## Sources
 
-- This branch (`feat/ally-parity-integration-20261111`, `32ea89dc3`): `install/provisioning/setup-form.sh`, `bin/omarchy-provision-owner`, `install/provisioning/omarchy-provision-owner.service`, `install/provisioning/luks-rekey.sh`, `install/provisioning/progress-icon.sh`, `install/login/sddm.sh`, `install/user/first-run/wifi.sh`, `install/user/first-run/setup-rog-ally.hook`, `install/hardware/asus-rog.sh`, `install/hardware/asus/rog-ally.sh`, `bin/omarchy-hw-rog-ally`, `bin/omarchy-setup-rog-ally-keyboard`, `bin/omarchy-system-lock`, `docs/rog-ally-gaming-session.md`, `docs/handheld/02-mode-switch-and-dock.md`, `docs/handheld/research/ally-hw-dump.md`, [tdp-decision-review.md](tdp-decision-review.md).
+- This branch (`feat/ally-parity-integration-20261111`, `bbc819047`): `install/provisioning/setup-form.sh`, `bin/omarchy-provision-owner`, `install/provisioning/omarchy-provision-owner.service`, `install/provisioning/luks-rekey.sh`, `install/provisioning/progress-icon.sh`, `install/login/sddm.sh`, `install/user/first-run/wifi.sh`, `install/user/first-run/setup-rog-ally.hook`, `install/hardware/asus-rog.sh`, `install/hardware/asus/rog-ally.sh`, `bin/omarchy-hw-rog-ally`, `bin/omarchy-setup-rog-ally-keyboard`, `bin/omarchy-system-lock`, `docs/rog-ally-gaming-session.md`, `docs/handheld/02-mode-switch-and-dock.md`, `docs/handheld/research/ally-hw-dump.md`, [tdp-decision-review.md](tdp-decision-review.md).
 - `feat/ally-input-20261111`: `bin/omarchy-setup-rog-ally-input`, `bin/omarchy-hw-rog-ally-input`, `default/rog-ally-input/omarchy-rog-ally-input.service`.
 - `feat/ally-session-20261111`: `bin/omarchy-session-start`, `bin/omarchy-setup-gaming-session`, `default/gaming/session.sh`, `default/gaming/wayland-sessions/omarchy-handheld.desktop`. The gaming-session doc on that branch is older than the copy on this branch.
 - `feat/ally-recovery-20261111` and `feat/ally-parity-release-20261111`: `bin/omarchy-setup-rog-ally`.
