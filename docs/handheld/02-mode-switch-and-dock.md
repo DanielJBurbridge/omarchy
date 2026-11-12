@@ -16,7 +16,7 @@ Out of scope: lock-screen / greeter design (AUTH). Where this spec touches authe
 | D7 | Every session or profile switch emits explicit key-ups for every held key, button and trigger before the change. Any component that sees an unknown mode falls back to a safe known mode. | Red review C + lessons from 01 |
 | D8 | The switch also swaps the InputPlumber **target and profile**: gaming = `gaming` profile on a **Steam Deck (`deck-uhid`) or DualSense Edge** target (native QAM button, paddles); desktop = `desktop` profile (mouse + keyboard only). Those profile and target names are new (Δ). Today's CLI words are `gamepad` and `dualsense`. Steam starts only after the new target reports ready. If it does not, fall back to `gamepad` atomically. Held inputs are released *before* the swap. | Research final, 12 Nov, plus red review C |
 | D9 | No switch or system action is hold-only. Every path has a menu route; Armoury (right) is the only button with a real long press (`F17`); Command Centre (left) long is firmware Ctrl+Alt+Del and is not used here. | Research final + accessibility |
-| D10 | **Desktop lock on entry**, one choke point. Every entry into the Hyprland desktop from an autologged-in session goes through `desktop()` in `bin/omarchy-session-start`. When the effective value is `on`, the lock is engaged there, before `uwsm start` shows a frame and before autostart runs, and a lock that does not come up logs out back to gaming. The handheld variant ships `default-off` until AUTH K07 (lock-screen touch keyboard, Task C on the release branch) has merged; other variants stay `on`. `default-off` is not `explicit-off`. A one-time migration after K07 sets `default-off` to `on` and leaves `explicit-off` alone. Root-owned; turning it off requires polkit or sudo. Desktop → gaming does not lock. No new lock UI. | Lead, revision 2 |
+| D10 | **Desktop lock on entry**, one choke point. Every entry into the Hyprland desktop from an autologged-in session goes through `desktop()` in `bin/omarchy-session-start`. When the effective value is `on`, the lock is engaged there, before `uwsm start` shows a frame and before autostart runs. If the lock does not come up and a D2 retry remains, log out back to gaming; if the D2 budget is already spent, exit to SDDM and do not start gaming again. The handheld variant ships `default-off` until AUTH K07 (lock-screen touch keyboard, Task C on the release branch) has merged; other variants stay `on`. `default-off` is not `explicit-off`. A one-time migration after K07 sets `default-off` to `on` and leaves `explicit-off` alone. Root-owned. Turning it off requires an interactive password prompt, never a passwordless polkit rule. Turning it on needs no auth. Desktop → gaming does not lock. No new lock UI. | Lead, revision 2 |
 
 ## 1. Baseline: what is already built
 
@@ -130,7 +130,8 @@ Listeners (event-driven, no polling): desktop = Hyprland Lua `hl.on("monitor.add
 | Gaming | Display hotplug / flap mid-game | Yes | Ignored by this spec (debounced; Gamescope handles); never pauses or kills the game |
 | Desktop | Undock | n/a | Internal panel restored (`omarchy-hw-recover-internal-monitor`). Prompt “Undocked — switch to Gaming?” Default **Stay**. No countdown, including when no user windows are open (background work is not windows) |
 | Desktop | Dock | n/a | Apply the saved layout with `omarchy-display-rog-ally dock <OUTPUT>` when one is saved; no session change |
-| Either | Sleep while docked/undocked, wake in other state | — | Wake into the same session and game. No dock prompt until 10 s after resume, then the 3 s debounce. At most one prompt, subject to the per-EDID rate limit. Never auto-switch |
+| Either | Suspend while a dock prompt is up | — | Dismiss the prompt with no action. That is Stay. Do not confirm Switch on the way down |
+| Either | Sleep while docked/undocked, wake in other state | — | Wake into the same session and game. The dismissed prompt does not return. A new prompt only after the 10 s resume grace, then the 3 s debounce, and only inside the per-EDID rate limit. Never auto-switch |
 | Either | Pinned mode (§6) | — | No dock prompts |
 
 Prompt in gaming is a small controller-navigable client inside Gamescope (Omarchy theme colours, Omarchy font), because desktop layer-shell surfaces cannot appear there. Whether Gamescope gives it focus over Steam is **unverified** (OQ-1); fallback is no prompt: the user uses Switch to Desktop.
@@ -144,9 +145,9 @@ Prompt in gaming is a small controller-navigable client inside Gamescope (Omarch
 | `dock-prompt` | `on` · `off` | `on` | Δ new |
 | per-display “Don’t ask for this display” | EDID hash list | empty | Δ new (reuses DISPLAY EDID hashing) |
 | Pin from UI | Omarchy menu → ROG Ally Handheld → Session → Always Gaming / Always Desktop / Auto | — | Δ menu rows over existing CLI |
-| `desktop-lock` | `on` · `default-off` · `explicit-off` | Handheld, until K07: **`default-off`**. Other variants: **`on`**. After the K07 migration, handheld too, unless `explicit-off` | Δ new. Root-owned. Not stored under `~/.local/state`. `explicit-off` requires polkit or sudo. See §7.4 |
+| `desktop-lock` | `on` · `default-off` · `explicit-off` | Handheld, until K07: **`default-off`**. Other variants: **`on`**. After the K07 migration, handheld too, unless `explicit-off` | Δ new. Root-owned. Not stored under `~/.local/state`. `off` needs an interactive password prompt. `on` needs no auth. See §7.4 |
 
-`omarchy-setup-gaming-session desktop-lock on|off` is the command. `off` stores `explicit-off`, never `default-off`. Only the handheld installer writes `default-off`, and only before K07 has merged. A process running as the user (Steam browser, a Proton file dialogue, a non-Steam shortcut) cannot write any of these values. `auto` at login: docked ⇒ desktop, else gaming. Unknown/corrupt session preference ⇒ treated as `auto` on the handheld variant, with a desktop notification “Session preference reset” the next time the desktop opens (D7). A missing or unknown `desktop-lock` on the handheld variant is `default-off`, not `explicit-off`. A missing or unknown value on any other variant is `on`.
+`omarchy-setup-gaming-session desktop-lock on|off` is the command. `off` stores `explicit-off`, never `default-off`, and only after an interactive password prompt (sudo or polkit that asks for the password). A passwordless polkit rule, including `allow_active` for the already-autologged-in session, must not be able to turn it off. `on` needs no password: the user, the installer, and the K07 migration may set it. Only the handheld installer writes `default-off`, and only before K07 has merged. A process running as the user (Steam browser, a Proton file dialogue, a non-Steam shortcut) cannot write any of these values. `auto` at login: docked ⇒ desktop, else gaming. Unknown/corrupt session preference ⇒ treated as `auto` on the handheld variant, with a desktop notification “Session preference reset” the next time the desktop opens (D7). A missing or unknown `desktop-lock` on the handheld variant is `default-off`, not `explicit-off`. A missing or unknown value on any other variant is `on`.
 
 ## 7. Boot, autologin and fallback
 
@@ -210,15 +211,15 @@ The root-owned value is one of three, and `default-off` is stored separately fro
 
 | Stored value | Who writes it | Effective lock |
 |---|---|---|
-| `on` | Other variants, by default. A user, with polkit or sudo. The K07 migration, from `default-off` only. New handheld installs once K07 has already merged | Engage the lock |
+| `on` | Other variants, by default. A user, with no password. The K07 migration, from `default-off` only. New handheld installs once K07 has already merged | Engage the lock |
 | `default-off` | The handheld installer, and only while K07 has not merged. Not a user choice | Skip the lock |
-| `explicit-off` | A user choosing `off`, with polkit or sudo. Never written by the installer or the migration | Skip the lock |
+| `explicit-off` | A user choosing `off`, and only after an interactive password prompt. Never a passwordless polkit grant. Never written by the installer or the migration | Skip the lock |
 
 Until AUTH item K07 lands, the handheld variant ships `default-off`. K07 is the lock-screen touch keyboard (plan row K07: a keyboard inside the trusted lock surface). It is an additive pull request into `feat/ally-parity-release-20261111` (Task C). Other variants stay `on` the whole time. A handheld install created after K07 has merged ships `on`, not `default-off`.
 
 When K07 has merged, one migration runs once. If the stored value is `default-off`, it becomes `on`. If the stored value is `explicit-off`, it stays `explicit-off`. If it is already `on`, it stays `on`. The migration records that it has run, so it cannot treat a later `explicit-off` as `default-off`.
 
-When the effective value is `on`, the session lock is acknowledged before the first Hyprland frame. Autostart and exec-once are gated on that acknowledgement, so the desktop, notifications and early keystrokes do not reach apps first. If the lock command is missing, times out, or is not acknowledged, `desktop()` does not continue and the supervisor logs out back to gaming. It never shows an unlocked desktop. A lock failure does not clear the recovery latch and does not add a retry beyond D2. If gaming cannot be started either, the supervisor exits to SDDM (`Relogin=false`) rather than leaving Hyprland up. That greeter has no keyboard until AUTH's on-screen keyboard exists (OQ-7). That is a usability blocker, not a bypass.
+When the effective value is `on`, the session lock is acknowledged before the first Hyprland frame. Autostart and exec-once are gated on that acknowledgement, so the desktop, notifications and early keystrokes do not reach apps first. If the lock command is missing, times out, or is not acknowledged, `desktop()` does not continue and never shows an unlocked desktop. If a D2 retry remains, the supervisor logs out back to gaming. If the D2 budget is already spent, or gaming cannot be started, it exits to SDDM (`Relogin=false`) and does not start another gaming attempt. A lock failure does not clear the recovery latch and does not add a retry beyond D2. That greeter has no keyboard until AUTH's on-screen keyboard exists (OQ-7). That is a usability blocker, not a bypass.
 
 When the effective value is `default-off` or `explicit-off`, `desktop()` does not call the lock, and a missing lock host is not a failure. Desktop → gaming does not lock.
 
@@ -231,7 +232,7 @@ No getty autologin. Getty still asks for a password. No desktop session is left 
 | Who | Anyone holding the RC71L. Autologin (Daniel, 12 Nov 2026) gives the same unauthenticated local access as SteamOS or Bazzite Gaming Mode. |
 | What they can already do | Use the gaming session as the desktop user: Steam, games, and anything else that session starts. The UID is the desktop user's UID. |
 | What the lock protects, once it is on | The desktop UI. No Hyprland frame, autostart client, notification or keystroke into a desktop app until the lock is acknowledged. |
-| Interim exposure, until K07 | Honest gap. The handheld ships `default-off`, so Switch to Desktop, Exit Steam, the dock prompt, and the gaming-failure fallback all show the Hyprland desktop with no lock. Anyone holding the device then has the desktop UI, autostart, and the user's files. This is accepted because there is no lock-screen touch keyboard to unlock with. It is not a user opt-out: the stored value is `default-off`, and the K07 migration will turn it on. Other variants are not in this gap; they stay `on`. An `explicit-off` is a separate, authenticated choice and stays off after the migration. |
+| Interim exposure, until K07 | Honest gap. The handheld ships `default-off`, so Switch to Desktop, Exit Steam, the dock prompt, and the gaming-failure fallback all show the Hyprland desktop with no lock. Anyone holding the device then has the desktop UI, autostart, and the user's files. This is accepted because there is no lock-screen touch keyboard to unlock with. It is not a user opt-out: the stored value is `default-off`, and the K07 migration will turn it on. Other variants are not in this gap; they stay `on`. An `explicit-off` is a separate choice, made with an interactive password prompt, and stays off after the migration. |
 | What the lock does not protect, even when on | User files, Steam data, prefixes, or a shell, file manager or Omarchy menu started inside Gamescope. Disk encryption. A TTY, which still requires a password. |
 | Required audit | No default non-Steam shortcut and no gaming-setup launcher opens a shell, a file manager or the Omarchy menu inside the Gamescope session. |
 
@@ -272,7 +273,8 @@ stateDiagram-v2
     Retry --> Locking: launch failure (2nd), value on
     Retry --> Desktop: launch failure (2nd), default-off or explicit-off
     Locking --> Desktop: lock acknowledged, before autostart
-    Locking --> Gaming: lock missing, timeout, or not acknowledged
+    Locking --> Gaming: lock failed, a D2 retry remains
+    Locking --> SDDM: lock failed, D2 budget already spent
     Gaming --> Locking: Switch to Desktop / Exit Steam / explicit dock prompt, value on
     Gaming --> Desktop: those same paths, default-off or explicit-off
     Desktop --> Gaming: menu Switch to Gaming / Super+Ctrl+G / explicit undock prompt
@@ -297,7 +299,7 @@ stateDiagram-v2
 | F6 | Undock in desktop | Internal panel returns. Prompt defaults to Stay. No countdown |
 | F7 | Gaming fails at boot | Two attempts, then the desktop, with “Gaming Mode didn’t start” + Try again. The lock runs only when the value is `on` |
 | F8 | Pin desktop | Menu → Session → Always Desktop; dock/undock never prompts; reboot lands on the desktop, locked only when the value is `on` |
-| F9 | Lock cannot start, value `on` | Back to gaming. No unlocked desktop frame. Latch unchanged |
+| F9 | Lock cannot start, value `on` | If a D2 retry remains, back to gaming. If the D2 budget is already spent, SDDM, and no further gaming attempt. No unlocked desktop frame. Latch unchanged |
 | F10 | K07 migration | A handheld `default-off` becomes `on` once. An `explicit-off` stays off |
 
 ## 11. Acceptance criteria
@@ -312,13 +314,13 @@ stateDiagram-v2
 8. The gaming dock prompt, when shown, appears after the display has been stable 3 s ± 0.5 s. Unplugging and replugging within 3 s produces no prompt and no session change.
 9. At most one prompt per EDID SHA256 until that display has been disconnected for 30 s. Flapping or DPMS slower than 3 s does not re-prompt inside that window.
 10. Undocking in Desktop restores the internal panel and touch mapping. The prompt defaults to Stay whether or not user windows are open. There is no countdown.
-11. Sleep, then wake in the other dock state, returns to the same session and game. No dock prompt until 10 s after resume. At most one prompt after that.
+11. Sleep, then wake in the other dock state, returns to the same session and game. Any dock prompt that was up is dismissed on suspend with no action (Stay) and does not confirm on wake. No new dock prompt until 10 s after resume, then the 3 s debounce, and only inside the per-EDID rate limit. At most one prompt after that.
 12. Pinned `gaming` or `desktop` suppresses all dock prompts and survives reboot.
 13. Holding M1 (Super), M2 (Ctrl) or RT while switching session or profile, locking, suspending and resuming, or restarting InputPlumber leaves no stuck key or click (`wev` / Steam controller test shows the matching key-up).
 14. Forced gaming failure (for example an invalid Steam path in a test build) gives exactly 2 attempts, then the desktop with the notification naming the failure class. When the value is `on`, the lock is up before that notification. “Try Gaming again” clears the latch on success.
 15. After fallback, the next reboot goes to the desktop (latch) until an explicit gaming choice. No reboot loop. The lock runs only when the value is `on`.
 16. An unknown value in the preference file boots via `auto` and shows “Session preference reset” in the desktop. When the value is `on`, the notification is after the lock.
-17. When the value is `on`, a missing or broken lock host logs out back to gaming and never shows an unlocked frame. `explicit-off` takes effect only after polkit or sudo, and then skips the lock. Writing `~/.local/state` cannot store `explicit-off` or change `default-off`. A missing value on the handheld variant counts as `default-off`, not as `explicit-off`. A missing value on any other variant counts as `on`.
+17. When the value is `on`, a missing or broken lock host never shows an unlocked frame. If a D2 retry remains it returns to gaming. If the D2 budget is already spent it exits to SDDM and does not start another gaming attempt. `desktop-lock off` stores `explicit-off` only after an interactive password prompt, and a passwordless polkit rule cannot do it. `desktop-lock on` needs no password. Writing `~/.local/state` cannot store `explicit-off` or change `default-off`. A missing value on the handheld variant counts as `default-off`, not as `explicit-off`. A missing value on any other variant counts as `on`.
 18. An older companion without the proposed `gaming` profile or target, or a target that never reports ready, starts gaming on `gamepad` (Xbox Elite) with exactly one virtual pad, one log line, and no failure. QAM remains reachable via AC tap.
 19. In gaming, `omarchy-hw-rog-ally-input status` shows exactly one virtual pad of the chosen target (`deck-uhid` or `ds5-edge`) once that target is ready. The failed-target case shows exactly one `gamepad` pad.
 20. Steam does not start until that ready signal. A CLI exit alone is not enough.
@@ -331,6 +333,7 @@ stateDiagram-v2
 27. No default non-Steam shortcut or gaming-setup launcher opens a shell, a file manager or the Omarchy menu inside Gamescope.
 28. No getty autologin is configured. A TTY still asks for a password, and no desktop session remains on another VT after a switch.
 29. After K07 has merged, one migration sets handheld `default-off` to `on` and leaves `explicit-off` unchanged. Running it again does not turn `explicit-off` on. A handheld install created after that merge ships `on`.
+30. Suspend while a dock prompt is showing dismisses it with no action (Stay). Wake does not treat that prompt as accepted. A later prompt is a new one, and only after the 10 s grace, the 3 s debounce, and the per-EDID rate limit.
 
 ## 12. Open questions
 
