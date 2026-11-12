@@ -38,7 +38,7 @@ run_guard() {
   HW=${HW:-ally} PKG=${PKG:-present} \
     OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run \
     OMARCHY_SDDM_CONF_DIR=$work/sddm \
-    PATH="$work/bin:$PATH" \
+    PATH="$work/bin:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-handheld-autologin" "$@"
 }
 
@@ -59,7 +59,7 @@ grep -q 'objectName: "greeterKeyboard"' "$ROOT/default/sddm/omarchy/Main.qml" ||
   fail "the greeter has an on-screen keyboard"
 pass "handheld drop-in autologins into gaming with Relogin=true"
 
-export XDG_STATE_HOME=$work/state HOME=$work/home PATH="$work/bin:$PATH"
+export XDG_STATE_HOME=$work/state HOME=$work/home PATH="$work/bin:$ROOT/bin:$PATH"
 # shellcheck source=/dev/null
 source "$ROOT/default/gaming/session.sh"
 mkdir -p "$gaming_state"

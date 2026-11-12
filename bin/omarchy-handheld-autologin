@@ -60,8 +60,8 @@ now_s() {
 }
 
 handheld_variant() {
-  command -v omarchy-hw-rog-ally >/dev/null && omarchy-hw-rog-ally &&
-    command -v omarchy-pkg-present >/dev/null && omarchy-pkg-present omarchy-gaming-session
+  omarchy-cmd-present omarchy-hw-rog-ally omarchy-pkg-present &&
+    omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session
 }
 
 write_dropin() {
