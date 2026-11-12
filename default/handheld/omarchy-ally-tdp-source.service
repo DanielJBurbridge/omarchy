@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-apply the ROG Ally PPT limits after a power-supply change
+ConditionPathExists=/sys/class/firmware-attributes/asus-armoury
+
+[Service]
+Type=oneshot
+Environment=OMARCHY_PATH=/usr/share/omarchy
+ExecStart=/usr/bin/omarchy-ally-tdp-source

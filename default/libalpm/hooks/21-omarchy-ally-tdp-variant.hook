@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = omarchy
+Target = omarchy-dev
+
+[Action]
+Description = Watching the handheld variant for the Ally PPD mask...
+When = PostTransaction
+Exec = /usr/share/omarchy/default/handheld/ally-tdp-variant-watch

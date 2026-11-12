@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=Apply a capped ROG Ally sustained power limit
+# omarchy:args=--show | --snapshot | --reassert | --set WATTS
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Root invocation comes from pkexec, which clears the environment, or from a
+# system unit. Do not use sudo --preserve-env: a root process ignores
+# OMARCHY_PATH and every Ally TDP override and loads only the packaged module.
+
+if [[ $(id -u) -eq 0 ]]; then
+  if [[ -n ${OMARCHY_PATH:-} ]]; then
+    echo "ally-tdp: ignoring OMARCHY_PATH. Do not use sudo --preserve-env." >&2
+  fi
+  export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+  module=/usr/share/omarchy/default/handheld/ally_tdp.py
+else
+  module=""
+  if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/handheld/ally_tdp.py ]]; then
+    module=$OMARCHY_PATH/default/handheld/ally_tdp.py
+  else
+    module=/usr/share/omarchy/default/handheld/ally_tdp.py
+  fi
+fi
+
+if [[ ! -f $module ]]; then
+  echo "ally-tdp: cannot find the TDP helper module" >&2
+  exit 1
+fi
+
+if [[ $(id -u) -eq 0 ]]; then
+  owner=$(stat -c %u "$module")
+  mode=$(stat -c %a "$module")
+  if [[ $owner != 0 ]] || (( (8#$mode & 8#022) != 0 )); then
+    echo "ally-tdp: packaged module is not a root-owned private file" >&2
+    exit 1
+  fi
+fi
+
+if [[ $(id -u) -eq 0 ]]; then
+  exec python3 -I -B "$module" apply "$@"
+fi
+exec python3 -B "$module" apply "$@"

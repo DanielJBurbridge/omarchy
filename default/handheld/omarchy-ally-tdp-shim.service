@@ -1,0 +1,21 @@
+[Unit]
+Description=Session-bus TDP shim for Steam's Quick Access Menu on the ROG Ally
+# Start this before Steam. #34 restarts it by restarting
+# omarchy-gaming-session.target. PartOf= propagates that stop and restart.
+# The gaming target is optional. Nothing in this file depends on it, so a
+# desktop without that target still starts from graphical-session.target.
+PartOf=graphical-session.target omarchy-gaming-session.target
+After=graphical-session.target
+ConditionEnvironment=OMARCHY_PATH
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/omarchy-ally-tdp-shim
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Install]
+WantedBy=graphical-session.target omarchy-gaming-session.target

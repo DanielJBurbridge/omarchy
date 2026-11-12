@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Arm the variant watcher on an Ally after the package is installed. A laptop
+# and a machine without systemd leave the mask alone. The path unit runs
+# prepare when /var/lib/omarchy/variants changes, which unmasks PPD once the
+# handheld marker is gone and masks it once the marker is back.
+
+if [[ ! -d /run/systemd/system ]]; then
+  exit 0
+fi
+if ! /usr/bin/omarchy-hw-rog-ally; then
+  exit 0
+fi
+
+install -Dm644 /usr/share/omarchy/default/handheld/omarchy-ally-tdp-prepare.service /etc/systemd/system/omarchy-ally-tdp-prepare.service
+install -Dm644 /usr/share/omarchy/default/handheld/omarchy-ally-tdp-variant.path /etc/systemd/system/omarchy-ally-tdp-variant.path
+systemctl daemon-reload
+systemctl enable --now omarchy-ally-tdp-variant.path

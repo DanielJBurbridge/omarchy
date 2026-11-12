@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Omarchy</vendor>
+  <vendor_url>https://omarchy.org</vendor_url>
+
+  <!--
+    One action. It may execute only /usr/bin/omarchy-ally-tdp-apply.
+    That binary accepts --set WATTS, --reassert, --show and --snapshot, and
+    rejects every other argument. It does not take a path.
+    pkexec cannot express that verb list in annotations, so the binary is the
+    allowlist. Active local seats are allowed without a prompt because the
+    Quick Access Menu has nowhere to show one. Inactive and remote callers are
+    denied. The process still clamps the watts as root.
+  -->
+  <action id="org.omarchy.ally.set-tdp">
+    <description>Set the ROG Ally sustained power limit</description>
+    <message>Authentication is required to set the ROG Ally TDP limit</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/omarchy-ally-tdp-apply</annotate>
+  </action>
+</policyconfig>

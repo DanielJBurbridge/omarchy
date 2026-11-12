@@ -8,6 +8,18 @@ if [[ ${1:-} != "" && ${1:-} != "--active-state" ]]; then
   exit 1
 fi
 
+stamp="${OMARCHY_ALLY_TDP_STATE_DIR:-/var/lib/omarchy/ally-tdp}/ppd-mask.json"
+variant="${OMARCHY_HANDHELD_VARIANT_PATH:-/var/lib/omarchy/variants/handheld}"
+if [[ -f $stamp && -f $variant ]] && omarchy-hw-rog-ally; then
+  label=$(omarchy-i18n power.allyTdpList)
+  if [[ ${1:-} == "--active-state" ]]; then
+    printf '%s\t1\n' "$label"
+  else
+    printf '%s\n' "$label"
+  fi
+  exit 0
+fi
+
 powerprofilesctl list 2>/dev/null |
   awk -v with_state="${1:+1}" '/^\s*[* ]\s*[a-zA-Z0-9-]+:$/ {
     active = ($1 == "*") ? 1 : 0

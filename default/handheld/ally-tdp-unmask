@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Restore power-profiles-daemon when this package is removed. A missing
+# receipt is not an error: there was no mask to lift. PreTransaction still
+# has the writer on PATH.
+
+stamp="${OMARCHY_ALLY_TDP_STATE_DIR:-/var/lib/omarchy/ally-tdp}/ppd-mask.json"
+if [[ ! -f $stamp ]]; then
+  exit 0
+fi
+exec omarchy-ally-tdp-prepare --restore

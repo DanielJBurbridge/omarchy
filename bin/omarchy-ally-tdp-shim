@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# omarchy:summary=Expose Steam's session-bus TDP slider on the ROG Ally
+# omarchy:hidden=true
+
+if [[ -z ${OMARCHY_PATH:-} || ! -f $OMARCHY_PATH/default/handheld/ally_tdp.py ]]; then
+  echo "ally-tdp-shim: OMARCHY_PATH does not contain the TDP helper" >&2
+  exit 1
+fi
+
+exec python3 -B "$OMARCHY_PATH/default/handheld/ally_tdp.py" shim "$@"

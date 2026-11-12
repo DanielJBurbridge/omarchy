@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Remove
+Type = Package
+Target = omarchy
+Target = omarchy-dev
+
+[Action]
+Description = Restoring power-profiles-daemon before Omarchy is removed...
+When = PreTransaction
+Exec = /usr/share/omarchy/default/handheld/ally-tdp-unmask
