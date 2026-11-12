@@ -36,6 +36,10 @@ export HOME=$work/home
 export LOCK_HW=ally LOCK_PKG=yes
 mkdir -p "$HOME/.local/state/omarchy"
 chmod -R a+rX "$work"
+# The desktop user in CI cannot read a private home checkout. The marker
+# checks source a copy from a directory that user can read.
+cp "$ROOT/default/gaming/session.sh" "$work/session.sh"
+chmod a+r "$work/session.sh"
 
 if [[ ${DESKTOP_LOCK_NS:-} == 1 ]]; then
   mount -t tmpfs tmpfs /var/lib
@@ -58,11 +62,11 @@ as_user() {
 }
 
 user_state() {
-  as_user bash -c 'source "$1"; gaming_k07_marker_state' bash "$ROOT/default/gaming/session.sh"
+  as_user bash -c 'source "$1"; gaming_k07_marker_state' bash "$work/session.sh"
 }
 
 user_effective() {
-  as_user bash -c 'source "$1"; gaming_desktop_lock_effective' bash "$ROOT/default/gaming/session.sh"
+  as_user bash -c 'source "$1"; gaming_desktop_lock_effective' bash "$work/session.sh"
 }
 
 restore_tree() {
