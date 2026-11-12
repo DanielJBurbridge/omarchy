@@ -28,3 +28,10 @@ From dev-red's low notes on #10 packaging in the [PR #33](https://github.com/Dan
 
 - L29. `21-omarchy-ally-tdp-variant.hook` enables a path unit from a package hook on Allys. That conflicts with the r1 "no scriptlet enables anything" test, so it needs an explicit sign-off. Source: PR #33, review 5870574866. Owner: #10 packaging.
 - L30. If `write_recorded_spl` fails in the removal hook (for example armoury is missing), power-profiles-daemon stays masked after Omarchy is removed. Unmask anyway and log the tuple failure. Source: PR #33, review 5870574866. Owner: #10 packaging.
+
+From the PASS review of [PR #42](https://github.com/DanielJBurbridge/omarchy/pull/42) at `1dc4aa63`, [review 5871600455](https://github.com/DanielJBurbridge/omarchy/pull/42#pullrequestreview-5871600455). These four were not in this file when #42 merged. Filed 12 Nov 2026.
+
+- L31. `next` survives a reboot. It lives in the state home, not `/run`. A crash in the middle of the handoff, plus a reboot, lands the next boot on the desktop once, then gaming. That matches AC 5: one autologin, then the one-shot is gone. A boot-id or runtime-dir marker would make an unexpected mode after reboot impossible if that ever matters. Source: PR #42, review 5871600455.
+- L32. The Hyprland-socket waiter gives up after 60 s. If the socket appears later than that, a later logout can consume a leftover `next` and open the desktop once. Source: PR #42, review 5871600455.
+- L33. A relogin that consumes `next=desktop` never sets `gaming_autologin_ready`. Logging out of that recovery desktop, without a later successful gaming start in the same process, records one `fail`. One count, not three, and the following relogin is gaming. Source: PR #42, review 5871600455.
+- L34. `[[ -f $gaming_state/next ]]` follows a same-user symlink for the read. The directory is mode 0700 and user-owned, so this is not a cross-user write. Refusing `-L` would be defence in depth. Source: PR #42, review 5871600455.
