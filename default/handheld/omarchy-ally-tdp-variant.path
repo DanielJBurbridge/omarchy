@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-evaluate the Ally PPD mask when the handheld variant changes
+
+[Path]
+PathChanged=/var/lib/omarchy/variants
+Unit=omarchy-ally-tdp-prepare.service
+
+[Install]
+WantedBy=multi-user.target

@@ -483,8 +483,11 @@ def policy_file():
     resume = (ROOT / "default/handheld/omarchy-ally-tdp-resume.service").read_text()
     prepare = (ROOT / "default/handheld/omarchy-ally-tdp-prepare.service").read_text()
     shim = (ROOT / "default/handheld/omarchy-ally-tdp-shim.service").read_text()
-    if "omarchy-ally-tdp-apply --reassert" not in resume or "asus-armoury" not in resume or "SuccessExitStatus=75" not in resume:
+    resume_command = (ROOT / "bin/omarchy-ally-tdp-resume").read_text()
+    if "omarchy-ally-tdp-resume" not in resume or "asus-armoury" not in resume or "SuccessExitStatus=" in resume:
         fail("resume unit reasserts through the same writer and only when asus-armoury exists")
+    if "omarchy-ally-tdp-apply --reassert" not in resume_command or "exit 1" not in resume_command:
+        fail("resume retries a held lock and then fails")
     if "RestartPreventExitStatus=2" not in shim:
         fail("the shim unit does not restart when the bus name is taken")
     if "omarchy-gaming-session.target" not in shim or "Requires=" in shim or "BindsTo=" in shim:
@@ -888,9 +891,15 @@ def review_cases():
         target.chmod(0o644)
         lines = [line for line in trace.read_text().splitlines() if line.strip()]
         body = payload_of(result) or {}
-        if result.returncode == 0 or body.get("status") != "rolled_back" or currents(armoury) != (30, 43, 53) or not ordered(lines):
-            fail("a failed FPPT write rolls back in order to the original tuple", f"{currents(armoury)} {lines} {result.stdout}")
-        ok("a failed FPPT write rolls back in order to the original tuple")
+        if (
+            result.returncode == 0
+            or body.get("status") != "rolled_back"
+            or currents(armoury) != (30, 43, 53)
+            or not ordered(lines)
+            or "30 15 53" in lines
+        ):
+            fail("a failed FPPT write rolls back without passing through 30/15/53", f"{currents(armoury)} {lines} {result.stdout}")
+        ok("a failed FPPT write rolls back without passing through 30/15/53")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-restore-battery-") as temporary:
         root = Path(temporary)
@@ -911,9 +920,33 @@ def review_cases():
         env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
         result = run([str(PREPARE), "--restore"], env, check=True)
         lines = [line for line in trace.read_text().splitlines() if line.strip()]
-        if currents(armoury) != (20, 20, 25) or not ordered(lines) or not lines:
-            fail("prepare --restore clamps the recorded SPL to the current source", f"{currents(armoury)} {lines} {result.stderr}")
-        ok("prepare --restore clamps the recorded SPL to the current source")
+        if currents(armoury) != (20, 20, 25) or not ordered(lines) or not lines or "30 15 53" in lines:
+            fail("prepare --restore clamps an AC receipt to the battery ceiling", f"{currents(armoury)} {lines} {result.stderr}")
+        ok("prepare --restore clamps an AC receipt to the battery ceiling")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-restore-raise-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nif [[ $1 == is-active ]]; then exit 3; fi\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        run([str(PREPARE)], env, check=True)
+        for name, value in (("ppt_pl1_spl", 10), ("ppt_pl2_sppt", 15), ("ppt_pl3_fppt", 18)):
+            (armoury / name / "current_value").write_text(f"{value}\n")
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        result = run([str(PREPARE), "--restore"], env, check=True)
+        lines = [line for line in trace.read_text().splitlines() if line.strip()]
+        forbidden = {"30 15 18", "30 43 18"}
+        if currents(armoury) != (30, 43, 53) or not ordered(lines) or forbidden.intersection(lines):
+            fail("prepare --restore raises 10/15/18 without 30/15/18 or 30/43/18", f"{currents(armoury)} {lines} {result.stderr}")
+        ok("prepare --restore raises 10/15/18 without 30/15/18 or 30/43/18")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-asusd-skip-") as temporary:
         root = Path(temporary)
@@ -1009,6 +1042,7 @@ def review_cases():
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         saved_euid = module.os.geteuid
+        saved_variant = module.HANDHELD_VARIANT
         module.os.geteuid = lambda: 0
         previous = {
             "OMARCHY_ALLY_TDP_ASUSD_STATE": os.environ.get("OMARCHY_ALLY_TDP_ASUSD_STATE"),
@@ -1033,14 +1067,20 @@ def review_cases():
             module.maybe_delay()
             elapsed = time.monotonic() - started
             module.trace_write()
-            handheld_on = module.handheld_variant_installed()
             writer_on = module.writer_installed()
             os.environ["OMARCHY_ALLY_TDP_HANDHELD"] = "0"
             os.environ["OMARCHY_ALLY_TDP_WRITER_INSTALLED"] = "0"
+            marker = root / "variant-marker"
+            marker.write_text("handheld\n")
+            os.chmod(marker, 0o666)
+            saved_variant = module.HANDHELD_VARIANT
+            module.HANDHELD_VARIANT = str(marker)
+            if module.handheld_variant_installed():
+                fail("a user-owned variant marker is not the handheld gate")
+            ok("a user-owned variant marker is not the handheld gate")
             if (
                 module.unit_active("omarchy-ally-tdp-not-a-unit.service", "OMARCHY_ALLY_TDP_ASUSD_STATE")
                 or module.flip_source_once()
-                or module.handheld_variant_installed() != handheld_on
                 or module.writer_installed() != writer_on
                 or module.activation_file() != module.Path("/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service")
                 or trace.exists()
@@ -1049,6 +1089,7 @@ def review_cases():
                 fail("root ignores runtime overrides")
             ok("root ignores runtime overrides")
         finally:
+            module.HANDHELD_VARIANT = saved_variant
             module.os.geteuid = saved_euid
             for key, value in previous.items():
                 if value is None:
@@ -1109,14 +1150,80 @@ def review_cases():
         refused = run([str(ROOT / "bin" / "omarchy-powerprofiles-set"), "ac", "balanced"], env)
         logged = log.read_text() if log.exists() else ""
         if (
-            listed.stdout.strip() != "Managed by Ally TDP"
-            or active.stdout.strip() != "Managed by Ally TDP\t1"
+            listed.stdout.strip() != "Managed by Ally TDP control"
+            or active.stdout.strip() != "Managed by Ally TDP control\t1"
             or refused.returncode == 0
             or "Power profiles are managed by the Ally TDP control" not in refused.stderr
             or "set" in logged
         ):
             fail("power profiles name Ally TDP and refuse a change", f"{listed.stdout} {active.stdout} {refused.stderr} {logged}")
         ok("power profiles name Ally TDP and refuse a change")
+
+    resume = ROOT / "bin" / "omarchy-ally-tdp-resume"
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-resume-held-") as temporary:
+        root = Path(temporary)
+        stub = root / "bin"
+        stub.mkdir()
+        log = root / "calls"
+        (stub / "omarchy-ally-tdp-apply").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$RESUME_LOG\"\nexit 75\n")
+        (stub / "omarchy-ally-tdp-apply").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["RESUME_LOG"] = str(log)
+        env["OMARCHY_ALLY_TDP_RESUME_ATTEMPTS"] = "2"
+        env["OMARCHY_ALLY_TDP_RESUME_PAUSE"] = "0"
+        result = run([str(resume)], env)
+        calls = log.read_text().splitlines() if log.exists() else []
+        if result.returncode == 0 or calls != ["--reassert", "--reassert"] or "stayed held" not in result.stderr:
+            fail("resume retries a held lock and then fails", f"{result.returncode} {calls} {result.stderr}")
+        ok("resume retries a held lock and then fails")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-resume-clear-") as temporary:
+        root = Path(temporary)
+        stub = root / "bin"
+        stub.mkdir()
+        log = root / "calls"
+        (stub / "omarchy-ally-tdp-apply").write_text(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$RESUME_LOG\"\ncount=$(wc -l < \"$RESUME_LOG\")\nif (( count < 2 )); then exit 75; fi\nexit 0\n"
+        )
+        (stub / "omarchy-ally-tdp-apply").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["RESUME_LOG"] = str(log)
+        env["OMARCHY_ALLY_TDP_RESUME_ATTEMPTS"] = "3"
+        env["OMARCHY_ALLY_TDP_RESUME_PAUSE"] = "0"
+        result = run([str(resume)], env, check=True)
+        if log.read_text().splitlines() != ["--reassert", "--reassert"]:
+            fail("resume stops once the lock clears", log.read_text())
+        ok("resume stops once the lock clears")
+
+    unmask = ROOT / "default/handheld/ally-tdp-unmask"
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-unmask-") as temporary:
+        root = Path(temporary)
+        result = run([str(unmask)], environment(root), check=True)
+        if result.returncode != 0:
+            fail("package removal with no PPD receipt is a no-op", result.stderr)
+        ok("package removal with no PPD receipt is a no-op")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-unmask-receipt-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nif [[ $1 == is-active ]]; then exit 3; fi\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{ROOT / 'bin'}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        run([str(PREPARE)], env, check=True)
+        log.write_text("")
+        result = run([str(unmask)], env, check=True)
+        logged = log.read_text()
+        if "unmask power-profiles-daemon.service" not in logged or (root / "state" / "ppd-mask.json").exists():
+            fail("package removal unmasks PPD from the receipt", f"{logged} {result.stderr}")
+        ok("package removal unmasks PPD from the receipt")
 
 
 def start_shim(env):

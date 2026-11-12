@@ -116,6 +116,7 @@ plain
 plocate
 plymouth
 postgresql-libs
+python-dbus
 python-gobject
 python-poetry-core
 qt6-base

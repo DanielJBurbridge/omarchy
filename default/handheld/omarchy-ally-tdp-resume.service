@@ -2,14 +2,13 @@
 Description=Re-apply the ROG Ally PPT limits after resume
 ConditionPathExists=/sys/class/firmware-attributes/asus-armoury
 # Ordered after the sleep target, so systemd starts this once the machine is
-# back. It calls the same writer as the session shim.
+# back. A held lock is not success: the command retries, then the unit fails.
 After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 
 [Service]
 Type=oneshot
 Environment=OMARCHY_PATH=/usr/share/omarchy
-ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert
-SuccessExitStatus=75
+ExecStart=/usr/bin/omarchy-ally-tdp-resume
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

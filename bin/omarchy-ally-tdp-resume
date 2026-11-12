@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# omarchy:summary=Re-apply the Ally PPT limit after resume, retrying a held lock
+# omarchy:hidden=true
+
+# The writer waits five seconds for /run/omarchy/ally-tdp/lock and exits 75
+# when that lock is still held. Retry that bounded wait, then fail so the
+# resume unit is visibly failed. #36 flocks the same file. This command does
+# not suspend and does not build the broker. Root ignores the attempt overrides.
+
+attempts=3
+pause=1
+if [[ $(id -u) -ne 0 ]]; then
+  if [[ ${OMARCHY_ALLY_TDP_RESUME_ATTEMPTS:-} =~ ^[1-9]$ ]]; then
+    attempts=$OMARCHY_ALLY_TDP_RESUME_ATTEMPTS
+  fi
+  if [[ ${OMARCHY_ALLY_TDP_RESUME_PAUSE:-} =~ ^[0-9]+$ ]]; then
+    pause=$OMARCHY_ALLY_TDP_RESUME_PAUSE
+  fi
+fi
+
+attempt=1
+while (( attempt <= attempts )); do
+  omarchy-ally-tdp-apply --reassert
+  status=$?
+  if (( status == 0 )); then
+    exit 0
+  fi
+  if (( status != 75 || attempt == attempts )); then
+    if (( status == 75 )); then
+      echo "ally-tdp: the TDP lock stayed held after ${attempts} attempts" >&2
+      exit 1
+    fi
+    exit "$status"
+  fi
+  sleep "$pause"
+  attempt=$((attempt + 1))
+done

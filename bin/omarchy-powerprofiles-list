@@ -12,9 +12,9 @@ stamp="${OMARCHY_ALLY_TDP_STATE_DIR:-/var/lib/omarchy/ally-tdp}/ppd-mask.json"
 variant="${OMARCHY_HANDHELD_VARIANT_PATH:-/var/lib/omarchy/variants/handheld}"
 if [[ -f $stamp && -f $variant ]] && omarchy-hw-rog-ally; then
   if [[ ${1:-} == "--active-state" ]]; then
-    printf 'Managed by Ally TDP\t1\n'
+    printf 'Managed by Ally TDP control\t1\n'
   else
-    printf 'Managed by Ally TDP\n'
+    printf 'Managed by Ally TDP control\n'
   fi
   exit 0
 fi
