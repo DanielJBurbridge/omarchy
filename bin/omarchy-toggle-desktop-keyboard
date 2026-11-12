@@ -79,7 +79,7 @@ elif [[ $action == hide || $action == stop ]]; then
   exit 0
 else
   omarchy-cmd-present wvkbd-mobintl || fail 'wvkbd-mobintl is missing; use optional ROG Ally keyboard setup.'
-  binary=$(readlink -f "$(command -v wvkbd-mobintl)")
+  binary=$(readlink -f "$(type -P wvkbd-mobintl)")
   # Refuse older builds rather than starting an unexpectedly exclusive surface.
   flags=$("$binary" --help 2>&1) || fail 'cannot read wvkbd options.'
   [[ $flags == *--non-exclusive* && $flags == *--wayland-layer* ]] || fail 'wvkbd 0.21 or newer is required.'
