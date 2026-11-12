@@ -56,7 +56,7 @@ Silencing (user DND, `SUPER + CTRL + ALT + comma` or overlay toggle) keeps basel
 | Event | Level | Detected by | Text (title · body) | Action | Notes |
 |---|---|---|---|---|---|
 | Battery low (≤ 15 %) | P1 | UPower `Percentage` + discharging (shell service on desktop; gaming notifier in gaming) | Battery low · “15 % left, about 40 min.” | Overlay → Performance (Quiet) | Desktop threshold 10 % today; handheld raises to 15 % (OQ-5). Fires once per discharge. |
-| Battery critical | P0 | UPower `Percentage` at the configured `PercentageAction` | Battery critical · “Plug in now.” plus the configured action | — | The notifier does not suspend. UPower `CriticalPowerAction` and `PercentageAction` do. The upstream default is HybridSleep at 2 %. The toast names the action and percentage that are configured, not a fixed 3 %. |
+| Battery critical | P0 | UPower `Percentage` at the configured `PercentageAction` | Battery critical · “Plug in now. Powering off.” | — | The notifier does not power off. The handheld ships `CriticalPowerAction=PowerOff` (spec 02 §7.7). The toast names PowerOff. |
 | Charge complete / limit reached | P2 | UPower `State = fully-charged`, or level ≥ writer's charge limit | Charged · “Battery at 80 % (limit).” | — | Once per plug-in. |
 | Thermal throttle / cap | P1 | backlog #10 (power writer) event on its own read-only interface: cap reduced for temperature | Running hot · “Power limited to 15 W to cool down.” | Overlay → Performance | Event name TBC from backlog #10 (OQ-3). Not carried on backlog #11. See `tdp-decision-review.md`. |
 | Thermal critical | P0 | Writer or `thermal_zone` trip `critical` | Too hot · “Shutting down to protect the device.” | — | Only if a shutdown is actually scheduled. |

@@ -14,7 +14,7 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 | 04 | Quick-access overlay: TDP, fan, RGB, brightness, performance profile | TODO |
 | 05 | [Notifications (gaming and desktop)](05-notifications.md) | Draft, revision 3 |
 | 06 | [Accessibility: text size, contrast, haptics, one-handed](06-accessibility.md) | Draft, revision 3 |
-| 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 5 |
+| 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 6 |
 
 Out of scope for now: lock screen, greeter and disk-unlock design (AUTH owns those surfaces).
 
