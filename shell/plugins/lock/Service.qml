@@ -24,6 +24,8 @@ Item {
   property bool pendingSessionLock: false
   property bool authenticatingPassword: false
   property bool fingerprintAuthenticating: false
+  property bool fingerprintAttemptRejected: false
+  signal fingerprintRejected()
   property bool passwordPamConfigured: false
   property bool fingerprintConfigured: false
   property int fingerprintUnreachedStreak: 0
@@ -215,6 +217,7 @@ Item {
     failedAttempts = 0
     authenticatingPassword = false
     fingerprintAuthenticating = false
+    fingerprintAttemptRejected = false
     fingerprintUnreachedStreak = 0
     fingerprintAttemptFastError = false
     fingerprintAttemptPromptedAtMs = 0
@@ -410,6 +413,7 @@ Item {
     if (fingerprintPam.active || fingerprintAuthenticating) return
 
     fingerprintAuthenticating = true
+    fingerprintAttemptRejected = false
     fingerprintAttemptReachedDevice = false
     fingerprintAttemptFastError = false
     fingerprintAttemptPromptedAtMs = 0
@@ -471,6 +475,24 @@ Item {
     armFingerprintRetry(FingerprintModel.retryDelayMs(fingerprintUnreachedStreak))
   }
 
+  function handleFingerprintMessage(message, isError, responseRequired) {
+    if (!isError) noteFingerprintReachedDevice()
+    // pam_fprintd 1.94.5 exposes no scan-result code through PAM. Both
+    // no-match and lift/quality advice are PAM_ERROR_MSG: severity alone
+    // would falsely reject the latter. Recognise only its exact no-match
+    // error for nonfinal retries; structured final results work in any locale.
+    else if (!responseRequired && message === "Failed to match fingerprint") reportFingerprintRejection()
+  }
+
+  // Presentation only: neither a scan message nor this signal can settle PAM
+  // or unlock. Suppress late cancellation and password-takeover feedback.
+  function reportFingerprintRejection() {
+    if (!lockRequested || !fingerprintConfigured || !fingerprintAuthenticating
+        || authenticatingPassword || enteredPassword.length > 0) return
+    fingerprintAttemptRejected = true
+    fingerprintRejected()
+  }
+
   function handleFingerprintFinished(result) {
     if (result === PamResult.Success && lockRequested) {
       // A match after a run of misses is the recovery too; the unlock resets
@@ -478,6 +500,7 @@ Item {
       if (fingerprintUnreachedStreak > 0) logEvent("fingerprint-recovered: streak=" + fingerprintUnreachedStreak)
       finishUnlock()
     } else {
+      if (fingerprintAttemptReachedDevice && !fingerprintAttemptRejected && (result === PamResult.Failed || result === PamResult.MaxTries)) reportFingerprintRejection()
       settleFingerprintAttempt(result === PamResult.Error)
     }
   }
@@ -578,6 +601,10 @@ Item {
         backgroundVersion: root.backgroundVersion
         fingerprintConfigured: root.fingerprintConfigured || root.fingerprintUnavailable
         fingerprintUnavailable: root.fingerprintUnavailable
+        Connections {
+          target: root
+          function onFingerprintRejected() { lockView.rejectFingerprint() }
+        }
         authenticatingPassword: root.authenticatingPassword
         failureMessage: root.failureMessage
         failedAttempts: root.failedAttempts
@@ -634,9 +661,7 @@ Item {
     config: "omarchy-lock-fingerprint"
     user: root.userName
 
-    onPamMessage: {
-      if (!messageIsError) root.noteFingerprintReachedDevice()
-    }
+    onPamMessage: root.handleFingerprintMessage(message, messageIsError, responseRequired)
 
     onCompleted: function(result) {
       root.handleFingerprintFinished(result)

@@ -353,6 +353,7 @@
   "lock.keyboardLayout": "Keyboard layout: %1",
   "lock.unlock": "Unlock",
   "lock.enterPassword": "Enter Password",
+  "lock.fingerprintRejected": "Fingerprint not recognised",
   "lock.fingerprintUnavailable": "Fingerprint reader unavailable",
   "media.mediaSource": "Media source",
   "media.next": "Next",

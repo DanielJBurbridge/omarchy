@@ -20,6 +20,7 @@ Item {
   property string passwordText: ""
   property bool syncingPasswordText: false
   property bool keyboardAvailable: false
+  property real fingerprintRejectionOffset: 0
   property bool keyboardRequested: false
   readonly property real keyboardHeight: keyboardLoader.item && Qt.inputMethod.visible ? keyboardLoader.item.implicitHeight : 0
 
@@ -52,6 +53,35 @@ Item {
   signal clearFailureRequested()
   signal wakeRequested()
 
+  function clearFingerprintRejection() {
+    fingerprintCue.stop()
+    fingerprintWiggle.stop()
+    fingerprintRejectionOffset = 0
+  }
+
+  function rejectFingerprint() {
+    if (!inputEnabled || !fingerprintConfigured || fingerprintUnavailable
+        || authenticatingPassword || passwordText.length > 0) return
+    fingerprintCue.restart()
+    fingerprintRejectionNotice.Accessible.announce(fingerprintRejectionNotice.text, Accessible.Polite)
+    if (!Style.reduceMotion) fingerprintWiggle.restart()
+  }
+
+  Timer { id: fingerprintCue; interval: 1800 }
+  SequentialAnimation {
+    id: fingerprintWiggle
+    NumberAnimation { target: root; property: "fingerprintRejectionOffset"; to: -5; duration: Style.duration(45); easing.type: Easing.Bezier; easing.bezierCurve: Style.easeOut }
+    NumberAnimation { target: root; property: "fingerprintRejectionOffset"; to: 5; duration: Style.duration(90); easing.type: Easing.Bezier; easing.bezierCurve: Style.easeOut }
+    NumberAnimation { target: root; property: "fingerprintRejectionOffset"; to: 0; duration: Style.duration(45); easing.type: Easing.Bezier; easing.bezierCurve: Style.easeOut }
+  }
+  Connections {
+    target: Style
+    function onReduceMotionChanged() {
+      if (Style.reduceMotion) { fingerprintWiggle.stop(); root.fingerprintRejectionOffset = 0 }
+    }
+  }
+  onFingerprintUnavailableChanged: if (fingerprintUnavailable) clearFingerprintRejection()
+
   function forcePasswordFocus() {
     passwordInput.forceActiveFocus()
   }
@@ -70,6 +100,7 @@ Item {
 
   function cancelEntry() {
     if (authenticatingPassword) return
+    clearFingerprintRejection()
     clearPassword()
     clearFailureRequested()
     keyboardRequested = false
@@ -106,13 +137,17 @@ Item {
     if (inputEnabled && passwordInput.enabled && !passwordInput.activeFocus) forcePasswordFocus()
   }
 
-  onPasswordTextChanged: syncPasswordText()
+  onPasswordTextChanged: {
+    syncPasswordText()
+    if (passwordText.length > 0) clearFingerprintRejection()
+  }
   onInputEnabledChanged: {
     if (inputEnabled) Qt.callLater(forcePasswordFocus)
-    else { keyboardRequested = false; Qt.inputMethod.hide() }
+    else { clearFingerprintRejection(); keyboardRequested = false; Qt.inputMethod.hide() }
   }
 
   onAuthenticatingPasswordChanged: {
+    if (authenticatingPassword) clearFingerprintRejection()
     if (!authenticatingPassword && inputEnabled) Qt.callLater(function() {
       root.forcePasswordFocus()
       if (root.keyboardRequested) Qt.inputMethod.show()
@@ -177,6 +212,7 @@ Item {
 
     BorderSurface {
       id: inputField
+      transform: Translate { x: root.fingerprintRejectionOffset }
       width: Math.min(root.fieldWidth, parent.width - 32)
       height: root.fieldHeight
       anchors.horizontalCenter: parent.horizontalCenter
@@ -271,7 +307,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         visible: root.fingerprintConfigured
         text: root.fingerprintUnavailable ? "󰺱" : "󰈷"
-        color: root.fingerprintUnavailable ? Commons.Color.lock.textError : Commons.Color.lock.placeholder
+        color: root.fingerprintUnavailable || fingerprintCue.running ? Commons.Color.lock.textError : Commons.Color.lock.placeholder
         font.family: Style.font.family
         font.pixelSize: Math.round(root.fieldFontSize * 1.1)
         horizontalAlignment: Text.AlignHCenter
@@ -338,6 +374,26 @@ Item {
         ignoreUnknownSignals: true
         function onFocusRequested() { root.forcePasswordFocus() }
       }
+    }
+
+    Text {
+      id: fingerprintRejectionNotice
+      objectName: "fingerprintRejectionNotice"
+      textFormat: Text.PlainText
+      anchors.top: actions.bottom
+      anchors.topMargin: 12
+      anchors.horizontalCenter: inputField.horizontalCenter
+      width: Math.min(root.fieldWidth, parent.width - 32)
+      transform: Translate { x: root.fingerprintRejectionOffset }
+      visible: fingerprintCue.running && !root.fingerprintUnavailable
+      text: Commons.I18n.t("lock.fingerprintRejected")
+      color: Commons.Color.lock.textError
+      font.family: Style.font.family
+      font.pixelSize: Style.font.heading
+      horizontalAlignment: Text.AlignHCenter
+      wrapMode: Text.Wrap
+      Accessible.role: Accessible.StaticText
+      Accessible.name: text
     }
 
     // The crossed-out icon has no meaning to a user who has never seen it — it

@@ -1,4 +1,5 @@
 import QtQuick
+import QtTest
 import Quickshell
 import Quickshell.Services.Pam
 import qs.Commons
@@ -11,7 +12,8 @@ ShellRoot {
   property var failures: []
   property int checks: 0
 
-  Item { id: host }
+  Window { id: host; width: 960; height: 540; visible: true }
+  TestCase { id: input; name: "fingerprint-feedback"; when: false }
 
   function check(condition, message) {
     checks += 1
@@ -32,6 +34,95 @@ ShellRoot {
       if (objects[i].ticksLeft !== undefined) return objects[i]
     }
     throw new Error("Missing resume watch")
+  }
+
+  function find(item, name) {
+    if (item.objectName === name) return item
+    for (var child of (item.children || [])) { var found = find(child, name); if (found) return found }
+    return null
+  }
+
+  function feedback(service) {
+    // Let the startup probe finish before supplying a dummy active attempt.
+    // No PAM worker is started: use the production conversation callback
+    // with PAM's message metadata, including identical repeated messages.
+    input.wait(100)
+    var component = Qt.createComponent("file://" + rootPath + "/shell/plugins/lock/LockView.qml", Component.PreferSynchronous)
+    var view = component.createObject(host.contentItem, { width: 960, height: 540, loadBackground: false,
+      fingerprintConfigured: true, inputEnabled: true,
+      authenticatingPassword: Qt.binding(function() { return service.authenticatingPassword }) })
+    if (!view) throw new Error("Missing real lock view")
+    var events = 0
+    if (typeof service.fingerprintRejected === "function") service.fingerprintRejected.connect(function() { events++; view.rejectFingerprint() })
+    try {
+      service.lockRequested = true
+      service.fingerprintConfigured = true
+      service.fingerprintAuthenticating = true
+      // This existing final-result seam also runs unchanged on the baseline:
+      // its failure must be the absent cue, not a missing callback API.
+      service.noteFingerprintReachedDevice()
+      service.handleFingerprintFinished(PamResult.Failed)
+      var notice = find(view, "fingerprintRejectionNotice")
+      check(notice !== null && notice.visible, "a rejected scan produces visible feedback without unlocking")
+      if (!notice) return
+      view.clearFingerprintRejection()
+      events = 0
+      service.fingerprintAuthenticating = true
+      service.fingerprintAttemptRejected = false
+      service.handleFingerprintMessage("Place a finger", false, false)
+      service.handleFingerprintMessage("Remove your finger, and try swiping your finger again", true, false)
+      check(!notice.visible, "quality/lift guidance is not a rejected match")
+      service.handleFingerprintMessage("Failed to match fingerprint", true, true)
+      check(!notice.visible, "a response prompt is not a scan rejection")
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      check(notice !== null && notice.visible, "a nonfinal no-match shows rejection feedback while PAM retries")
+      check(notice.text === "Fingerprint not recognised" && notice.Accessible.name === notice.text, "rejection cue has readable accessible text")
+      check(service.lockRequested && service.fingerprintAuthenticating, "nonfinal rejection does not settle or unlock")
+      input.wait(60)
+      check(view.fingerprintRejectionOffset !== 0 && find(view, "lockPassword").activeFocus, "local wiggle keeps password focus")
+      input.wait(200)
+      check(view.fingerprintRejectionOffset === 0 && notice.visible, "brief wiggle settles while the cue stays readable")
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      check(events === 2, "an identical repeated no-match retriggers feedback")
+      service.handleFingerprintFinished(PamResult.MaxTries)
+      check(events === 2 && service.lockRequested, "terminal result does not duplicate the last scan or unlock")
+      Style.reduceMotion = true
+      service.fingerprintAuthenticating = true
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      check(events === 3 && notice.visible && view.fingerprintRejectionOffset === 0, "reduced motion retains the cue without displacement")
+      service.authenticatingPassword = true
+      check(!notice.visible && view.fingerprintRejectionOffset === 0, "password takeover clears an existing cue")
+      service.authenticatingPassword = false
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      view.cancelEntry()
+      check(!notice.visible && view.fingerprintRejectionOffset === 0, "Cancel clears local feedback without unlocking")
+      service.fingerprintAuthenticating = false
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      service.handleFingerprintFinished(PamResult.Failed)
+      check(events === 4 && !notice.visible && service.lockRequested, "a cancelled attempt cannot produce late rejection feedback")
+      service.fingerprintAuthenticating = true
+      service.authenticatingPassword = true
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      check(events === 4 && !notice.visible, "password takeover suppresses fingerprint feedback")
+      service.authenticatingPassword = false
+      view.passwordText = "dummy"
+      service.handleFingerprintMessage("Failed to match fingerprint", true, false)
+      check(!notice.visible, "typing keeps the password field usable without fingerprint feedback")
+      view.passwordText = ""
+      service.fingerprintAuthenticating = true
+      service.fingerprintAttemptReachedDevice = false
+      service.fingerprintAttemptRejected = false
+      service.handleFingerprintFinished(PamResult.Failed)
+      check(!notice.visible, "a failure before the reader is reached is not a rejected scan")
+      service.fingerprintAuthenticating = true
+      service.noteFingerprintReachedDevice()
+      // A structured final failure still works when no English message exists.
+      service.fingerprintAttemptRejected = false
+      service.handleFingerprintFinished(PamResult.Failed)
+      check(notice.visible && service.lockRequested, "structured rejection produces a cue without unlocking")
+      input.wait(1900)
+      check(!notice.visible && view.fingerprintRejectionOffset === 0, "the brief cue clears itself after a quiet retry window")
+    } finally { view.destroy(); Style.reduceMotion = false }
   }
 
   function run() {
@@ -237,6 +328,7 @@ ShellRoot {
       check(!service.fingerprintPaused, "unlock reset clears a pause so the next lock starts the reader")
       service.applyFingerprintProbe("Daemon is restarting")
       check(!recheck.running, "an unknown probe outside the lock cannot restart it")
+      feedback(service)
     } finally {
       service.lockRequested = false
       service.resetAuthenticationState()
