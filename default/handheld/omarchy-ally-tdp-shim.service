@@ -1,5 +1,6 @@
 [Unit]
 Description=Session-bus TDP shim for Steam's Quick Access Menu on the ROG Ally
+# Start this before Steam. This tree has no gamescope session unit to Requires=.
 PartOf=graphical-session.target
 After=graphical-session.target
 ConditionEnvironment=OMARCHY_PATH

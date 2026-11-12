@@ -13,7 +13,7 @@ if [[ $(id -u) -eq 0 ]]; then
   if [[ -n ${OMARCHY_PATH:-} ]]; then
     echo "ally-tdp: ignoring OMARCHY_PATH. Do not use sudo --preserve-env." >&2
   fi
-  export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+  export PATH=/usr/sbin:/usr/bin:/sbin:/bin
   module=/usr/share/omarchy/default/handheld/ally_tdp.py
 else
   module=""

@@ -19,7 +19,6 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 
 BUS = "com.steampowered.SteamOSManager1"
@@ -81,7 +80,7 @@ def effective_config(euid=None):
             "fixture": False,
             "hwmon": "/sys/class/hwmon",
             "omarchy_path": "/usr/share/omarchy",
-            "path": "/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin",
+            "path": "/usr/sbin:/usr/bin:/sbin:/bin",
             "ppd_state": None,
             "run_dir": "/run/omarchy/ally-tdp",
             "state_dir": "/var/lib/omarchy/ally-tdp",
@@ -333,12 +332,15 @@ def save_json(path, payload):
         if path.is_symlink():
             raise TdpError("rejected", f"{path} is a symlink")
         blob = (json.dumps(payload, sort_keys=True) + "\n").encode()
-        descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        temporary = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}"
+        descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o644)
         try:
             os.write(descriptor, blob)
-            os.fchmod(descriptor, 0o644)
         finally:
             os.close(descriptor)
+        if path.is_symlink():
+            os.unlink(temporary)
+            raise TdpError("rejected", f"{path} is a symlink")
         os.replace(temporary, path)
     except TdpError:
         raise
@@ -722,11 +724,26 @@ def session_bus_owner():
     except Exception:
         return None
     pid = None
+    exe = None
     try:
         pid = int(bus.get_connection_unix_process_id(owner))
     except Exception:
         pid = None
-    return {"name": owner, "pid": pid}
+    if pid is not None:
+        try:
+            exe = os.readlink(f"/proc/{pid}/exe")
+        except OSError:
+            exe = None
+    return {"name": owner, "pid": pid, "exe": exe}
+
+
+def activation_file():
+    override = os.environ.get("OMARCHY_ALLY_TDP_DBUS_SERVICE")
+    if override == "absent":
+        return None
+    if override:
+        return Path(override)
+    return Path("/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service")
 
 
 def show_payload():
@@ -765,9 +782,14 @@ def command_show():
 def command_snapshot():
     require_owner()
     assert_write_allowed()
-    source = power_source()
-    live = read_live()
-    ceilings_for(source, live, persist=True)
+    descriptor = acquire_lock()
+    try:
+        source = power_source()
+        live = read_live()
+        ceilings_for(source, live, persist=True)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
     emit({"ok": True, "source": source, "status": "snapshotted"})
     return 0
 
@@ -804,9 +826,58 @@ def run_systemctl(args):
         raise TdpError("rejected", f"systemctl {' '.join(args)} failed: {error}") from error
 
 
-def prepare_main(_argv):
-    if _argv:
-        raise TdpError("rejected", "prepare takes no arguments")
+def lift_ppd_mask(reason):
+    """Unmask PPD from the receipt and write the recorded PPT tuple back.
+
+    This is root-only. It is not the polkit action, which can only run
+    omarchy-ally-tdp-apply.
+    """
+    stamp = ppd_stamp_path()
+    payload = load_json(stamp) or {}
+    previous = payload.get("previous")
+    unmask = run_systemctl(["unmask", PPD_UNIT])
+    if unmask.returncode != 0:
+        raise TdpError("rejected", "could not unmask power-profiles-daemon")
+    if previous in ("enabled", "enabled-runtime"):
+        restore = run_systemctl(["enable", "--now", PPD_UNIT])
+        if restore.returncode != 0:
+            raise TdpError("rejected", "could not restore power-profiles-daemon")
+    recorded = {name: payload.get(key) for name, key in (
+        ("ppt_pl1_spl", "spl"),
+        ("ppt_pl2_sppt", "sppt"),
+        ("ppt_pl3_fppt", "fppt"),
+    )}
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in recorded.values()):
+        descriptor = acquire_lock()
+        try:
+            for name, value in recorded.items():
+                write_current(name, value)
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+    try:
+        stamp.unlink()
+    except OSError as error:
+        raise TdpError("rejected", f"could not clear the PPD mask record: {error}") from error
+    print(reason, file=sys.stderr)
+
+
+def command_restore():
+    if os.geteuid() != 0 and not fixture_mode():
+        print("omarchy-ally-tdp-prepare --restore must run as root.", file=sys.stderr)
+        return 1
+    require_ally()
+    if not ppd_stamp_path().is_file():
+        raise TdpError("rejected", "there is no PPD mask record to restore")
+    lift_ppd_mask("power-profiles-daemon mask removed and the recorded PPT tuple restored.")
+    return 0
+
+
+def prepare_main(argv):
+    if argv == ["--restore"]:
+        return command_restore()
+    if argv:
+        raise TdpError("rejected", "prepare takes no arguments, or --restore")
     if os.geteuid() != 0 and not fixture_mode():
         print("omarchy-ally-tdp-prepare must run as root.", file=sys.stderr)
         return 1
@@ -814,20 +885,7 @@ def prepare_main(_argv):
     stamp = ppd_stamp_path()
     if status != "open":
         if stamp.is_file():
-            payload = load_json(stamp) or {}
-            previous = payload.get("previous")
-            unmask = run_systemctl(["unmask", PPD_UNIT])
-            if unmask.returncode != 0:
-                raise TdpError("rejected", "could not unmask power-profiles-daemon")
-            if previous in ("enabled", "enabled-runtime"):
-                restore = run_systemctl(["enable", "--now", PPD_UNIT])
-                if restore.returncode != 0:
-                    raise TdpError("rejected", "could not restore power-profiles-daemon")
-            try:
-                stamp.unlink()
-            except OSError as error:
-                raise TdpError("rejected", f"could not clear the PPD mask record: {error}") from error
-            print("power-profiles-daemon mask removed because the Ally TDP owner gate no longer applies.", file=sys.stderr)
+            lift_ppd_mask("power-profiles-daemon mask removed because the Ally TDP owner gate no longer applies.")
         elif status == "hardware":
             print("Not an original ROG Ally RC71L; power-profiles-daemon is unchanged.", file=sys.stderr)
         elif status == "variant":
@@ -849,7 +907,16 @@ def prepare_main(_argv):
         if previous in ("masked", "masked-runtime"):
             print("power-profiles-daemon is already masked; leaving that mask alone.", file=sys.stderr)
             return 0
-        save_json(stamp, {"previous": previous})
+        currents = read_currents()
+        save_json(
+            stamp,
+            {
+                "fppt": currents["ppt_pl3_fppt"],
+                "previous": previous,
+                "spl": currents["ppt_pl1_spl"],
+                "sppt": currents["ppt_pl2_sppt"],
+            },
+        )
     masked = run_systemctl(["mask", "--now", PPD_UNIT])
     if masked.returncode != 0:
         try:
@@ -1046,6 +1113,13 @@ def shim_main(_argv):
     from gi.repository import GLib
 
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    stock = activation_file()
+    if stock is not None and stock.is_file():
+        print(
+            f"ally-tdp-shim: stock activation file {stock} is present; refusing the SteamOS Manager name",
+            file=sys.stderr,
+        )
+        return 2
     state = Shim()
     try:
         state.seed()
@@ -1063,6 +1137,10 @@ def shim_main(_argv):
             owner = bus.get_name_owner(BUS)
             pid = bus.get_connection_unix_process_id(owner)
             detail = f"{owner} pid {pid}"
+            try:
+                detail = f"{detail} exe {os.readlink(f'/proc/{pid}/exe')}"
+            except OSError:
+                pass
         except Exception:
             pass
         print(f"ally-tdp-shim: com.steampowered.SteamOSManager1 is already owned by {detail}", file=sys.stderr)

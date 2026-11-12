@@ -208,6 +208,10 @@ def policy_cases():
         if currents(armoury) != (20, 20, 25) or payload_of(result).get("effective_max") != 20:
             fail("20 W on battery is the ordering cap", f"{currents(armoury)} {result.stdout}")
         ok("20 W on battery is the ordering cap")
+        result = run([str(APPLY), "--set", "21"], env, check=True)
+        if currents(armoury) != (20, 20, 25) or payload_of(result).get("requested_spl") != 21:
+            fail("21 W on battery clamps to 20/20/25", f"{currents(armoury)} {result.stdout}")
+        ok("21 W on battery clamps to 20/20/25")
         result = run([str(APPLY), "--set", "25"], env, check=True)
         preference = json.loads((root / "state" / "preference.json").read_text())
         if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 25:
@@ -417,8 +421,9 @@ def probe_and_prepare():
             fail("prepare tells the operator that asusd is still active", result.stderr)
         if not (root / "run" / "ceilings.json").is_file():
             fail("prepare snapshots the boot ceilings before masking")
-        if not (root / "state" / "ppd-mask.json").is_file():
-            fail("prepare records the PPD mask it owns")
+        receipt = json.loads((root / "state" / "ppd-mask.json").read_text())
+        if receipt.get("previous") != "enabled" or receipt.get("spl") != 30:
+            fail("prepare records the PPD mask and the original PPT tuple", str(receipt))
         ok("prepare masks power-profiles-daemon when the handheld variant and the writer are installed")
 
         (root / "variant" / "handheld").unlink()
@@ -465,6 +470,8 @@ def policy_file():
     source = (ROOT / "default/handheld/omarchy-ally-tdp-source.service").read_text()
     if 'SUBSYSTEM=="power_supply"' not in rules or "omarchy-ally-tdp-source.service" not in rules:
         fail("the udev rule runs the root writer on a power_supply change")
+    if 'PROGRAM=="/usr/bin/omarchy-hw-rog-ally"' not in rules:
+        fail("the udev rule runs only when omarchy-hw-rog-ally matches")
     if "omarchy-ally-tdp-source" not in source:
         fail("the power-supply unit runs the root writer")
     if "omarchy-ally-tdp-prepare" not in prepare or "omarchy-ally-tdp-shim" not in shim:
@@ -772,6 +779,7 @@ def review_cases():
             or config["ppd_state"] is not None
             or config["fixture"]
             or config["dmi_overrides"]
+            or "/usr/local" in config["path"]
         ):
             fail("root ignores environment overrides", str(config))
         for key, value in saved.items():
@@ -799,6 +807,45 @@ def review_cases():
         ok("prepare does not mask PPD when the armoury snapshot fails")
 
     source = ROOT / "bin" / "omarchy-ally-tdp-source"
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-udev-apply-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        run([str(APPLY), "--set", "30"], env, check=True)
+        rc71_dc(armoury, current=(30, 43, 53))
+        (root / "supply" / "ADP" / "online").write_text("0\n")
+        result = run([str(source)], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 30:
+            fail("the power-supply helper reasserts on battery without the shim", f"{currents(armoury)} {preference} {result.stderr}")
+        ok("the power-supply helper reasserts on battery without the shim")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-restore-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nif [[ $1 == is-enabled ]]; then echo enabled; exit 0; fi\nexit 0\n"
+        )
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        run([str(PREPARE)], env, check=True)
+        (armoury / "ppt_pl1_spl" / "current_value").write_text("15\n")
+        log.write_text("")
+        result = run([str(PREPARE), "--restore"], env, check=True)
+        logged = log.read_text()
+        if "unmask power-profiles-daemon.service" not in logged or currents(armoury) != (30, 43, 53):
+            fail("prepare --restore unmasks PPD and writes the recorded tuple", f"{logged} {currents(armoury)} {result.stderr}")
+        if (root / "state" / "ppd-mask.json").exists():
+            fail("prepare --restore drops the PPD mask record")
+        ok("prepare --restore unmasks PPD and writes the recorded tuple")
+
     with tempfile.TemporaryDirectory(prefix="ally-tdp-udev-") as temporary:
         root = Path(temporary)
         layout(root, product="ROG Strix G16", board="GU605CX")
@@ -884,6 +931,22 @@ def shim_review():
         finally:
             stop_shim(owner)
             os.kill(pid, signal.SIGTERM)
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-activation-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        rc71_ac(root / "armoury")
+        service = root / "com.steampowered.SteamOSManager1.service"
+        service.write_text("[D-BUS Service]\nName=com.steampowered.SteamOSManager1\n")
+        address, pid = start_bus()
+        env = environment(root)
+        env["DBUS_SESSION_BUS_ADDRESS"] = address
+        env["OMARCHY_ALLY_TDP_DBUS_SERVICE"] = str(service)
+        result = subprocess.run([str(SHIM)], env=env, text=True, capture_output=True)
+        os.kill(pid, signal.SIGTERM)
+        if result.returncode != 2 or "activation file" not in result.stderr:
+            fail("a stock SteamOS Manager activation file makes the shim exit 2", f"{result.returncode} {result.stderr}")
+        ok("a stock SteamOS Manager activation file makes the shim exit 2")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-bounds-") as temporary:
         root = Path(temporary)
