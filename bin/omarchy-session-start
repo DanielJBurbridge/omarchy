@@ -88,7 +88,9 @@ desktop() {
       return 1
       ;;
     allow)
-      if [[ $(gaming_desktop_lock_effective) == on ]]; then
+      # The handheld pair locks at login, and only after Hyprland is up.
+      # Every other machine starts the desktop directly.
+      if gaming_handheld_variant && [[ $(gaming_desktop_lock_effective) == on ]]; then
         # The lock has to run against a live compositor. Calling it first
         # fails silently and the desktop then opens unlocked.
         if ! omarchy-cmd-present omarchy-system-lock; then

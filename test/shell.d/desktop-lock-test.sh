@@ -479,8 +479,10 @@ write_value explicit-off
 root_do env OMARCHY_PATH="$OMARCHY_PATH" "$ROOT/bin/omarchy-setup-handheld-k07"
 [[ $(head -n 1 -- "$value") == explicit-off ]] || fail "K07 setup changes an explicit off" "$(head -n 1 -- "$value")"
 root_do install -o root -g root -m 0644 /dev/null "$marker"
+cp "$ROOT/bin/omarchy-rollback-handheld-k07" "$work/rollback"
+chmod 0755 "$work/rollback"
 status=0
-as_user "$ROOT/bin/omarchy-rollback-handheld-k07" >/dev/null 2>"$work/rollback.err" || status=$?
+as_user "$work/rollback" >/dev/null 2>"$work/rollback.err" || status=$?
 [[ $status != 0 ]] || fail "a non-root user removed the K07 marker"
 grep -q 'must run as root' "$work/rollback.err" || fail "rollback does not say it needs root" "$(cat "$work/rollback.err")"
 [[ $(user_state) == present ]] || fail "a refused rollback deleted the marker" "$(user_state)"

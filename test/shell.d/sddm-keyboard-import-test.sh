@@ -78,7 +78,7 @@ ShellRoot {
 QML
   HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" \
     QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_QUICK_BACKEND=software \
-    QT_QUICK_CONTROLS_STYLE=Basic QML_IMPORT_PATH= \
+    QT_QUICK_CONTROLS_STYLE=Basic QML_IMPORT_PATH= QML_XHR_ALLOW_FILE_READ=1 \
     timeout 20 quickshell -p "$work/config" --no-color >"$work/log" 2>&1 || true
   if ! grep -q "$pass_line" "$work/log"; then
     cat "$work/log" >&2
