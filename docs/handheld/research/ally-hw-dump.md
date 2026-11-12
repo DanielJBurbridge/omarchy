@@ -1,12 +1,12 @@
 # ROG Ally RC71L: hardware and input dump (read-only)
 
-Captured 12 Nov 2026 13:27 AWST over `ssh rog-ally` from x1carbon. Nothing installed or changed. Raw captures (`ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt`, `ally-omarchy-files.txt`) are kept off-repo and are available on request. They hold device identifiers and are not in this repository.
+Captured 12 Nov 2026 13:27 AWST over `ssh <ally>` from `<workstation>`. Nothing installed or changed. Raw captures (`ally-hw-dump-raw.txt`, `ally-hw-dump-raw-2.txt`, `ally-omarchy-files.txt`) are kept off-repo and are available on request. They hold device identifiers and are not in this repository.
 
 ## System
 - ASUSTeK ROG Ally RC71L_RC71L, board RC71L, BIOS RC71L.339 (2024-07-02), Ryzen Z1 Extreme.
 - Kernel 7.2.15-2-omarchy (BORE), Omarchy 4.0.0.r7695.g7a9a1e9. Sleep: `s2idle` only.
 - Running: `asusd` (asusctl 6.5.0), `power-profiles-daemon` (omarchy-power-profiles-daemon 0.30). Platform profile: quiet / balanced / performance.
-- Not installed: InputPlumber, HHD, steamos-manager, evtest. User `daniel` is not in `input` group, so no live event capture was possible.
+- Not installed: InputPlumber, HHD, steamos-manager, evtest. User `<user>` is not in `input` group, so no live event capture was possible.
 
 ## Kernel modules loaded
 `hid_asus`, `asus_wmi`, `asus_nb_wmi`, `asus_armoury` (firmware-attributes: `ppt_pl1_spl`, `ppt_pl2_sppt`, `ppt_pl3_fppt`, `apu_mem`, `mcu_powersave`, `charge_mode`, ...), `xpad`, `hid_multitouch`, `i2c_hid_acpi`, `sparse_keymap`. No separate Ally gamepad driver; the gamepad comes through `xpad`.
