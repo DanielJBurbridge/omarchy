@@ -1,5 +1,13 @@
 # ROG Ally feature work threads
 
+## Rollout snapshot — 12 November 2026, 16:33 AWST
+
+The matching **`dev.0fdba61b-1`** runtime/settings pair from **`0fdba61bccdc3e1f31673d6992683fe1224de79a`** was installed at 15:31 AWST, and the trusted lock host was ready at the last check. Daniel passed touch-password unlock/wrong-password rejection, right-index fingerprint unlock, rejected-finger feedback with touch fallback, and 30-second blank/tap-wake/touch unlock. Appearance is acceptable for now. The [rollout handoff](../docs/rog-ally-rollout-handoff-20261112.md) supersedes the earlier K07 and installed-state receipts below.
+
+Coldboot image construction remains private, unaccepted and unpublished, with no boot-menu/default/one-shot/encrypted-disk input activation. INPUT 1.0.3 stays optional and held; POWER/Manager stay no-install. SDDM sign-in/session selection and remaining lifecycle/recovery/geometry checks are distinct outstanding work. Host access stopped at Daniel's request while another agent was restarting it, so this records the last verified state. The project PR targets `feat/ally-parity-integration-20261111`, without upstream publication, automatic merge or activation.
+
+## Original launch index
+
 Started 11 November 2026. Scope and sourced comparison: [feature inventory](rog-ally-parity.md). All nine source feature threads were launched and read back as running, each in its own prepared worktree based on `f7194066d`. This is launch status, not a claim that features are implemented or hardware verified.
 
 | Scope | Thread | Branch |
@@ -17,6 +25,10 @@ Started 11 November 2026. Scope and sourced comparison: [feature inventory](rog-
 | Live Ally rollout | [Ally Live rollout and hardware verification](t3-thread://v2/4811d0c9-4fb1-4e7d-ba01-444143bd8f31/mcp:launch:5fe10b7555dcbbfbb26741d26624da5cee482129e846d7aa7a1469a2df071433) | `feat/ally-handheld-rollout-20261111` in the Ally Fleet project |
 
 The source integration thread owns merges and tested release increments. The rollout thread is the sole writer to the live device and owns package installation, configuration backups, UI evidence and rollback. Feature workers send commits and checks to the integrator; they do not independently install or restart services on the Ally.
+
+## Historical source and rollout receipts
+
+These receipts retain the earlier launch, frozen 47e, review and credential boundaries. Their K07 holds and installed dev.28a5 statements describe those stages, not the 16:33 AWST snapshot above. Do not resume an old credential request or frozen transaction from this history.
 
 The common baseline preserves the existing gaming setup, optional wvkbd desktop keyboard and RC71L hardware guards. Eight focused test files passed before launch, with complete logs at `/tmp/ally-baseline-*.log` on the coordinator host. No physical touch/controller acceptance was inferred from these tests.
 

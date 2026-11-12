@@ -1,5 +1,13 @@
 # ROG Ally handheld feature inventory and implementation
 
+## Rollout snapshot — 12 November 2026, 16:33 AWST
+
+The matching runtime/settings pair **`dev.0fdba61b-1`**, from **`0fdba61bccdc3e1f31673d6992683fe1224de79a`**, was installed at 15:31 AWST. The trusted lock host was ready at the last check. Daniel physically passed touch-password unlock and wrong-password rejection, right-index fingerprint unlock, rejected-finger wiggle/message with touch fallback, and the 30-second blank/tap-wake/touch-unlock cycle. Authentication appearance is acceptable for now. The [rollout handoff](../docs/rog-ally-rollout-handoff-20261112.md) supersedes the earlier installed-state and K07 holds below.
+
+SDDM sign-in/session selection, the remaining lock lifecycle/recovery cases and geometry/layout checks are separate outstanding gates. The private coldboot candidate is unaccepted and unpublished; no boot-menu, default/one-shot boot or encrypted-disk input activation was performed. INPUT 1.0.3 remains optional and held; POWER/Manager remain no-install/no-takeover.
+
+This is the last verified snapshot, not a fresh host check: access stopped at Daniel's request because another agent was restarting the host. The project PR targets `feat/ally-parity-integration-20261111`; it grants no upstream publication, automatic merge or further activation. Preserve the earlier frozen 47e and review receipts as history.
+
 Research date: 11 November 2026. Target: Daniel's original ASUS ROG Ally RC71L running Omarchy. The goal is controller and touch operation from sign-in through gaming, with useful battery controls and reliable return to the desktop. Preserve Omarchy, existing user configuration and support for ordinary laptops and desktops.
 
 This inventory covers the documented handheld, gaming, desktop and operating-system feature families in Bazzite and CachyOS. It is not a list of every package either distribution can install. Entries marked optional, hardware dependent or unverified must not be advertised as working defaults on the Ally. An implementation task is not complete until its installed behaviour has been checked; source presence alone is insufficient.
@@ -259,7 +267,11 @@ For each increment record: source commit, installed package versions, changed co
 
 Research is complete. Nine feature worktrees and one source integration worktree preserve the common `f7194066d` baseline. The [thread index](rog-ally-threads.md) identifies each owner and the sole live rollout thread. This ledger records reviewed source separately from installation and physical acceptance; the presence of a command, package or active service never completes an inventory row by itself.
 
-### Current source recovery release — 12 November 2026
+<a id="current-source-recovery-release--12-november-2026"></a>
+
+### Source recovery receipt — 12 November 2026, before live rollout
+
+This section records the source handoff before today's installation. The [16:33 AWST rollout snapshot](#rollout-snapshot--12-november-2026-1633-awst) and linked live handoff supersede its installed-state and physical-acceptance statements.
 
 The recovered executable/package cut is **`43ad2f645d2667e2c8950366ddcca3facd8cd323`**, followed only by the publication receipt/ledger. The [finite source handoff](../docs/rog-ally-source-handoff-20261112.md) is authoritative for this new stage: use the full immutable publication SHA supplied to rollout, not the moving branch. Matching runtime/settings are mandatory even in generic mode; the pinned recipe patch installs the fixed trusted-host unit and declares Python/Qt dependencies. No new packages were installed or activated on Sigil or the Ally. Installed Ally remains `dev.28a5d89-1`; the frozen prepared/uninstalled 47e artifacts remain separate.
 
@@ -269,7 +281,9 @@ The interrupted `./test/all` finished and was not repeated: CLI passed; 2 of 431
 
 Reviewed INPUT cut 5af and exact companion 1.0.3-1 remain included and unchanged; never newly enable 1.0.2. POWER/stock Manager remain no-install/no-takeover, optional Decky stays disabled, and K11 encrypted-disk touch remains unimplemented. Root owns the separately authorised serial package build/install, unlocked owner transition, targeted rollback and genuine touch/sign-in/lock/unlock/suspend gates. No old source hold is an instruction to discard already assessed f42 fixes, and no source test clears live security.
 
-The sections below retain the chronology of earlier source and rollout receipts. Statements that K07 was unmerged/uncleared or that a source handoff was held describe those earlier cuts; this current release section and linked handoff supersede them. Frozen 47e and installed dev.28a5 status remain unchanged.
+The sections below retain the chronology of earlier source and rollout receipts. Statements that K07 was unmerged/uncleared or that a source handoff was held describe those earlier cuts; this source recovery receipt superseded those source holds. Its installed dev.28a5 state was subsequently superseded by today's rollout snapshot; frozen 47e remains a separate historical stage.
+
+<a id="reviewed-source-increments"></a>
 
 ### Reviewed source increments (earlier receipts)
 

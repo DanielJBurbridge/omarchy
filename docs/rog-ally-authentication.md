@@ -1,6 +1,12 @@
 # Trusted touch authentication
 
-Source increments for SDDM K06/K08/K09 and preserved K12 behaviour. The corrected SDDM/read-only producer stage keeps K07 unavailable. This branch adds a separately stageable, opt-in [trusted lock host for K07](trusted-lock-host.md), requiring independent source review and actual Wayland/device acceptance before activation. Never enable Qt Virtual Keyboard in the plugin-bearing lock owner. Installed RC71L touch, controller and fingerprint acceptance remains the sole rollout owner's responsibility. K11 is investigated separately below.
+This reference covers SDDM K06/K08/K09, the opt-in [trusted lock host for K07](trusted-lock-host.md), and the existing K12 fingerprint path. The trusted host has been integrated and deployed on Daniel's RC71L. Never enable Qt Virtual Keyboard in the plugin-bearing lock owner. K11 encrypted-disk input remains a separate boot requirement.
+
+## Rollout snapshot — 12 November 2026, 16:33 AWST
+
+Matching runtime/settings **`dev.0fdba61b-1`**, source **`0fdba61bccdc3e1f31673d6992683fe1224de79a`**, were installed at 15:31 AWST. The trusted host was ready at the last check. Daniel physically passed touch-password unlock/wrong-password rejection, right-index fingerprint unlock, rejected-finger wiggle/message with touch fallback, and 30-second blank/tap-wake/touch unlock. Authentication appearance is acceptable for now. See the [rollout handoff](rog-ally-rollout-handoff-20261112.md) for the superseding receipt and remaining gates.
+
+SDDM sign-in/session selection, lock lifecycle/recovery and geometry/layout checks remain distinct from those passes. The coldboot candidate is private, unaccepted and unpublished, with no boot-menu/default/one-shot/encrypted-disk input activation. INPUT 1.0.3 remains optional and held; POWER/Manager remain no-install. Host access stopped at Daniel's request because another agent was restarting it; this is the last verified snapshot, not a check after that work.
 
 ## Boundaries and behaviour
 
@@ -20,7 +26,7 @@ SDDM remains separately deliverable because its greeter process loads the fixed 
 
 The separate K07 host has no third-party QML and retains the same lock lifecycle, fingerprint/PAM service and read-only INPUT state contract. Its process-local Qt environment never reaches desktop applications. See the separate host document for ownership, readiness, identity validation and rollback. Do not re-enable the generic owner's process-wide keyboard as an environment-only fix.
 
-The existing lock's separate password and fingerprint PAM contexts are unchanged. The enrolled-reader hint and unavailable-reader notice remain visible, and password entry remains available when a reader fails. This does not establish RC71L fingerprint support: the rollout owner must record driver, enrollment and actual PAM results. No fingerprint enrollment or PAM editing is performed by this increment.
+The existing lock's separate password and fingerprint PAM contexts are unchanged. The enrolled-reader hint and unavailable-reader notice remain visible, and password entry remains available when a reader fails. Daniel's right-index success and wrong-finger rejection/touch fallback are recorded in the rollout snapshot above; other reader, enrollment and lifecycle cases still need their own evidence. No fingerprint enrollment or PAM editing is performed by this source increment.
 
 ## Read-only lock-state feed
 
@@ -54,7 +60,7 @@ The source integrator must include the required keyboard package in the reviewed
 Only the rollout owner executes this procedure. Before deploying, record existing runtime/settings package versions, save the matching package archives, back up the installed SDDM theme and configuration including any local overrides, and retain a working physical USB keyboard and TTY login. Save work before any planned logout. Do not modify disk encryption, autologin or PAM to make the test pass.
 
 1. Install the required dependency through `omarchy-pkg-add qt6-virtualkeyboard`, then apply the integrator's reviewed runtime/settings package build through the established package release route. Record the exact installed versions and archive paths. Check package file ownership, fixed theme/config contents and `.pacnew` files before logout; a locally modified config may need an explicit reviewed merge.
-2. From an unlocked desktop, the rollout owner can run `omarchy-restart-shell` once to load the runtime sources. For the corrected SDDM/read-only producer stage, the integrated lock keyboard remains unavailable; verify physical password/fingerprint and the read-only INPUT state feed without claiming touch unlock support. Activating the separate K07 increment requires its own reviewed package and next-session procedure. A preview cannot prove secure-lock behaviour.
+2. From an unlocked desktop, the rollout owner can run `omarchy-restart-shell` once to load the runtime sources. The earlier SDDM/read-only producer stage supplied no lock keyboard. The now-delivered K07 host uses its [matching-package and next-session procedure](trusted-lock-host.md#reviewed-packageinstall-manifest); follow the current rollout handoff rather than replaying the earlier stage. A preview cannot prove secure-lock behaviour.
 3. Exercise SDDM at the next deliberate logout/reboot. Do not restart the display manager under a live user session. Check that `QT_IM_MODULES`, `QT_IM_MODULE` and desktop-disable settings reached the greeter; never enable secret-bearing Qt/PAM debug logging during real password entry.
 4. If the increment fails, return through the physical keyboard/TTY and reinstall the saved matching runtime/settings archives (`sudo pacman -U <previous-runtime-archive> <previous-settings-archive>`), restore the backed-up greeter config/theme where local files differed, and restart the shell from the unlocked desktop. Use the restored greeter on the next deliberate logout. Keep the keyboard dependency installed until no active or installed UI needs it. No LUKS rollback is needed because this increment changes no boot files.
 
@@ -66,16 +72,18 @@ Do not publish real passwords, keyboard traces, account names or personal screen
 
 The SDDM fixture uses a dummy proxy only to capture calls and emit failure; it does not claim PAM, fingerprint or compositor security verification. It does not contact the actual device or take a session lock.
 
-The rollout owner still needs to record:
+The rollout owner still needs to record the unchecked cases below; the dated snapshot above records the completed lock-password, fingerprint and blank/wake checks:
 
 - RC71L screen scale and keyboard geometry: password, session chooser, submit and Cancel remain visible with the keyboard shown; inspect at native resolution and configured scaling. Inspect the language popup and long-press symbol row for clipping. Repeat on an external monitor; at most one keyboard appears in the active surface.
 - Actual touch keys: lowercase, Shift/capital, number, punctuation, non-US accented character, long-press alternative, layout switch and Backspace. Use a test account/password containing those characters. Verify the keyboard's key labels agree with the characters entered; never expose the actual password to demonstrate this.
-- Real wrong-password PAM failure, retry, visible submit, Return and Cancel on SDDM; physical password/fingerprint fallback on secure lock. Trusted-host touch unlock requires the separate K07 acceptance. Check focus after VT switch, suspend/resume and monitor changes.
+- Real wrong-password PAM failure, retry, visible submit, Return and Cancel on SDDM; physical-keyboard fallback on secure lock. Preserve the completed K07 touch-password/fingerprint checks; check focus after VT switch, suspend/resume and monitor changes separately.
 - Real authenticated selection of desktop, gaming and managed-preference sessions when SESSION's package is installed; confirm failed login preserves the chosen session. No greeter shortcut may bypass authentication.
-- Fingerprint success/failure/unavailable behaviour if this device has a working enrolled reader; password fallback remains usable. Distinguish absent driver support from UI regressions.
+- Fingerprint unavailable-reader and remaining lifecycle behaviour; preserve the completed right-index success, wrong-finger feedback and touch-fallback checks. Distinguish absent driver support from UI regressions.
 - Cold-boot LUKS result separately. A successful SDDM or lock keyboard says nothing about encrypted-disk input.
 
 ## K11: encrypted-disk input investigation
+
+As of the 16:33 AWST snapshot, private coldboot image construction is unaccepted and unpublished. No boot-menu, default/one-shot boot or encrypted-disk input activation was performed; the [rollout handoff](rog-ally-rollout-handoff-20261112.md) owns the candidate's next boundary. The investigation below is background, not boot acceptance.
 
 The current RC71L boot path uses the busybox mkinitcpio `udev`, `plymouth`, `keyboard` and `encrypt` hooks. `default/plymouth/omarchy.script` renders password bullets; it supplies no touch keyboard. Qt Virtual Keyboard is available only after the root filesystem and GUI have started.
 
