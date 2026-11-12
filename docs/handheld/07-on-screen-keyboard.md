@@ -1,6 +1,6 @@
 # 07 · On-screen keyboard
 
-Status: draft, revision 4, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 4 cites spec 02 §7.7 for suspend teardown, including the broker `omarchy-handheld-suspend.service`, and does not restate that mechanism. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1).
+Status: draft, revision 5, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 5 cites spec 02 §7.7 for suspend teardown, including the broker `omarchy-handheld-suspend.service`, and does not restate that mechanism. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1).
 
 ## 0. Decisions in one table
 
@@ -120,7 +120,13 @@ Applied by the helper at launch; a `theme-set` hook restarts a **hidden** keyboa
 
 ### 3.6 Armoury hold escape
 
-Holding Armoury Crate for 3 s releases a stuck overlay intercept. The owner is the InputPlumber/session layer, the bridge unit `omarchy-rog-ally-input.service`. The hold sets InputPlumber `InterceptMode` to 0 and releases the overlay intercept. It does this when the overlay process is stopped or gone. Spec 04 cites this section and does not restate it.
+The 3 s Armoury Crate escape belongs to a Gaming Mode instance of the bridge, `omarchy-rog-ally-input-gaming.service`. That unit is `PartOf` the gamescope session and has no Hyprland condition. `omarchy-rog-ally-input.service` is the Hyprland-only instance and is not this owner. The gaming unit sets `Conflicts=omarchy-rog-ally-input.service` and `Restart=on-failure`.
+
+While full intercept is on, the bridge reads the Armoury hold from InputPlumber's intercept D-Bus target, the same target the overlay reads. After 3 s it sets `InterceptMode` to 0, whatever state the overlay is in. That is the only intercept-clearing this unit does. It does no desktop remaps, no uinput chords and no profile changes.
+
+An InputPlumber profile rule is not relied on. Hold-to-release is not verified on a profile. If a device check shows InputPlumber cannot deliver the hold on the intercept target, the design switches to an InputPlumber release rule. Until that check fails, the path stays the intercept target.
+
+The overlay must not take intercept unless `omarchy-rog-ally-input-gaming.service` is active. If that unit is stopped, the overlay refuses intercept and falls back to QAM. Spec 04 cites this section and does not restate it.
 
 ## 4. First boot only: buffyboard
 
@@ -182,7 +188,10 @@ If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard s
 14. Before K07, effective value `on`, no usable keyboard: the overlay row is shown disabled and reads “Connect a keyboard to unlock”. Steam → Switch to Desktop, and any other call into `desktop()`, returns to gaming. There is no unlocked Hyprland frame and no lock screen.
 15. Suspend teardown is spec 02 §7.7 (`omarchy-handheld-suspend.service`). The input cut is that section: every evdev device, including touch and the keyboard HID. This criterion adds no mechanism of its own.
 16. Resume after a lock-on-suspend whose keyboard is no longer attached: the session is back in gaming, the lock is not left up, and nothing auto-unlocked. No desktop frame is shown on wake. The next desktop entry is spec 02 §7.4, and criterion 14 while K07 has not landed.
-17. Holding Armoury Crate for 3 s while the overlay client is stopped sets InputPlumber `InterceptMode` to 0 and releases the overlay intercept. The bridge unit `omarchy-rog-ally-input.service` does it. The overlay process does not.
+17. `omarchy-rog-ally-input-gaming.service` is active in Gaming Mode and absent or inactive on the Hyprland desktop. It is `PartOf` the gamescope session and has no Hyprland condition. `omarchy-rog-ally-input.service` does not own the hold.
+18. With the overlay intercepting, `SIGSTOP` the overlay, and separately kill it. Hold Armoury for 3 s. The gaming bridge still sees that hold on InputPlumber's intercept D-Bus target and sets `InterceptMode` to 0. The readback is from InputPlumber, and the controller reaches Steam.
+19. The gaming bridge's only intercept-clearing is `InterceptMode` 0. It does no desktop remap, no uinput chord and no profile change. The unit sets `Conflicts=omarchy-rog-ally-input.service`.
+20. With `omarchy-rog-ally-input-gaming.service` stopped, the overlay refuses intercept and falls back to QAM. The unit has `Restart=on-failure`.
 
 ## 9. Open questions
 
