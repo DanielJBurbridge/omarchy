@@ -1,0 +1,13 @@
+[Unit]
+Description=Load the InputPlumber gaming profile
+PartOf=omarchy-gaming-session.target
+Before=omarchy-rog-ally-input.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/omarchy-gaming-input-profile
+TimeoutStartSec=5
+
+[Install]
+WantedBy=omarchy-gaming-session.target

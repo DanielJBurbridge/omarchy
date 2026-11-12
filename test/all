@@ -6,6 +6,7 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 tests=(
   "$ROOT/test/cli"
   "$ROOT/test/shell"
+  "$ROOT/test/handheld/run"
 )
 
 # Run every suite even when an earlier one fails, so a single failure can't

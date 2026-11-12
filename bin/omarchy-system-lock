@@ -5,6 +5,16 @@
 # omarchy:name=lock
 # omarchy:examples=omarchy system lock
 
+# The handheld gate lives with the callers of the lock, not in the lock screen.
+if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/session.sh ]]; then
+  # shellcheck source=/dev/null
+  source "$OMARCHY_PATH/default/gaming/session.sh"
+  gaming_apply_lock_gate
+  gate=$?
+  if (( gate == 10 )); then exit 0; fi
+  if (( gate == 11 )); then exit 1; fi
+fi
+
 omarchy-shell lock lock >/dev/null
 
 # Set keyboard layout to default (first layout)

@@ -114,4 +114,41 @@ Rectangle {
   }
 
   Component.onCompleted: password.forceActiveFocus()
+
+  // Shown with the greeter when autologin is stopped. Qt's virtual keyboard
+  // style is not part of this tree; these keys type into the password field.
+  Grid {
+    id: greeterKeyboard
+    objectName: "greeterKeyboard"
+    anchors.bottom: parent.bottom
+    anchors.bottomMargin: 16
+    anchors.horizontalCenter: parent.horizontalCenter
+    columns: 10
+    spacing: 4
+
+    Repeater {
+      model: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g", "h", "j", "k", "l", "z", "x", "c", "v", "b", "n", "m", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+
+      Rectangle {
+        width: 28
+        height: 28
+        radius: 4
+        color: "#1a1b26"
+        border.color: "#ffffff"
+        border.width: 1
+
+        Text {
+          anchors.centerIn: parent
+          text: modelData
+          color: "#ffffff"
+          font.pixelSize: 14
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          onClicked: password.insert(password.length, modelData)
+        }
+      }
+    }
+  }
 }

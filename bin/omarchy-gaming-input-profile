@@ -1,0 +1,19 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Load the InputPlumber gaming profile before the gaming bridge
+
+set -uo pipefail
+# The profile file arrives with the input work. Until then there is nothing
+# to load, and a missing daemon must not hold the bridge back.
+profile=$OMARCHY_PATH/default/rog-ally-input/profiles/gaming.yaml
+status=0
+if [[ -f $profile ]] && busctl status org.shadowblip.InputPlumber >/dev/null 2>&1; then
+  mapfile -t devices < <(busctl tree org.shadowblip.InputPlumber | grep -o '/org/shadowblip/InputPlumber/CompositeDevice[0-9]*' || true)
+  if (( ${#devices[@]} > 0 )); then
+    for device in "${devices[@]}"; do
+      timeout 3 busctl call org.shadowblip.InputPlumber \
+        "$device" org.shadowblip.Input.CompositeDevice LoadProfilePath s "$profile" || status=1
+    done
+  fi
+fi
+exit "$status"

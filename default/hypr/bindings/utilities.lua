@@ -23,7 +23,7 @@ if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds(ally) then
 end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
-o.bind("XF86PowerOff", "Power menu", { menu = "system" }, { locked = true })
+o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = true })
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + CTRL + K", "Herdr keybindings", "omarchy-menu-herdr-keybindings")

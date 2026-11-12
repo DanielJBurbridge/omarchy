@@ -1,0 +1,21 @@
+# Optional fixed-path registration. Runtime commands ship in omarchy.
+pkgname=omarchy-gaming-session
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
+arch=('x86_64')
+url='https://github.com/DanielJBurbridge/omarchy'
+license=('MIT')
+depends=('omarchy' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
+# Create this exact source archive from the reviewed commit; see docs.
+source=('omarchy-source.tar.gz')
+sha256sums=('SKIP')
+install=omarchy-gaming-session.install
+
+package() {
+  cd "$srcdir/omarchy"
+  install -Dm644 default/gaming/wayland-sessions/omarchy-gamescope.desktop "$pkgdir/usr/share/wayland-sessions/omarchy-gamescope.desktop"
+  install -Dm644 default/gaming/wayland-sessions/omarchy-handheld.desktop "$pkgdir/usr/share/wayland-sessions/omarchy-handheld.desktop"
+  install -Dm644 'default/gaming/applications/Omarchy Gaming.desktop' "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

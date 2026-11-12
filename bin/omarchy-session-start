@@ -1,0 +1,286 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Supervise the optional authenticated handheld login session
+# omarchy:args=<preferred|gaming|relogin>
+
+set -uo pipefail
+# This is a pre-UWSM login boundary; use the canonical environment bootstrap.
+# shellcheck source=/dev/null
+source /usr/share/omarchy/default/bash/env-bootstrap
+source "$OMARCHY_PATH/default/gaming/session.sh"
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
+
+start_hyprland() {
+  export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
+  # UWSM intentionally removes XDG_SESSION_ID from the user manager. Carry our
+  # managed login identity through its normal environment import/cleanup.
+  if [[ -n ${gaming_runtime:-} ]]; then export OMARCHY_HANDHELD_SESSION=$XDG_SESSION_ID; fi
+  unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  if [[ -n ${gaming_state:-} && -f $gaming_state/preference-reset ]]; then
+    rm -f "$gaming_state/preference-reset"
+    omarchy-notification-send 'Omarchy' 'Session preference reset' || true
+  fi
+  uwsm start -g -1 -e -D Hyprland hyprland.desktop
+  local status=$?
+  unset OMARCHY_HANDHELD_SESSION
+  return "$status"
+}
+
+# One choke point for every autologged-in desktop entry. Return 10 when the
+# lock is required and was not acknowledged, without starting Hyprland.
+# Before K07 on the handheld, do not lock without a physical keyboard. Explicit
+# on with none returns to gaming. Off with none starts the desktop unlocked.
+desktop() {
+  case $(gaming_lock_decision) in
+    return)
+      echo 'No physical keyboard is attached; returning to gaming instead of locking.' >> "$gaming_state/session.log"
+      return 10
+      ;;
+    allow)
+      if [[ $(gaming_desktop_lock_effective) == on ]]; then
+        if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
+          echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+          return 10
+        fi
+      fi
+      ;;
+  esac
+  start_hyprland
+}
+
+if ! omarchy-hw-rog-ally; then
+  start_hyprland
+  exit $?
+fi
+gaming_state_init && gaming_runtime_init || exit 1
+exec 9>"$gaming_runtime/lock"
+flock -n 9 || { gaming_fail 'a managed session is already running.'; exit 1; }
+scope=omarchy-gamescope-$XDG_SESSION_ID.scope
+gaming_session_target=omarchy-gaming-session.target
+scope_pid='' ready_pid='' return_pid=''
+started_power_units=()
+gaming_target_started=0
+gaming_autologin_ready=0
+autologin_watch=0
+
+stop_gaming() {
+  if [[ -n $scope_pid ]]; then
+    systemctl --user stop "$scope" || true
+    # A scope that ignores the stop must not hold the next login open.
+    local waited=0
+    while kill -0 "$scope_pid" 2>/dev/null && (( waited < 20 )); do
+      sleep 0.1
+      waited=$(( waited + 1 ))
+    done
+    kill "$scope_pid" 2>/dev/null || true
+    wait "$scope_pid" 2>/dev/null || true
+    scope_pid=''
+  fi
+  for child in "$ready_pid" "$return_pid"; do
+    if [[ -n $child ]]; then kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi
+  done
+  ready_pid='' return_pid=''
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return"
+  # Stop only services this gaming session acquired, policy listener first.
+  for unit in "${started_power_units[@]}"; do
+    systemctl --user stop "$unit" || true
+  done
+  started_power_units=()
+  # Drop the session target before the desktop starts, so units bound with
+  # PartOf= stop with the gamescope session and stay down on the desktop.
+  if (( gaming_target_started )); then
+    systemctl --user stop "$gaming_session_target" || true
+    gaming_target_started=0
+  fi
+}
+cleanup() {
+  stop_gaming
+  rm -f "$gaming_runtime/active" "$gaming_runtime/switch"
+  # A session that exits without the ready FIFO reading started is a failed
+  # gaming start. The ready read is the only reset.
+  if (( autologin_watch && ! gaming_autologin_ready )); then
+    if omarchy-cmd-present omarchy-handheld-autologin; then
+      omarchy-handheld-autologin fail || true
+    fi
+  fi
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+run_gaming() {
+  omarchy-cmd-present gamescope && omarchy-cmd-present steam || return 2
+  # A surviving desktop client would forward the startup request elsewhere.
+  if pgrep -u "$UID" -x steam >/dev/null; then
+    gaming_fail 'Steam is still running. Exit Steam before switching sessions.'
+    return 2
+  fi
+  gaming_display_args || { gaming_fail 'invalid display settings; reset them.'; return 2; }
+  # These companion integrations are optional; installed backends own their
+  # resources and a failed mode switch must not leave a half-switched session.
+  if omarchy-pkg-present omarchy-rog-ally-input; then
+    omarchy-hw-rog-ally-input gamepad || return 1
+  fi
+  local display_args=() display_output
+  if omarchy-cmd-present omarchy-display-rog-ally; then
+    display_output=$(omarchy-display-rog-ally gamescope-args) || return 1
+    if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
+  fi
+  if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
+    omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
+    gamescope_args+=(--mangoapp)
+  fi
+  if [[ -f ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power/enabled ]]; then
+    for unit in steamos-manager.service omarchy-ally-power.service; do
+      if ! systemctl --user is-active --quiet "$unit"; then
+        systemctl --user start "$unit" || return 1
+        started_power_units=("$unit" "${started_power_units[@]}")
+      fi
+    done
+  fi
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/steam-exit"
+  mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" || return 1
+  local ready_timeout=${OMARCHY_GAMING_READY_TIMEOUT:-60}
+  [[ $ready_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] || ready_timeout=60
+  # Open read/write to make timeout include the wait for the first writer.
+  (read -r -t "$ready_timeout" event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
+  ready_pid=$!
+  (read -r event <> "$gaming_runtime/return" && [[ $event == "desktop" ]]) &
+  return_pid=$!
+  export OMARCHY_GAMING_RUNTIME=$gaming_runtime
+  export XDG_CURRENT_DESKTOP=gamescope XDG_SESSION_DESKTOP=gamescope
+  unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  mv -f "$gaming_state/session.log" "$gaming_state/session.previous.log" 2>/dev/null || true
+  # Group Gamescope and its children for teardown. Scope membership does not
+  # establish logind session membership or target DRM/libseat access.
+  # Scope stop owns only this session's subtree, including games and helpers.
+  # Spec 04's overlay sits on the root Xwayland, so Gamescope always gets two.
+  # The target is handheld-only: this function runs after the Ally gate above.
+  # Ship the units with the session so a checkout starts them before the
+  # package has copied them into /usr/lib/systemd/user.
+  gaming_unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+  install -D -m 644 "$OMARCHY_PATH/default/systemd/user/omarchy-gaming-session.target" \
+    "$gaming_unit_dir/omarchy-gaming-session.target" || return 1
+  install -D -m 644 "$OMARCHY_PATH/default/systemd/user/omarchy-gaming-input-profile.service" \
+    "$gaming_unit_dir/omarchy-gaming-input-profile.service" || return 1
+  install -D -m 644 "$OMARCHY_PATH/default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf" \
+    "$gaming_unit_dir/omarchy-rog-ally-input.service.d/10-gaming-session.conf" || return 1
+  install -D -m 644 "$OMARCHY_PATH/default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf" \
+    "$gaming_unit_dir/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf" || return 1
+  systemctl --user daemon-reload || true
+  # Starting the target runs the profile oneshot (Wants=). The bridge unit,
+  # when that package is installed, is After= that oneshot.
+  systemctl --user start "$gaming_session_target" || return 1
+  gaming_target_started=1
+  if systemctl --user cat omarchy-rog-ally-input.service >/dev/null 2>&1; then
+    systemctl --user start omarchy-rog-ally-input.service || true
+  fi
+  # #33's shim is not part of this tree. Restart it only when the unit is
+  # installed, so Steam's TDP slider comes back, and skip it when it is not.
+  if systemctl --user cat omarchy-ally-tdp-shim.service >/dev/null 2>&1; then
+    systemctl --user restart omarchy-ally-tdp-shim.service || true
+  fi
+  systemd-run --user --scope --quiet --collect --unit="$scope" \
+    --property=TimeoutStopSec=15s \
+    gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
+    "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" \
+    > "$gaming_state/session.log" 2>&1 9>&- &
+  scope_pid=$!
+  local finished='' status=0 started=false steam_ready_at=0 returned=false
+  wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
+  if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
+    started=true
+    gaming_autologin_ready=1
+    if omarchy-cmd-present omarchy-handheld-autologin; then
+      omarchy-handheld-autologin reset || true
+    fi
+    steam_ready_at=$(date +%s)
+    ready_pid=''
+    gaming_save last gaming
+    wait -n -p finished "$scope_pid" "$return_pid" || status=$?
+  fi
+  if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
+    returned=true
+  elif [[ $finished == "$ready_pid" ]]; then
+    status=1
+    echo "Gamescope did not start its Steam child within ${ready_timeout} seconds." >> "$gaming_state/session.log"
+  elif ! $started; then
+    status=1
+    echo 'Gamescope exited before starting its Steam child.' >> "$gaming_state/session.log"
+  fi
+  stop_gaming
+  # Append after Gamescope's log redirection has closed, so its exit text
+  # cannot overwrite the return line the desktop switch is recognised by.
+  if $returned; then
+    echo 'Requested return to desktop.' >> "$gaming_state/session.log"
+  fi
+  # Gamescope can return zero after its primary child fails. A non-zero Steam
+  # exit in the first 120 seconds is a failure. A later exit returns to desktop.
+  # An explicit Switch to Desktop is not a failure, whatever Steam's status is.
+  if $returned; then
+    status=0
+  elif [[ -f $gaming_runtime/steam-exit && $(cat "$gaming_runtime/steam-exit") != "0" ]]; then
+    if $started; then
+      local now
+      now=$(date +%s)
+      if (( now - steam_ready_at < 120 )); then
+        status=1
+      else
+        status=0
+      fi
+    else
+      status=1
+    fi
+  fi
+  unset OMARCHY_GAMING_RUNTIME
+  return "$status"
+}
+
+if [[ $1 == "gaming" ]]; then
+  selection=gaming
+  rm -f "$gaming_state/recovery"
+else
+  selection=$(gaming_entry_selection "$1")
+fi
+retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
+[[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
+if omarchy-cmd-present omarchy-handheld-autologin && omarchy-handheld-autologin tripped; then
+  exit 0
+fi
+retries=0
+autologin_watch=1
+while true; do
+  printf '%s\n' "$selection" > "$gaming_runtime/active"
+  if [[ $selection == "gaming" ]]; then
+    run_gaming
+    status=$?
+    stop_gaming
+    if (( status == 0 )); then
+      selection=desktop
+    elif (( status == 2 || retries >= 1 )); then
+      gaming_save recovery 'Gaming failed; desktop selected until an explicit gaming choice.'
+      omarchy-notification-send 'Gaming Mode didn’t start' 'Gaming did not start. Log: ~/.local/state/omarchy/gaming-session/session.log' || true
+      retries=1
+      selection=desktop
+    else
+      retries=1
+      sleep "$retry_gap"
+    fi
+  else
+    gaming_save last desktop
+    desktop
+    status=$?
+    if (( status == 10 )); then
+      # The recovery latch stays. A remaining D2 retry goes back to gaming.
+      if (( retries >= 1 )); then
+        exit 1
+      fi
+      retries=1
+      selection=gaming
+    elif [[ -f $gaming_runtime/switch ]] && [[ $(cat "$gaming_runtime/switch") == "gaming" ]]; then
+      rm -f "$gaming_runtime/switch"
+      selection=gaming
+    else
+      exit "$status"
+    fi
+  fi
+done

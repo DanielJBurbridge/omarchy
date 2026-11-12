@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=Omarchy Gaming
+Comment=Save your work and exit Steam before switching to the gaming session
+Exec=omarchy-launch-gaming-session
+Icon=input-gaming
+Terminal=false
+Type=Application
+Categories=Game;

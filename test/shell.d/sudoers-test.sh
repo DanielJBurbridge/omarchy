@@ -17,6 +17,7 @@ trap 'rm -rf "$test_tmp"' EXIT
 # drop-in needs a row: the grant it carries is reviewed here or nowhere.
 declare -A expected=(
   [omarchy-dns]='%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-dns Cloudflare, /usr/bin/omarchy-dns Google, /usr/bin/omarchy-dns DHCP'
+  [omarchy-handheld-autologin]='%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply'
   [omarchy-locale-generate]="%wheel ALL=(root) NOPASSWD: $(jq -r 'keys | sort | map("/usr/bin/omarchy-locale-generate " + .) | join(", ")' "$registry")"
   [omarchy-passwd-tries]='Defaults passwd_tries=10'
   [omarchy-sudo-timeout]='Defaults timestamp_timeout=10'
