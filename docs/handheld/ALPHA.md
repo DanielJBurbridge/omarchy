@@ -26,7 +26,7 @@ omarchy-setup-security-sshd
 
 That authorizes a key, turns password logins off, then runs `sudo systemctl enable sshd.service` and `sudo systemctl reload-or-restart sshd.service`, and opens the port with `sudo ufw limit 22/tcp`. A bare `systemctl enable --now sshd` skips the key, the password lock, and the firewall.
 
-From another machine, `ssh rog-ally` must log in before you go on. The setup prints `ssh $USER@$(hostname)`. If that name is not `rog-ally`, set it with `sudo hostnamectl set-hostname rog-ally` and check `ssh rog-ally` again.
+From another machine, `ssh rog-ally` (or `ssh $USER@<ally-host>`) must log in before you go on. `rog-ally` is an alias on that client. The setup prints `ssh $USER@$(hostname)`.
 
 ## Install
 
