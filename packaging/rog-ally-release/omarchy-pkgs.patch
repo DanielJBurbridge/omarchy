@@ -1,0 +1,13 @@
+--- a/pkgbuilds/omarchy-dev/PKGBUILD
++++ b/pkgbuilds/omarchy-dev/PKGBUILD
+@@ -29,2 +29,4 @@
+   'quickshell'
++  'python' # Canonical lock/launcher helper, including generic owner mode
++  'qt6-virtualkeyboard' # Trusted greeter and optional isolated lock keyboard
+   'uwsm'
+--- a/pkgbuilds/omarchy-settings-dev/PKGBUILD
++++ b/pkgbuilds/omarchy-settings-dev/PKGBUILD
+@@ -214,2 +214,3 @@
+   install -Dm644 default/systemd/user/omarchy-sleep-lock.service "$pkgdir/usr/lib/systemd/user/omarchy-sleep-lock.service"
++  install -Dm644 default/systemd/user/omarchy-lock-host.service "$pkgdir/usr/lib/systemd/user/omarchy-lock-host.service"
+   install -Dm644 default/systemd/user/omarchy-recover-internal-monitor.service "$pkgdir/usr/lib/systemd/user/omarchy-recover-internal-monitor.service"
