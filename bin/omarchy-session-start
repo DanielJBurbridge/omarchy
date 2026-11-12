@@ -28,13 +28,23 @@ start_hyprland() {
 
 # One choke point for every autologged-in desktop entry. Return 10 when the
 # lock is required and was not acknowledged, without starting Hyprland.
+# Before K07 on the handheld, do not lock without a physical keyboard. Explicit
+# on with none returns to gaming. Off with none starts the desktop unlocked.
 desktop() {
-  if [[ $(gaming_desktop_lock_effective) == on ]]; then
-    if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
-      echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+  case $(gaming_lock_decision) in
+    return)
+      echo 'No physical keyboard is attached; returning to gaming instead of locking.' >> "$gaming_state/session.log"
       return 10
-    fi
-  fi
+      ;;
+    allow)
+      if [[ $(gaming_desktop_lock_effective) == on ]]; then
+        if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
+          echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+          return 10
+        fi
+      fi
+      ;;
+  esac
   start_hyprland
 }
 
@@ -116,6 +126,7 @@ run_gaming() {
   # Group Gamescope and its children for teardown. Scope membership does not
   # establish logind session membership or target DRM/libseat access.
   # Scope stop owns only this session's subtree, including games and helpers.
+  # Spec 04's overlay sits on the root Xwayland, so Gamescope always gets two.
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
     gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \

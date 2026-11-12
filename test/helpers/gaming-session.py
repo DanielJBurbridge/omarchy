@@ -115,7 +115,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert not (state(directory) / 'next').exists()
     assert 'gamescope:' not in (directory / 'actions').read_text()
     run(env, selector, 'preferred')
-    assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in (directory / 'actions').read_text(), ((directory / 'actions').read_text(), (state(directory) / 'session.log').read_text())
+    actions = (directory / 'actions').read_text()
+    assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in actions, (actions, (state(directory) / 'session.log').read_text())
+    assert '--xwayland-count 2' in actions, actions
     run(env, setup, 'display', '720p', '40', 'fsr')
     run(env, selector, 'gaming')
     assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in (directory / 'actions').read_text()
