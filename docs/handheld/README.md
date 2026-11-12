@@ -1,6 +1,6 @@
 # Omarchy Handheld UX specs
 
-Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md).
+Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md). The next slice, the mode round trip, is [08](08-mode-round-trip.md).
 
 Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Secondary (design for, verify later): Ally X (RC72LA), Xbox Ally (RC73X/Y), Lenovo Legion Go, Steam Deck, MSI Claw.
 
@@ -15,6 +15,7 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 | 05 | [Notifications (gaming and desktop)](05-notifications.md) | Draft, revision 3 |
 | 06 | [Accessibility: text size, contrast, haptics, one-handed](06-accessibility.md) | Draft, revision 3 |
 | 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 8 |
+| 08 | [Mode round trip (gaming ⇄ desktop)](08-mode-round-trip.md) | Draft, revision 1 |
 
 Out of scope for now: lock screen, greeter and disk-unlock design (AUTH owns those surfaces).
 
