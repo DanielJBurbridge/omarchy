@@ -1,0 +1,219 @@
+--- a/candidate_root.py
++++ b/candidate_root.py
+@@ -328,7 +328,7 @@
+         else:
+             require(p.startswith('/usr/'),'Unexpected closure source path');dest=target/p.lstrip('/')
+         require(dest.is_file() and sha(dest)==info['sha256'],'Native dependency drift in isolated snapshot')
+-    for path in ['/usr/share/libinput','/usr/share/X11/xkb','/usr/share/libwacom','/usr/lib/firmware/amdgpu']:
++    for path in ['/usr/share/libinput','/usr/share/X11/xkb','/usr/share/libwacom','/usr/lib/firmware/amdgpu','/usr/share/licenses/linux-firmware-amdgpu','/usr/share/licenses/linux-firmware-whence']:
+         require((target/path.lstrip('/')).is_dir(),'Required public data/firmware directory missing')
+     for folder,info in json.loads((HERE/'runtime-data-manifest.json').read_text()).items():
+         if 'files' not in info:continue # generated hwdb is checked after isolated regeneration
+@@ -343,6 +343,7 @@
+         proc=subprocess.run(['/usr/bin/unshare','--mount','--net','--ipc','--uts','--propagation','private','--fork','--kill-child=SIGKILL','/usr/bin/bash',str(HERE/'namespace.sh'),str(work)],stdin=subprocess.DEVNULL,stdout=log,stderr=log)
+     verify_unchanged(work)
+     require(proc.returncode==0,'Isolated construction failed; retain private log/target, no publication')
++    require(b'==> ERROR:' not in (work/'build-private.log').read_bytes(),'Native construction reported an error; retain private log, no publication')
+     require(sha(target/'usr/lib/systemd/boot/efi/linuxx64.efi.stub')==STUB_SHA,'Private EFI stub unexpectedly changed')
+     audit_image(work,target)
+     verify_unchanged(work)
+@@ -379,7 +380,7 @@
+     for info in records.values():
+         for name in info.get('interpreter',[]):roots[name.lstrip('/')]=sha(target/name.lstrip('/'))
+     audit_elf_members(entries,records,roots)
+-    for folder in ['usr/share/libinput','usr/share/X11/xkb','usr/share/libwacom','usr/lib/firmware/amdgpu','usr/share/licenses/unl0kr-ally-candidate']:
++    for folder in ['usr/share/libinput','usr/share/X11/xkb','usr/share/libwacom','usr/lib/firmware/amdgpu','usr/share/licenses/unl0kr-ally-candidate','usr/share/licenses/linux-firmware-amdgpu','usr/share/licenses/linux-firmware-whence']:
+         for p in [target/folder,*(target/folder).rglob('*')]:
+             audit_snapshot_member(entries,str(p.relative_to(target)),p)
+     audit_snapshot_member(entries,'usr/lib/udev/hwdb.bin',target/'usr/lib/udev/hwdb.bin')
+--- a/candidate_support.py
++++ b/candidate_support.py
+@@ -92,10 +92,15 @@
+             require(found,'Required SONAME alias missing: '+needed)
+ 
+ def audit_snapshot_member(entries,name,source):
+-    source=pathlib.Path(source);require(name in entries,'Image data member missing')
+-    mode,data=entries[name];kind=source.lstat().st_mode
++    source=pathlib.Path(source);kind=source.lstat().st_mode
++    # Native data may sit beneath a preserved directory alias. Resolve its
++    # parent components inside CPIO before inspecting the final member type.
++    parent=str(pathlib.PurePosixPath(name).parent)
++    key=name if parent=='.' else resolve_member(entries,parent)[0]+'/'+pathlib.PurePosixPath(name).name
++    require(key in entries,'Image data member missing: '+name)
++    mode,data=entries[key]
+     if stat.S_ISLNK(kind):
+-        require(stat.S_ISLNK(mode),'Image data link was replaced by another type')
++        require(stat.S_ISLNK(mode),'Image data link was replaced by another type: '+name)
+         link=source.readlink().as_posix()
+         expected=link if link.startswith('/') else str(pathlib.PurePosixPath(name).parent/link)
+         require(resolve_member(entries,name)[0]==resolve_member(entries,expected)[0],'Image data link target differs')
+--- a/candidate-data.install
++++ b/candidate-data.install
+@@ -1,16 +1,93 @@
+-#!/usr/bin/bash
+-# Private builder hook adapter only; package/runtime/auth hook stays unchanged.
+-# Preserve the native package build function, extend only reviewed image data.
+-# This package-owned path exists only after extraction in the isolated target.
+-# shellcheck disable=SC1091
+-source /usr/lib/initcpio/install/ally-touch-encrypt
+-eval "$(declare -f build | sed '1s/build/ally_package_build/')"
++#!/bin/bash
++# SPDX-License-Identifier: GPL-2.0-only
++
++ally_add_data_dir() {
++    local directory=$1 canonical
++    canonical=$(realpath -e -- "$directory") || die "Required Ally image data is missing: $directory"
++    [[ -d $canonical ]] || die "Required Ally image data is not a directory: $directory"
++    add_full_dir "$canonical" || die "Failed to add Ally image data: $directory"
++    if [[ $canonical != "$directory" ]]; then
++        add_symlink "$directory" "$canonical" || die "Failed to add Ally image data alias: $directory"
++    fi
++}
++
+ build() {
+-    ally_package_build
+-    add_full_dir /usr/share/libwacom
+-    add_full_dir /usr/share/licenses/unl0kr-ally-candidate
+-    add_full_dir /usr/lib/firmware/amdgpu
+-    for directory in /etc/libinput /etc/libwacom /etc/udev/hwdb.d; do
+-        [[ ! -d $directory ]] || add_full_dir "$directory"
++    local mod
++
++    map add_module 'dm-crypt' 'dm-integrity' 'hid-generic?'
++    if [[ -n "$CRYPTO_MODULES" ]]; then
++        for mod in $CRYPTO_MODULES; do
++            add_module "$mod"
++        done
++    else
++        add_all_modules '/crypto/'
++    fi
++
++    add_binary 'cryptsetup'
++
++    map add_udev_rule \
++        '10-dm.rules' \
++        '13-dm-disk.rules' \
++        '95-dm-notify.rules'
++
++    # cryptsetup calls pthread_create(), which dlopen()s libgcc_s.so.1
++    add_binary '/usr/lib/libgcc_s.so.1'
++
++    # cryptsetup loads the legacy provider which is required for whirlpool
++    add_binary '/usr/lib/ossl-modules/legacy.so'
++
++    # Reuse upstream unl0kr, with package-owned dependencies and data only.
++    add_binary '/usr/bin/unl0kr'
++    add_binary '/usr/bin/timeout'
++    add_binary '/usr/bin/ally-unl0kr-guard'
++    add_file '/etc/unl0kr.conf'
++    add_file '/etc/unl0kr-ally-candidate.conf'
++    add_file '/usr/lib/udev/hwdb.bin'
++    add_binary '/usr/lib/udev/libinput-device-group'
++    add_binary '/usr/lib/udev/libinput-fuzz-extract'
++    add_binary '/usr/lib/udev/libinput-fuzz-to-zero'
++    map add_udev_rule \
++        '60-evdev.rules' '60-input-id.rules' '65-libwacom.rules' \
++        '70-mouse.rules' '70-touchpad.rules' \
++        '80-libinput-device-groups.rules' '90-libinput-fuzz-override.rules'
++    ally_add_data_dir '/usr/share/libinput'
++    ally_add_data_dir '/usr/share/X11/xkb'
++
++    # Data closure reviewed in the private candidate builder, now package-owned.
++    # These package dependencies/notices must exist; never omit them silently.
++    local ally_data
++    for ally_data in \
++        /usr/share/libwacom \
++        /usr/share/licenses/unl0kr-ally-candidate \
++        /usr/lib/firmware/amdgpu \
++        /usr/share/licenses/linux-firmware-amdgpu \
++        /usr/share/licenses/linux-firmware-whence; do
++        ally_add_data_dir "$ally_data"
+     done
++    for ally_data in /etc/libinput /etc/libwacom /etc/udev/hwdb.d; do
++        [[ ! -d $ally_data ]] || ally_add_data_dir "$ally_data"
++    done
++
++    add_runscript
+ }
++
++help() {
++    cat <<HELPEOF
++This hook allows for an encrypted root device. Users should specify the device
++to be unlocked using 'cryptdevice=device:dmname' on the kernel command line,
++where 'device' is the path to the raw device, and 'dmname' is the name given to
++the device after unlocking, and will be available as /dev/mapper/dmname.
++
++For unlocking via keyfile, 'cryptkey=device:fstype:path' should be specified on
++the kernel cmdline, where 'device' represents the raw block device where the key
++exists, 'fstype' is the filesystem type of 'device' (or auto), and 'path' is
++the absolute path of the keyfile within the device.
++
++Without specifying a keyfile, you will be prompted for the password at runtime.
++This means you must have a keyboard available to input it, and you may need
++the keymap hook as well to ensure that the keyboard is using the layout you
++expect.
++HELPEOF
++}
++
++# vim: set ft=sh ts=4 sw=4 et:
+--- a/namespace.sh
++++ b/namespace.sh
+@@ -5,6 +5,9 @@
+ [[ $EUID -eq 0 && $work == /root/ally-coldboot-candidate-* && -d $work/target ]]
+ root="$work/target"
+ mount --make-rprivate /
++# Give the chroot a real root mount entry for native findmnt/autodetect. This
++# binds only the private snapshot, within this private mount namespace.
++mount --bind "$root" "$root"
+ # Non-recursive bind: do not import efivarfs/debugfs/securityfs submounts.
+ mount --bind /sys "$root/sys"
+ mount -o remount,bind,ro,nosuid,nodev,noexec "$root/sys"
+--- a/test_support.py
++++ b/test_support.py
+@@ -1,6 +1,6 @@
+ #!/usr/bin/python3
+ """Unprivileged pure-helper regressions; never imports the root entry point."""
+-import ast,copy,hashlib,pathlib,stat,struct,subprocess,tempfile,unittest,uuid
++import ast,copy,hashlib,os,pathlib,stat,struct,subprocess,tempfile,unittest,uuid
+ from candidate_support import (Gate,pe_info,boot_option,case_path,package_members,
+     safe_cmdline,transform,initrd_entries,PKG_SHA,checked_destination,
+     audit_elf_members,audit_snapshot_member,resolve_member,selected_menu_cmdline,
+@@ -117,6 +117,38 @@
+         with self.assertRaises(Gate):selected_menu_cmdline('/Other\n//linux-omarchy\ncmdline: '+live+'\n')
+ 
+ class ImageAudit(unittest.TestCase):
++    def test_native_directory_alias_and_descendant_data(self):
++        with tempfile.TemporaryDirectory(prefix='ally-native-data-alias-') as temporary:
++            base=pathlib.Path(temporary);real=base/'layouts';real.mkdir()
++            (real/'map').write_bytes(b'public layout data')
++            alias=base/'xkb';alias.symlink_to(real,target_is_directory=True)
++            def make_image(command):
++                image=base/('image-'+command);image.mkdir()
++                script='''shopt -s extglob
++source /usr/lib/initcpio/functions
++source "$3"
++_optquiet=1
++BUILDROOT=$1
++''' + command + ' "$2"\n'
++                p=subprocess.run(['/usr/bin/bash','-c',script,'fixture',str(image),str(alias),str(HERE/'candidate-data.install')],
++                    capture_output=True,text=True,env={'PATH':'/usr/bin','LC_ALL':'C.UTF-8'})
++                self.assertEqual(p.returncode,0,p.stderr)
++                entries={}
++                for path in image.rglob('*'):
++                    mode=path.lstat().st_mode
++                    data=os.readlink(path).encode() if stat.S_ISLNK(mode) else path.read_bytes() if stat.S_ISREG(mode) else b''
++                    entries[str(path.relative_to(image))]=(mode,data)
++                return entries
++            name=str(alias).lstrip('/')
++            original=make_image('add_full_dir')
++            with self.assertRaises(Gate):audit_snapshot_member(original,name,alias)
++            corrected=make_image('ally_add_data_dir')
++            audit_snapshot_member(corrected,name,alias)
++            audit_snapshot_member(corrected,name+'/map',alias/'map')
++            canonical=str(real/'map').lstrip('/')
++            mode,data=corrected[canonical];corrected[canonical]=(mode,b'tampered')
++            with self.assertRaises(Gate):audit_snapshot_member(corrected,name+'/map',alias/'map')
++
+     def fixture(self):
+         digest=lambda value:hashlib.sha256(value).hexdigest()
+         entries={name:(stat.S_IFDIR|0o755,b'') for name in ['usr','usr/bin','usr/lib','usr/lib/udev']}

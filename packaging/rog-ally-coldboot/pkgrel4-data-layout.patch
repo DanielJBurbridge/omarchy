@@ -1,0 +1,145 @@
+--- a/package/PKGBUILD
++++ b/package/PKGBUILD
+@@ -3,7 +3,7 @@
+ # AUR source provenance 9f19b9e87c8d6b2d1f36fde977c548f3b52c9034.
+ pkgname=unl0kr-ally-candidate
+ pkgver=3.6.0
+-pkgrel=3
++pkgrel=4
+ pkgdesc='Native Omarchy unl0kr candidate with complete initcpio data and disabled activation'
+ arch=('x86_64')
+ url='https://gitlab.nura.eco/nura/buffybox'
+@@ -61,7 +61,7 @@
+     'a0ad1404113c2bbec76a91089680d2145abfa3bc768ca8dabd6aa162d4d429b6'
+     '518c9f31415933af6fadcbaf34fb48316e8f4e4761e811ad97c3fd16a6e26d2f'
+     '587b6a5f42a16a3bf7f2d29dd61f3453d0a3631681b6cc06509a56e916956ba6'
+-    'f6dd9e8c7760d900a9a11f63a6e5a124cce3b97a75eb01c35f71f0dc436361d3'
++    '569a56ce0172bcae85f9233138e07ecb54a4ffa0593bfe2064cc3f76d905e8dc'
+     'fed2956aeb39aa3d494beac259262f3d8a00131e30f2c8af87b285efb23e71c0'
+     'b5c424ace04ab1b59c716f0d1b8192a2c1a35fc191e73eeb735c65490bd4e905'
+     'e67c30a02c82eabd6b143f51438a1d4ee106dc376c0f03cd254404b9e4c39999'
+@@ -91,7 +91,7 @@
+     '361d30001170ba1997114b26b873ce3b9c217e1025e5908d9bacef1ddff662d2'
+     '06a2828ebe4b713e90def34fbe7530c30b2b0fef6971192b00a83131978beabd'
+     'a32a6dd9278474fbe26a5a90df3847cbeed95e8126db9c733b00d9973d26e7e0'
+-    'b72374aa457fb74dddda0237fea7aee3db1ac909806657f15261565540db2022'
++    'de2924f508e6df99ffc48e9f9e55e41f2af95f3eced7cf1d11ce12f25aaa7ac2'
+     '15fd0a2deeaa7e8feb090c4ed156c3a710ba1e1675006b801eb3bf2e55ac0a11'
+ )
+ 
+--- a/package/.SRCINFO
++++ b/package/.SRCINFO
+@@ -2,7 +2,7 @@
+ pkgbase = unl0kr-ally-candidate
+ 	pkgdesc = Native Omarchy unl0kr candidate with complete initcpio data and disabled activation
+ 	pkgver = 3.6.0
+-	pkgrel = 3
++	pkgrel = 4
+ 	url = https://gitlab.nura.eco/nura/buffybox
+ 	arch = x86_64
+ 	license = GPL-3.0-or-later
+@@ -79,7 +79,7 @@
+ 	sha256sums = a0ad1404113c2bbec76a91089680d2145abfa3bc768ca8dabd6aa162d4d429b6
+ 	sha256sums = 518c9f31415933af6fadcbaf34fb48316e8f4e4761e811ad97c3fd16a6e26d2f
+ 	sha256sums = 587b6a5f42a16a3bf7f2d29dd61f3453d0a3631681b6cc06509a56e916956ba6
+-	sha256sums = f6dd9e8c7760d900a9a11f63a6e5a124cce3b97a75eb01c35f71f0dc436361d3
++	sha256sums = 569a56ce0172bcae85f9233138e07ecb54a4ffa0593bfe2064cc3f76d905e8dc
+ 	sha256sums = fed2956aeb39aa3d494beac259262f3d8a00131e30f2c8af87b285efb23e71c0
+ 	sha256sums = b5c424ace04ab1b59c716f0d1b8192a2c1a35fc191e73eeb735c65490bd4e905
+ 	sha256sums = e67c30a02c82eabd6b143f51438a1d4ee106dc376c0f03cd254404b9e4c39999
+@@ -109,7 +109,7 @@
+ 	sha256sums = 361d30001170ba1997114b26b873ce3b9c217e1025e5908d9bacef1ddff662d2
+ 	sha256sums = 06a2828ebe4b713e90def34fbe7530c30b2b0fef6971192b00a83131978beabd
+ 	sha256sums = a32a6dd9278474fbe26a5a90df3847cbeed95e8126db9c733b00d9973d26e7e0
+-	sha256sums = b72374aa457fb74dddda0237fea7aee3db1ac909806657f15261565540db2022
++	sha256sums = de2924f508e6df99ffc48e9f9e55e41f2af95f3eced7cf1d11ce12f25aaa7ac2
+ 	sha256sums = 15fd0a2deeaa7e8feb090c4ed156c3a710ba1e1675006b801eb3bf2e55ac0a11
+ 
+ pkgname = unl0kr-ally-candidate
+--- a/package/ally-touch-encrypt.install
++++ b/package/ally-touch-encrypt.install
+@@ -1,5 +1,15 @@
+ #!/bin/bash
+ # SPDX-License-Identifier: GPL-2.0-only
++
++ally_add_data_dir() {
++    local directory=$1 canonical
++    canonical=$(realpath -e -- "$directory") || die "Required Ally image data is missing: $directory"
++    [[ -d $canonical ]] || die "Required Ally image data is not a directory: $directory"
++    add_full_dir "$canonical" || die "Failed to add Ally image data: $directory"
++    if [[ $canonical != "$directory" ]]; then
++        add_symlink "$directory" "$canonical" || die "Failed to add Ally image data alias: $directory"
++    fi
++}
+ 
+ build() {
+     local mod
+@@ -40,8 +50,8 @@
+         '60-evdev.rules' '60-input-id.rules' '65-libwacom.rules' \
+         '70-mouse.rules' '70-touchpad.rules' \
+         '80-libinput-device-groups.rules' '90-libinput-fuzz-override.rules'
+-    add_full_dir '/usr/share/libinput'
+-    add_full_dir '/usr/share/X11/xkb'
++    ally_add_data_dir '/usr/share/libinput'
++    ally_add_data_dir '/usr/share/X11/xkb'
+ 
+     # Data closure reviewed in the private candidate builder, now package-owned.
+     # These package dependencies/notices must exist; never omit them silently.
+@@ -52,13 +62,10 @@
+         /usr/lib/firmware/amdgpu \
+         /usr/share/licenses/linux-firmware-amdgpu \
+         /usr/share/licenses/linux-firmware-whence; do
+-        if [[ ! -d $ally_data ]]; then
+-            die "Required Ally image data is missing: $ally_data"
+-        fi
+-        add_full_dir "$ally_data" || return 1
++        ally_add_data_dir "$ally_data"
+     done
+     for ally_data in /etc/libinput /etc/libwacom /etc/udev/hwdb.d; do
+-        [[ ! -d $ally_data ]] || add_full_dir "$ally_data" || return 1
++        [[ ! -d $ally_data ]] || ally_add_data_dir "$ally_data"
+     done
+ 
+     add_runscript
+--- a/package/test-integration.py
++++ b/package/test-integration.py
+@@ -9,6 +9,7 @@
+ HERE=pathlib.Path(__file__).resolve().parent
+ HOOKS='base udev plymouth keyboard autodetect microcode modconf kms keymap consolefont block encrypt filesystems fsck btrfs-overlayfs resume'.split()
+ MANDATORY=['/usr/share/libwacom','/usr/share/licenses/unl0kr-ally-candidate','/usr/lib/firmware/amdgpu','/usr/share/licenses/linux-firmware-amdgpu','/usr/share/licenses/linux-firmware-whence']
++DATA=['/usr/share/libinput','/usr/share/X11/xkb']
+ OPTIONAL=['/etc/libinput','/etc/libwacom','/etc/udev/hwdb.d']
+ def bash(text):
+     return subprocess.run(['/usr/bin/env','-i','PATH=/usr/bin','LC_ALL=C.UTF-8','/usr/bin/bash','-c',text],capture_output=True,text=True)
+@@ -76,10 +77,10 @@
+     def install_calls(self,missing=None,optional=False):
+         with tempfile.TemporaryDirectory(prefix='ally-installer-membership-') as directory:
+             root=pathlib.Path(directory);text=(HERE/'ally-touch-encrypt.install').read_text()
+-            for path in MANDATORY+(OPTIONAL if optional else []):
++            for path in DATA+MANDATORY+(OPTIONAL if optional else []):
+                 if path!=missing:(root/path.lstrip('/')).mkdir(parents=True)
+             # Paths are redirected only to keep existence checks fixture-bound.
+-            for path in sorted(MANDATORY+OPTIONAL,key=len,reverse=True):text=text.replace(path,str(root/path.lstrip('/')))
++            for path in sorted(DATA+MANDATORY+OPTIONAL,key=len,reverse=True):text=text.replace(path,str(root/path.lstrip('/')))
+             hookdir=root/'install';hookdir.mkdir();hook=hookdir/'ally-touch-encrypt';hook.write_text(text);hook.chmod(0o700)
+             # Use the native wrapper, RETURN trap, die and cleanup. Cleanup
+             # has no temporary files or work directory to remove.
+@@ -112,6 +113,18 @@
+     def test_production_installer_membership_and_optional_data(self):
+         out,err,code=self.install_calls(optional=True);self.assertEqual(code,0,err);self.assertIn('RESULT=0',out);self.assertIn('RUNSCRIPT=yes',out)
+         for path in MANDATORY+OPTIONAL+['/usr/share/libinput','/usr/share/X11/xkb']:self.assertIn('DIR='+path+'\n',out)
++    def test_native_data_alias_preserves_layout_and_link(self):
++        with tempfile.TemporaryDirectory(prefix='ally-native-xkb-alias-') as directory:
++            root=pathlib.Path(directory);canonical=root/'layouts';canonical.mkdir()
++            (canonical/'symbols').mkdir();(canonical/'symbols/us').write_bytes(b'public keyboard layout\n')
++            alias=root/'xkb';alias.symlink_to(canonical,target_is_directory=True)
++            image=root/'image';image.mkdir()
++            script='shopt -s extglob\nsource /usr/lib/initcpio/functions\nsource '+shlex.quote(str(HERE/'ally-touch-encrypt.install'))+'\n_optquiet=1\nBUILDROOT='+shlex.quote(str(image))+'\nally_add_data_dir '+shlex.quote(str(alias))+'\n'
++            p=bash(script);self.assertEqual(p.returncode,0,p.stderr)
++            copied=image/str(alias).lstrip('/')
++            self.assertTrue(copied.is_symlink())
++            self.assertEqual(copied.readlink(),canonical)
++            self.assertEqual((image/str(canonical).lstrip('/')/'symbols/us').read_bytes(),b'public keyboard layout\n')
+     def test_production_installer_missing_required_data_fails(self):
+         out,err,code=self.install_calls(missing='/usr/share/libwacom');self.assertEqual(code,1,err);self.assertNotIn('RUNSCRIPT=yes',out)
+ 

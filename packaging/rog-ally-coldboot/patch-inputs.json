@@ -1,0 +1,43 @@
+{
+  "private_builder_base_manifest_sha256": "907185f2e11517eaf1ee2e9395e215010859f924b6d8020f2741db7557ae70d4",
+  "private_builder_files": {
+    "candidate_root.py": {
+      "before_sha256": "333381a3361dbf400756e3ee45cdeadaacd3149fa5c741c8eae9b745049f9c7f",
+      "after_sha256": "2777cdf790c1fefa56e01010c962505fc417a30ebb968adf7919578be4a800c0"
+    },
+    "candidate_support.py": {
+      "before_sha256": "1b32911aef047957fa7e3e4611866c2e00be31bc742dc4aaca0d34e4af1041d9",
+      "after_sha256": "2f8a833f8d9ee7dbb5573df37d9cb5c506608636be52db886d142265f808059c"
+    },
+    "candidate-data.install": {
+      "before_sha256": "1b0ca6814b69adc7131cb8838296772fff3543f7effc0ba6ff2531fe0f18daff",
+      "after_sha256": "569a56ce0172bcae85f9233138e07ecb54a4ffa0593bfe2064cc3f76d905e8dc"
+    },
+    "namespace.sh": {
+      "before_sha256": "512ac9413f777455a27cf38f624bc67248247b1867201be23e371fadd68415ff",
+      "after_sha256": "d5f86e73596c5ea1dc53d9bc21b8c80238149b54208340fe7ae5ea4285dddf82"
+    },
+    "test_support.py": {
+      "before_sha256": "921a7fd2853f5ac1cda20a4e78d422b5debeea144d002ca49ca0238e656a1fb7",
+      "after_sha256": "1c51410c0831c305dadede694bfa0719044159958e5c832672f46f0cd653d114"
+    }
+  },
+  "maintained_package_inputs": {
+    "PKGBUILD": {
+      "before_sha256": "d855d20b2b96fb813e1576efc823e9ecae5b2e3bb0cdcbd7a0d9d882d74c6cd7",
+      "after_sha256": "51fd4819fe55bb7288f529a958238206f3660c717930cb9aefb5cc8cf80d279e"
+    },
+    ".SRCINFO": {
+      "before_sha256": "7aa2040b28b00f7baedcef39014e87f884a4107801c5ae70597338c93af7dfbc",
+      "after_sha256": "0216b0297ac94b6c4eaaf2346043a6c5841013add1cd70b4844f23631525fb1d"
+    },
+    "ally-touch-encrypt.install": {
+      "before_sha256": "f6dd9e8c7760d900a9a11f63a6e5a124cce3b97a75eb01c35f71f0dc436361d3",
+      "after_sha256": "569a56ce0172bcae85f9233138e07ecb54a4ffa0593bfe2064cc3f76d905e8dc"
+    },
+    "test-integration.py": {
+      "before_sha256": "b72374aa457fb74dddda0237fea7aee3db1ac909806657f15261565540db2022",
+      "after_sha256": "de2924f508e6df99ffc48e9f9e55e41f2af95f3eced7cf1d11ce12f25aaa7ac2"
+    }
+  }
+}
