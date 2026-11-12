@@ -28,8 +28,8 @@ if ! omarchy-cmd-present gamescope || ! omarchy-cmd-present steam; then
 fi
 # Stop while the departing desktop still owns its Wayland connection.
 omarchy-toggle-desktop-keyboard stop
-printf 'gaming\n' > "$gaming_runtime/switch"
-if ! omarchy-system logout; then
-  rm -f "$gaming_runtime/switch"
-  exit 1
-fi
+# The worker survives desktop teardown and owns the marker through the actual
+# logout result. Submitting omarchy-system's asynchronous job is not completion.
+systemd-run --user --collect --quiet --property=Type=exec --property=RuntimeMaxSec=30s \
+  --setenv=PATH --setenv=HYPRLAND_INSTANCE_SIGNATURE --setenv=OMARCHY_PATH \
+  "$OMARCHY_PATH/default/gaming/switch.sh" "$gaming_runtime"

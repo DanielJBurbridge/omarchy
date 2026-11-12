@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     command('omarchy-cmd-present', '#!/bin/bash\n[[ ${MISSING:-} != "$1" ]] && command -v "$1" >/dev/null\n')
     command('pgrep', '#!/bin/bash\n[[ ${BUSY:-0} == 1 ]]\n')
     command('omarchy-notification-send', '#!/bin/bash\nexit 0\n')
-    command('omarchy-system', '#!/bin/bash\necho "system:$*" >> "$TEST_ROOT/actions"\n')
+    command('omarchy-system', '#!/bin/bash\necho "system:$*" >> "$TEST_ROOT/actions"\nif [[ $MODE == logout-fail && ${2:-} == --execute ]]; then sleep 0.05; exit 42; fi\n')
     command('omarchy-toggle-desktop-keyboard', '#!/bin/bash\necho "keyboard:$*:$WAYLAND_DISPLAY" >> "$TEST_ROOT/actions"\n')
     command('uwsm', '''#!/bin/bash
         echo "desktop:$*" >> "$TEST_ROOT/actions"
@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         args = sys.argv[1:]
         while args and args[0].startswith('--'): args.pop(0)
         child = subprocess.Popen(args, start_new_session=True)
+        if os.environ['MODE'] == 'logout-fail': sys.exit(0)
         pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid').write_text(str(child.pid))
         sys.exit(child.wait())
     ''')
@@ -161,6 +162,14 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert not (directory / 'actions').read_text()
     assert not (active / 'switch').exists()
     print('PASS absent Gamescope never stops keyboard or logs out')
+
+    directory, env = case('failed-logout-job', MODE='logout-fail', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')
+    active = directory / 'runtime/omarchy-gaming-c71'
+    active.mkdir()
+    (active / 'active').write_text('desktop\n')
+    run(env, repo / 'bin/omarchy-launch-gaming-session')
+    assert not (active / 'switch').exists(), 'failed asynchronous logout must not change a later ordinary logout'
+    print('PASS a submitted logout job clears its gaming request on actual failure')
 
     # The upstream desktop bridge is private and rejects policy mutations.
     run(env, repo / 'default/gaming/bin/steamos-session-select', 'persistent', status=2)
