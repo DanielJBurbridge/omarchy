@@ -1,0 +1,4 @@
+# Root path for an AC/battery change. The oneshot reasserts through the same
+# writer as resume. It is not installed by this spike; copy it only on an
+# RC71L that has the handheld variant and the TDP writer.
+ACTION=="change", SUBSYSTEM=="power_supply", TAG+="systemd", ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"

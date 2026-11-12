@@ -12,11 +12,15 @@ Property names follow the MIT-licensed SteamOS Manager interface
 daemon.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
+import tempfile
+import time
 
 BUS = "com.steampowered.SteamOSManager1"
 OBJECT_PATH = "/com/steampowered/SteamOSManager1"
@@ -31,8 +35,17 @@ KEYS = {"ppt_pl1_spl": "spl", "ppt_pl2_sppt": "sppt", "ppt_pl3_fppt": "fppt"}
 REAL_ARMOURY = "/sys/class/firmware-attributes/asus-armoury/attributes"
 HANDHELD_VARIANT = "/var/lib/omarchy/variants/handheld"
 AC_CAP = 30
+BATTERY_CAP = 25
 PROFILE_NAME = "performance"
 PPD_UNIT = "power-profiles-daemon.service"
+LOCK_WAIT_SECONDS = 5
+CONFLICTS = (
+    ("power-profiles-daemon.service", "OMARCHY_ALLY_TDP_PPD_STATE"),
+    ("asusd.service", "OMARCHY_ALLY_TDP_ASUSD_STATE"),
+    ("hhd.service", "OMARCHY_ALLY_TDP_HHD_STATE"),
+    ("tuned.service", "OMARCHY_ALLY_TDP_TUNED_STATE"),
+    ("gamemoded.service", "OMARCHY_ALLY_TDP_GAMEMODE_STATE"),
+)
 
 
 class TdpError(Exception):
@@ -52,32 +65,71 @@ def fail(status, message):
     return 1
 
 
+def effective_config(euid=None):
+    """Paths and flags the writer will honour.
+
+    Root ignores the environment. A preserved OMARCHY_PATH, a fixture flag, a
+    fake sysfs path or a DMI override must not steer a privileged process.
+    """
+    if euid is None:
+        euid = os.geteuid()
+    if euid == 0:
+        return {
+            "armoury": REAL_ARMOURY,
+            "boot_id": "",
+            "dmi_overrides": False,
+            "fixture": False,
+            "hwmon": "/sys/class/hwmon",
+            "omarchy_path": "/usr/share/omarchy",
+            "path": "/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin",
+            "ppd_state": None,
+            "run_dir": "/run/omarchy/ally-tdp",
+            "state_dir": "/var/lib/omarchy/ally-tdp",
+            "supply": "/sys/class/power_supply",
+            "variant": HANDHELD_VARIANT,
+        }
+    return {
+        "armoury": os.environ.get("OMARCHY_ALLY_ARMOURY_PATH", REAL_ARMOURY),
+        "boot_id": os.environ.get("OMARCHY_ALLY_TDP_BOOT_ID", ""),
+        "dmi_overrides": True,
+        "fixture": os.environ.get("OMARCHY_ALLY_TDP_FIXTURE") == "1",
+        "hwmon": os.environ.get("OMARCHY_ALLY_HWMON_PATH", "/sys/class/hwmon"),
+        "omarchy_path": os.environ.get("OMARCHY_PATH", ""),
+        "path": os.environ.get("PATH", ""),
+        "ppd_state": os.environ.get("OMARCHY_ALLY_TDP_PPD_STATE"),
+        "run_dir": os.environ.get("OMARCHY_ALLY_TDP_RUN_DIR", "/run/omarchy/ally-tdp"),
+        "state_dir": os.environ.get("OMARCHY_ALLY_TDP_STATE_DIR", "/var/lib/omarchy/ally-tdp"),
+        "supply": os.environ.get("OMARCHY_POWER_SUPPLY_PATH", "/sys/class/power_supply"),
+        "variant": os.environ.get("OMARCHY_HANDHELD_VARIANT_PATH", HANDHELD_VARIANT),
+    }
+
+
 def armoury_root():
-    return Path(os.environ.get("OMARCHY_ALLY_ARMOURY_PATH", REAL_ARMOURY))
+    return Path(effective_config()["armoury"])
 
 
 def fixture_mode():
-    return os.environ.get("OMARCHY_ALLY_TDP_FIXTURE") == "1"
+    return effective_config()["fixture"]
 
 
 def run_dir():
-    return Path(os.environ.get("OMARCHY_ALLY_TDP_RUN_DIR", "/run/omarchy/ally-tdp"))
+    return Path(effective_config()["run_dir"])
 
 
 def state_dir():
-    return Path(os.environ.get("OMARCHY_ALLY_TDP_STATE_DIR", "/var/lib/omarchy/ally-tdp"))
+    return Path(effective_config()["state_dir"])
 
 
 def supply_root():
-    return Path(os.environ.get("OMARCHY_POWER_SUPPLY_PATH", "/sys/class/power_supply"))
+    return Path(effective_config()["supply"])
 
 
 def hwmon_root():
-    return Path(os.environ.get("OMARCHY_ALLY_HWMON_PATH", "/sys/class/hwmon"))
+    return Path(effective_config()["hwmon"])
 
 
 def boot_id():
-    override = os.environ.get("OMARCHY_ALLY_TDP_BOOT_ID")
+    override = effective_config()["boot_id"]
     if override:
         return override
     try:
@@ -86,7 +138,21 @@ def boot_id():
         return "unknown"
 
 
+def ally_dmi_matches(vendor, product, board):
+    return vendor == "ASUSTeK COMPUTER INC." and (product.startswith("ROG Ally RC71L") or board == "RC71L")
+
+
 def require_ally():
+    if os.geteuid() == 0:
+        try:
+            vendor = Path("/sys/class/dmi/id/sys_vendor").read_text().strip()
+            product = Path("/sys/class/dmi/id/product_name").read_text().strip()
+            board = Path("/sys/class/dmi/id/board_name").read_text().strip()
+        except OSError as error:
+            raise TdpError("rejected", f"cannot read DMI: {error}") from error
+        if not ally_dmi_matches(vendor, product, board):
+            raise TdpError("rejected", "this TDP path is only for the original ROG Ally RC71L")
+        return
     try:
         result = subprocess.run(["omarchy-hw-rog-ally"], check=False)
     except OSError as error:
@@ -96,22 +162,24 @@ def require_ally():
 
 
 def handheld_variant_installed():
-    flag = os.environ.get("OMARCHY_ALLY_TDP_HANDHELD")
-    if flag == "1":
-        return True
-    if flag == "0":
-        return False
-    return Path(os.environ.get("OMARCHY_HANDHELD_VARIANT_PATH", HANDHELD_VARIANT)).is_file()
+    if os.geteuid() != 0:
+        flag = os.environ.get("OMARCHY_ALLY_TDP_HANDHELD")
+        if flag == "1":
+            return True
+        if flag == "0":
+            return False
+    return Path(effective_config()["variant"]).is_file()
 
 
 def writer_installed():
-    flag = os.environ.get("OMARCHY_ALLY_TDP_WRITER_INSTALLED")
-    if flag == "1":
-        return True
-    if flag == "0":
-        return False
+    if os.geteuid() != 0:
+        flag = os.environ.get("OMARCHY_ALLY_TDP_WRITER_INSTALLED")
+        if flag == "1":
+            return True
+        if flag == "0":
+            return False
     candidates = []
-    root = os.environ.get("OMARCHY_PATH")
+    root = effective_config()["omarchy_path"]
     if root:
         candidates.append(Path(root) / "bin" / "omarchy-ally-tdp-apply")
     candidates.append(Path("/usr/bin/omarchy-ally-tdp-apply"))
@@ -241,15 +309,58 @@ def load_json(path):
         raise TdpError("rejected", f"cannot read {path.name}: {error}") from error
 
 
+def assert_safe_dir(path):
+    """Refuse a symlink or a group/world-writable directory we are about to write in."""
+    directory = Path(path)
+    for candidate in (directory, directory.parent):
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        info = candidate.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise TdpError("rejected", f"{candidate} is a symlink")
+        if info.st_mode & 0o022:
+            raise TdpError("rejected", f"{candidate} is group or world writable")
+        owner = 0 if os.geteuid() == 0 else os.geteuid()
+        if info.st_uid != owner:
+            raise TdpError("rejected", f"{candidate} is not owned by the writer")
+
+
 def save_json(path, payload):
+    path = Path(path)
     try:
         path.parent.mkdir(parents=True, mode=0o755, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(payload, sort_keys=True) + "\n")
-        os.chmod(temporary, 0o644)
-        temporary.replace(path)
+        assert_safe_dir(path.parent)
+        if path.is_symlink():
+            raise TdpError("rejected", f"{path} is a symlink")
+        blob = (json.dumps(payload, sort_keys=True) + "\n").encode()
+        descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        try:
+            os.write(descriptor, blob)
+            os.fchmod(descriptor, 0o644)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, path)
+    except TdpError:
+        raise
     except OSError as error:
         raise TdpError("rejected", f"cannot record {path.name}: {error}") from error
+
+
+def validate_snapshot(snapshot, live):
+    for key in ("spl", "sppt", "fppt"):
+        item = snapshot.get(key)
+        if not isinstance(item, dict):
+            raise TdpError("rejected", "stored PPT ceiling is incomplete")
+        for field in ("default", "max", "min"):
+            value = item.get(field)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TdpError("rejected", "stored PPT ceiling is not a whole number")
+        if item["min"] > item["max"] or item["default"] < item["min"] or item["default"] > item["max"]:
+            raise TdpError("rejected", "stored PPT ceiling is inconsistent")
+        if item["min"] < live[key]["min"] or item["max"] > live[key]["max"]:
+            raise TdpError("rejected", "stored PPT ceiling is outside the live firmware range")
+        if item["default"] < live[key]["min"] or item["default"] > live[key]["max"]:
+            raise TdpError("rejected", "stored PPT default was tampered with")
 
 
 def ceilings_for(source, live, persist):
@@ -260,6 +371,7 @@ def ceilings_for(source, live, persist):
     sources = stored.setdefault("sources", {})
     if source in sources:
         snapshot = sources[source]
+        validate_snapshot(snapshot, live)
         frozen = True
     else:
         snapshot = {key: {"default": live[key]["default"], "max": live[key]["max"], "min": live[key]["min"]} for key in live}
@@ -285,37 +397,32 @@ def round_div(numer, denom):
     return (numer + denom // 2) // denom
 
 
-def limit_ceiling(source, live, snapshot):
-    """Highest integer this limit may be written as.
+def burst_ceiling(source, live, snapshot):
+    """SPPT and FPPT never go above the boot-captured default.
 
-    Battery stays at or under the boot-captured firmware default. AC keeps the
-    boot-captured maximum, which is also the default when the AC table has none.
+    On AC the RC71 table has no separate default, so the driver reports
+    default == max and that maximum is the ceiling. A battery default of zero
+    is refused instead of silently using the maximum.
     """
     if source == "battery":
-        ceiling = snapshot["default"] if snapshot["default"] > 0 else snapshot["max"]
+        if snapshot["default"] <= 0:
+            raise TdpError("rejected", "battery firmware default is missing")
+        ceiling = snapshot["default"]
     else:
         ceiling = snapshot["max"]
     return min(ceiling, live["max"], snapshot["max"])
 
 
-def spl_window(source, snapshot, live):
+def absolute_window(source, snapshot, live):
     spl_min = live["spl"]["min"]
-    if source == "battery":
-        spl_max = limit_ceiling(source, live["spl"], snapshot["spl"])
-    else:
-        spl_max = min(AC_CAP, live["spl"]["max"], snapshot["spl"]["max"])
+    policy = BATTERY_CAP if source == "battery" else AC_CAP
+    spl_max = min(policy, live["spl"]["max"], snapshot["spl"]["max"])
     if spl_min > spl_max:
         raise TdpError("rejected", "the firmware SPL range does not overlap the Ally cap")
     return spl_min, spl_max
 
 
 def commit_plan(requested, source, snapshot, live):
-    spl_min, spl_max = spl_window(source, snapshot, live)
-    if requested < spl_min or requested > spl_max:
-        raise TdpError(
-            "rejected",
-            f"sustained limit {requested} W is outside {spl_min}–{spl_max} W on {source}",
-        )
     spl_anchor = anchor(snapshot["spl"])
     derived = {
         "sppt": round_div(requested * anchor(snapshot["sppt"]), spl_anchor),
@@ -323,79 +430,77 @@ def commit_plan(requested, source, snapshot, live):
     }
     planned = {}
     for key in ("sppt", "fppt"):
-        ceiling = limit_ceiling(source, live[key], snapshot[key])
+        ceiling = burst_ceiling(source, live[key], snapshot[key])
         floor = live[key]["min"]
         if floor > ceiling:
             raise TdpError("rejected", "a burst limit floor is above its firmware ceiling")
-        value = derived[key]
-        if value > ceiling:
-            noun = "defaults" if source == "battery" else "ceiling"
-            raise TdpError("rejected", f"derived {key.upper()} {value} W is above the firmware {noun}")
+        value = min(derived[key], ceiling)
         if value < floor:
             value = floor
         planned[key] = value
     if planned["sppt"] < requested or planned["fppt"] < planned["sppt"]:
-        raise TdpError("rejected", "derived burst limits cannot stay inside the firmware ceiling")
+        raise TdpError("rejected", "SPL would exceed SPPT or FPPT")
     return requested, planned["sppt"], planned["fppt"]
 
 
 def plan_targets(requested, source, snapshot, live, clamp):
-    spl_min, spl_max = spl_window(source, snapshot, live)
-    if clamp:
-        requested = min(max(requested, spl_min), spl_max)
-        for candidate in range(requested, spl_min - 1, -1):
-            try:
-                return commit_plan(candidate, source, snapshot, live)
-            except TdpError:
-                continue
-        raise TdpError("rejected", "no sustained limit fits the firmware defaults")
-    return commit_plan(requested, source, snapshot, live)
+    spl_min, spl_max = absolute_window(source, snapshot, live)
+    if requested < spl_min or (not clamp and requested > spl_max):
+        raise TdpError(
+            "rejected",
+            f"sustained limit {requested} W is outside {spl_min}–{spl_max} W on {source}",
+        )
+    start = min(max(requested, spl_min), spl_max) if clamp else requested
+    for candidate in range(start, spl_min - 1, -1):
+        try:
+            return commit_plan(candidate, source, snapshot, live)
+        except TdpError as error:
+            if "exceed" not in str(error):
+                raise
+            continue
+    raise TdpError("rejected", "no sustained limit keeps SPL <= SPPT <= FPPT")
 
 
 def effective_bounds(source, snapshot, live):
-    spl_min, spl_max = spl_window(source, snapshot, live)
+    spl_min, spl_max = absolute_window(source, snapshot, live)
     for candidate in range(spl_max, spl_min - 1, -1):
         try:
             commit_plan(candidate, source, snapshot, live)
         except TdpError:
             continue
         return spl_min, candidate
-    raise TdpError("rejected", "no sustained limit fits the firmware ceiling and the Ally cap")
+    raise TdpError("rejected", "no sustained limit keeps SPL <= SPPT <= FPPT")
 
 
 def ppd_active():
-    state = os.environ.get("OMARCHY_ALLY_TDP_PPD_STATE")
-    if state == "active":
-        return True
-    if state == "inactive":
-        return False
-    if state is not None:
-        raise TdpError("rejected", "unrecognised power-profiles-daemon state override")
-    if fixture_mode():
-        return False
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-active", "--quiet", "power-profiles-daemon.service"],
-            check=False,
-        )
-    except OSError as error:
-        raise TdpError("rejected", f"could not check power-profiles-daemon: {error}") from error
-    return result.returncode == 0
+    if os.geteuid() != 0:
+        state = os.environ.get("OMARCHY_ALLY_TDP_PPD_STATE")
+        if state not in (None, "active", "inactive"):
+            raise TdpError("rejected", "unrecognised power-profiles-daemon state override")
+    return unit_active(PPD_UNIT, "OMARCHY_ALLY_TDP_PPD_STATE")
 
 
 def unit_active(unit, env_name):
-    state = os.environ.get(env_name)
-    if state == "active":
-        return True
-    if state == "inactive":
-        return False
-    if fixture_mode():
-        return False
+    if os.geteuid() != 0:
+        state = os.environ.get(env_name)
+        if state == "active":
+            return True
+        if state == "inactive":
+            return False
+        if fixture_mode():
+            return False
     try:
         result = subprocess.run(["systemctl", "is-active", "--quiet", unit], check=False)
     except OSError:
         return False
     return result.returncode == 0
+
+
+def conflicting_owner():
+    for unit, env_name in CONFLICTS:
+        if unit_active(unit, env_name):
+            return unit
+    return None
 
 
 def preference_path():
@@ -442,56 +547,163 @@ def restore_currents(original):
     return unrestored
 
 
-def apply_spl(requested, clamp, remember):
-    require_owner()
-    assert_write_allowed()
-    if ppd_active():
-        raise TdpError("rejected", "power-profiles-daemon is active; it still owns platform power")
-    source = power_source()
-    live = read_live()
-    snapshot, frozen = ceilings_for(source, live, persist=True)
-    spl, sppt, fppt = plan_targets(requested, source, snapshot, live, clamp=clamp)
-    targets = {"ppt_pl1_spl": spl, "ppt_pl2_sppt": sppt, "ppt_pl3_fppt": fppt}
-    original = read_currents()
-    written = []
+def order_is_safe(current, targets, names):
+    values = dict(current)
+    for name in names:
+        values[name] = targets[name]
+        if not (values["ppt_pl1_spl"] <= values["ppt_pl2_sppt"] <= values["ppt_pl3_fppt"]):
+            return False
+    return True
+
+
+def ordered_names(current, targets):
+    """FPPT, SPPT, SPL when raising and the reverse when lowering.
+
+    A source change can move the bursts the other way from SPL. In that case
+    use the first permutation that keeps SPL <= SPPT <= FPPT after every write.
+    """
+    raising = targets["ppt_pl1_spl"] >= current["ppt_pl1_spl"]
+    preferred = ("ppt_pl3_fppt", "ppt_pl2_sppt", "ppt_pl1_spl") if raising else ("ppt_pl1_spl", "ppt_pl2_sppt", "ppt_pl3_fppt")
+    if order_is_safe(current, targets, preferred):
+        return preferred
+    for index in range(3):
+        for middle in range(3):
+            if middle == index:
+                continue
+            last = 3 - index - middle
+            candidate = (preferred[index], preferred[middle], preferred[last])
+            if order_is_safe(current, targets, candidate):
+                return candidate
+    return preferred
+
+
+def tuple_in_order(currents):
+    return currents["ppt_pl1_spl"] <= currents["ppt_pl2_sppt"] <= currents["ppt_pl3_fppt"]
+
+
+def trace_write():
+    path = os.environ.get("OMARCHY_ALLY_TDP_TRACE")
+    if not path or os.geteuid() == 0:
+        return
+    currents = read_currents()
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(f"{currents['ppt_pl1_spl']} {currents['ppt_pl2_sppt']} {currents['ppt_pl3_fppt']}\n")
+
+
+def maybe_delay():
+    raw = os.environ.get("OMARCHY_ALLY_TDP_WRITE_DELAY")
+    if not raw or os.geteuid() == 0:
+        return
+    time.sleep(float(raw))
+
+
+def flip_source_once():
+    if os.geteuid() == 0 or os.environ.get("OMARCHY_ALLY_TDP_FLIP_SOURCE") != "1":
+        return False
+    marker = run_dir() / "flipped"
+    if marker.exists():
+        return False
+    marker.write_text("1\n")
+    for supply in supply_root().iterdir():
+        online = supply / "online"
+        if online.is_file():
+            online.write_text("0\n")
+    return True
+
+
+def acquire_lock():
+    directory = run_dir()
+    directory.mkdir(parents=True, mode=0o755, exist_ok=True)
+    assert_safe_dir(directory)
+    descriptor = os.open(directory / "lock", os.O_CREAT | os.O_RDWR, 0o644)
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return descriptor
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                os.close(descriptor)
+                raise TdpError("rejected", "another TDP write holds the lock")
+            time.sleep(0.05)
+
+
+def write_targets(targets, original):
+    names = ordered_names(original, targets)
     try:
-        for name in ATTRIBUTES:
+        for name in names:
             write_current(name, targets[name])
-            written.append(name)
+            currents = read_currents()
+            if not tuple_in_order(currents):
+                raise TdpError("rejected", "SPL, SPPT and FPPT broke order during the write")
+            trace_write()
+            maybe_delay()
     except (OSError, TdpError) as error:
         unrestored = restore_currents(original)
         status = "rolled_back" if not unrestored else "partial"
-        detail = str(error)
-        raise TdpError(status, f"PPT write failed ({detail}); status {status}") from error
+        raise TdpError(status, f"PPT write failed ({error}); status {status}") from error
     readback = read_currents()
-    if readback != targets:
+    if readback != targets or not tuple_in_order(readback):
         unrestored = restore_currents(original)
         status = "rolled_back" if not unrestored else "partial"
         raise TdpError(status, f"PPT readback did not match the derived limits; status {status}")
-    requested_spl = requested if remember else load_requested(default=requested)
-    save_json(
-        preference_path(),
-        {
-            "applied_fppt": fppt,
-            "applied_spl": spl,
-            "applied_sppt": sppt,
+
+
+def apply_spl(requested, clamp, remember):
+    require_owner()
+    assert_write_allowed()
+    conflict = conflicting_owner()
+    if conflict:
+        print(f"ally-tdp: {conflict} is active; not writing PPT over another owner", file=sys.stderr)
+        raise TdpError("rejected", f"{conflict} is active; it still owns platform power")
+    descriptor = acquire_lock()
+    try:
+        return apply_locked(requested, clamp, remember)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def apply_locked(requested, clamp, remember):
+    state_dir().mkdir(parents=True, mode=0o755, exist_ok=True)
+    assert_safe_dir(state_dir())
+    asked = requested
+    for _attempt in (1, 2):
+        source = power_source()
+        live = read_live()
+        snapshot, frozen = ceilings_for(source, live, persist=True)
+        spl, sppt, fppt = plan_targets(asked, source, snapshot, live, clamp=clamp)
+        targets = {"ppt_pl1_spl": spl, "ppt_pl2_sppt": sppt, "ppt_pl3_fppt": fppt}
+        original = read_currents()
+        write_targets(targets, original)
+        if flip_source_once() or power_source() != source:
+            clamp = True
+            continue
+        requested_spl = asked if remember else load_requested(default=asked)
+        save_json(
+            preference_path(),
+            {
+                "applied_fppt": fppt,
+                "applied_spl": spl,
+                "applied_sppt": sppt,
+                "requested_spl": requested_spl,
+                "source": source,
+            },
+        )
+        low, high = effective_bounds(source, snapshot, read_live())
+        return {
+            "ceilings_frozen": frozen,
+            "effective_max": high,
+            "effective_min": low,
+            "fppt": fppt,
+            "ok": True,
             "requested_spl": requested_spl,
             "source": source,
-        },
-    )
-    low, high = effective_bounds(source, snapshot, read_live())
-    return {
-        "ceilings_frozen": frozen,
-        "effective_max": high,
-        "effective_min": low,
-        "fppt": fppt,
-        "ok": True,
-        "requested_spl": requested_spl,
-        "source": source,
-        "spl": spl,
-        "sppt": sppt,
-        "status": "applied",
-    }
+            "spl": spl,
+            "sppt": sppt,
+            "status": "applied",
+        }
+    raise TdpError("rejected", "the power source changed twice during the write")
 
 
 def load_requested(default):
@@ -499,6 +711,22 @@ def load_requested(default):
     if current is None:
         return default
     return current["requested_spl"]
+
+
+def session_bus_owner():
+    try:
+        import dbus
+
+        bus = dbus.SessionBus()
+        owner = str(bus.get_name_owner(BUS))
+    except Exception:
+        return None
+    pid = None
+    try:
+        pid = int(bus.get_connection_unix_process_id(owner))
+    except Exception:
+        pid = None
+    return {"name": owner, "pid": pid}
 
 
 def show_payload():
@@ -520,6 +748,7 @@ def show_payload():
         "ok": True,
         "ppd_active": ppd_active(),
         "preference": preference,
+        "bus_owner": session_bus_owner(),
         "source": source,
         "spl": live["spl"],
         "sppt": live["sppt"],
@@ -629,6 +858,13 @@ def prepare_main(_argv):
             pass
         raise TdpError("rejected", "could not mask power-profiles-daemon")
     return 0
+
+
+def source_main(_argv):
+    """Udev entry. Exit quietly when this machine is not the TDP owner."""
+    if owner_status() != "open":
+        return 0
+    return command_reassert()
 
 
 def apply_main(argv):
@@ -750,7 +986,9 @@ def run_apply(args, privileged):
         binary = "/usr/bin/omarchy-ally-tdp-apply"
         command = ["pkexec", binary, *args] if privileged else [binary, *args]
     try:
-        result = subprocess.run(command, check=False, text=True, capture_output=True)
+        result = subprocess.run(command, check=False, text=True, capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired as error:
+        raise TdpError("rejected", "the TDP helper timed out") from error
     except OSError as error:
         raise TdpError("rejected", f"cannot run the TDP helper: {error}") from error
     line = ""
@@ -790,13 +1028,8 @@ class Shim:
         shown = run_apply(["--show"], privileged=False)
         self.refresh_from(shown)
         preference = shown.get("preference") or {}
-        requested = preference.get("requested_spl")
-        if not isinstance(requested, int):
-            requested = self.spl
-        legal = self.spl_min <= requested <= self.spl_max
-        if preference.get("requested_spl") is None or not legal or requested != self.spl:
-            clamped = min(max(requested, self.spl_min), self.spl_max)
-            applied = run_apply(["--set", str(clamped)], privileged=True)
+        if isinstance(preference.get("requested_spl"), int):
+            applied = run_apply(["--reassert"], privileged=True)
             self.refresh_from(applied)
         return shown
 
@@ -825,8 +1058,15 @@ def shim_main(_argv):
         # The local has to stay referenced until the main loop returns.
         owned_name = BusName(BUS, bus, allow_replacement=False, replace_existing=False, do_not_queue=True)
     except dbus.exceptions.NameExistsException:
-        print("ally-tdp-shim: com.steampowered.SteamOSManager1 is already owned", file=sys.stderr)
-        return 1
+        detail = "an unknown process"
+        try:
+            owner = bus.get_name_owner(BUS)
+            pid = bus.get_connection_unix_process_id(owner)
+            detail = f"{owner} pid {pid}"
+        except Exception:
+            pass
+        print(f"ally-tdp-shim: com.steampowered.SteamOSManager1 is already owned by {detail}", file=sys.stderr)
+        return 2
 
     class Service(Object):
         def __init__(self):
@@ -993,8 +1233,9 @@ def shim_main(_argv):
         if applied.get("status") == "unchanged":
             return
         previous = state.spl
+        previous_max = state.spl_max
         state.refresh_from(applied)
-        if state.spl != previous:
+        if state.spl != previous or state.spl_max != previous_max:
             service._changed(TDP_IFACE, self_tdp(state))
 
     def self_tdp(current):
@@ -1046,6 +1287,8 @@ def main(argv):
             return apply_main(argv[2:])
         if mode == "prepare":
             return prepare_main(argv[2:])
+        if mode == "source":
+            return source_main(argv[2:])
         if mode == "probe":
             return probe_main(argv[2:])
         if mode == "shim":

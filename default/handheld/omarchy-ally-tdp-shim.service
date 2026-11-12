@@ -9,6 +9,7 @@ Type=simple
 ExecStart=/usr/bin/omarchy-ally-tdp-shim
 Restart=on-failure
 RestartSec=2
+RestartPreventExitStatus=2
 StartLimitIntervalSec=30
 StartLimitBurst=3
 

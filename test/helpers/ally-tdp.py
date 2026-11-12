@@ -197,11 +197,23 @@ def policy_cases():
         env = environment(root)
         result = run([str(APPLY), "--set", "15"], env, check=True)
         body = payload_of(result)
-        if currents(armoury) != (15, 20, 25) or body.get("source") != "battery" or body.get("effective_max") != 15:
-            fail("15 W on battery is the stock DC default tuple", f"{currents(armoury)} {result.stdout}")
-        ok("15 W on battery is the stock DC default tuple")
-        test_rejects_without_writes(root, armoury, env, ["--set", "16"], "16 W on battery exceeds the DC defaults")
-        test_rejects_without_writes(root, armoury, env, ["--set", "25"], "the DC maximum is not a battery SPL cap")
+        if currents(armoury) != (15, 20, 25) or body.get("source") != "battery" or body.get("effective_max") != 20:
+            fail("15 W on battery stays under the ordering cap", f"{currents(armoury)} {result.stdout}")
+        ok("15 W on battery stays under the ordering cap")
+        result = run([str(APPLY), "--set", "16"], env, check=True)
+        if currents(armoury) != (16, 20, 25):
+            fail("16 W on battery clamps the bursts to the DC defaults", str(currents(armoury)))
+        ok("16 W on battery clamps the bursts to the DC defaults")
+        result = run([str(APPLY), "--set", "20"], env, check=True)
+        if currents(armoury) != (20, 20, 25) or payload_of(result).get("effective_max") != 20:
+            fail("20 W on battery is the ordering cap", f"{currents(armoury)} {result.stdout}")
+        ok("20 W on battery is the ordering cap")
+        result = run([str(APPLY), "--set", "25"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 25:
+            fail("25 W on battery clamps to 20/20/25", f"{currents(armoury)} {preference}")
+        ok("25 W on battery clamps to 20/20/25")
+        test_rejects_without_writes(root, armoury, env, ["--set", "26"], "26 W on battery is outside the absolute window")
         result = run([str(APPLY), "--set", "14"], env, check=True)
         if currents(armoury) != (14, 19, 23):
             fail("14 W on battery derives bursts under the DC defaults", str(currents(armoury)))
@@ -210,10 +222,13 @@ def policy_cases():
         for name, default, high in (("ppt_pl1_spl", 20, 25), ("ppt_pl2_sppt", 30, 40), ("ppt_pl3_fppt", 35, 45)):
             (armoury / name / "default_value").write_text(f"{default}\n")
             (armoury / name / "max_value").write_text(f"{high}\n")
-        test_rejects_without_writes(root, armoury, env, ["--set", "16"], "a later DC default cannot raise this boot's battery cap")
+        result = run([str(APPLY), "--set", "21"], env, check=True)
+        if currents(armoury) != (20, 20, 25):
+            fail("a later DC default cannot raise this boot's battery cap", str(currents(armoury)))
+        ok("a later DC default cannot raise this boot's battery cap")
         raised = environment(root, boot_id="boot-dc-2")
-        result = run([str(APPLY), "--set", "16"], raised, check=True)
-        if currents(armoury) != (16, 24, 28):
+        result = run([str(APPLY), "--set", "21"], raised, check=True)
+        if currents(armoury) != (21, 30, 35):
             fail("a new boot reads the DC defaults again", str(currents(armoury)))
         ok("a new boot reads the DC defaults again")
 
@@ -225,14 +240,14 @@ def policy_cases():
         limit(armoury, "ppt_pl3_fppt", 20, 15, 35, 20)
         env = environment(root)
         shown = run([str(APPLY), "--show"], env, check=True)
-        if payload_of(shown).get("effective_max") != 12:
-            fail("the battery cap is computed from the DC defaults", shown.stdout)
-        ok("the battery cap is computed from the DC defaults")
-        result = run([str(APPLY), "--set", "12"], env, check=True)
-        if currents(armoury) != (12, 16, 20):
+        if payload_of(shown).get("effective_max") != 16:
+            fail("the battery cap is the highest SPL that keeps order", shown.stdout)
+        ok("the battery cap is the highest SPL that keeps order")
+        result = run([str(APPLY), "--set", "16"], env, check=True)
+        if currents(armoury) != (16, 16, 20):
             fail("the battery tuple follows a non-stock DC default", str(currents(armoury)))
         ok("the battery tuple follows a non-stock DC default")
-        test_rejects_without_writes(root, armoury, env, ["--set", "13"], "a watt above the DC SPL default is rejected")
+        test_rejects_without_writes(root, armoury, env, ["--set", "26"], "a watt above the battery absolute window is rejected")
 
     with tempfile.TemporaryDirectory(prefix="ally-tdp-ratio-") as temporary:
         root = Path(temporary)
@@ -296,7 +311,7 @@ def policy_cases():
         (root / "supply" / "ADP" / "online").write_text("0\n")
         result = run([str(APPLY), "--reassert"], env, check=True)
         preference = json.loads((root / "state" / "preference.json").read_text())
-        if currents(armoury) != (15, 20, 25) or preference.get("requested_spl") != 30:
+        if currents(armoury) != (20, 20, 25) or preference.get("requested_spl") != 30:
             fail("unplug reasserts the saved request inside the battery cap", f"{currents(armoury)} {preference}")
         ok("unplug reasserts the saved request inside the battery cap")
         rc71_ac(armoury)
@@ -442,8 +457,16 @@ def policy_file():
     resume = (ROOT / "default/handheld/omarchy-ally-tdp-resume.service").read_text()
     prepare = (ROOT / "default/handheld/omarchy-ally-tdp-prepare.service").read_text()
     shim = (ROOT / "default/handheld/omarchy-ally-tdp-shim.service").read_text()
-    if "omarchy-ally-tdp-apply --reassert" not in resume:
-        fail("resume unit reasserts through the same writer")
+    if "omarchy-ally-tdp-apply --reassert" not in resume or "asus-armoury" not in resume:
+        fail("resume unit reasserts through the same writer and only when asus-armoury exists")
+    if "RestartPreventExitStatus=2" not in shim:
+        fail("the shim unit does not restart when the bus name is taken")
+    rules = (ROOT / "default/handheld/99-omarchy-ally-tdp.rules").read_text()
+    source = (ROOT / "default/handheld/omarchy-ally-tdp-source.service").read_text()
+    if 'SUBSYSTEM=="power_supply"' not in rules or "omarchy-ally-tdp-source.service" not in rules:
+        fail("the udev rule runs the root writer on a power_supply change")
+    if "omarchy-ally-tdp-source" not in source:
+        fail("the power-supply unit runs the root writer")
     if "omarchy-ally-tdp-prepare" not in prepare or "omarchy-ally-tdp-shim" not in shim:
         fail("units point at the Ally TDP commands")
     script = (ROOT / "bin/omarchy-ally-tdp-prepare").read_text()
@@ -564,9 +587,9 @@ def shim_cases():
             message.append(False)
             system.send_message(message)
             deadline = time.time() + 3
-            while time.time() < deadline and currents(armoury)[0] != 25:
+            while time.time() < deadline and currents(armoury) != (20, 20, 25):
                 time.sleep(0.05)
-            if currents(armoury) != (15, 20, 25):
+            if currents(armoury) != (20, 20, 25):
                 fail("PrepareForSleep(false) reasserts inside the battery cap", f"{currents(armoury)} {''.join(log)}")
             ok("PrepareForSleep(false) reasserts inside the battery cap")
         finally:
@@ -592,11 +615,351 @@ def shim_cases():
         ok("the shim exits quietly on a laptop")
 
 
+def ordered(lines):
+    for line in lines:
+        values = [int(part) for part in line.split()]
+        if len(values) != 3 or not (values[0] <= values[1] <= values[2]):
+            return False
+    return True
+
+
+def review_cases():
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-order-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        run([str(APPLY), "--set", "10"], env, check=True)
+        trace.write_text("")
+        run([str(APPLY), "--set", "30"], env, check=True)
+        raised = [line for line in trace.read_text().splitlines() if line.strip()]
+        if raised != ["10 15 53", "10 43 53", "30 43 53"] or not ordered(raised):
+            fail("raising writes FPPT, then SPPT, then SPL", "\n".join(raised))
+        ok("raising writes FPPT, then SPPT, then SPL")
+        trace.write_text("")
+        run([str(APPLY), "--set", "10"], env, check=True)
+        lowered = [line for line in trace.read_text().splitlines() if line.strip()]
+        if lowered != ["10 43 53", "10 15 53", "10 15 18"] or not ordered(lowered):
+            fail("lowering writes SPL, then SPPT, then FPPT", "\n".join(lowered))
+        ok("lowering writes SPL, then SPPT, then FPPT")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-flip-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root, OMARCHY_ALLY_TDP_FLIP_SOURCE="1")
+        result = run([str(APPLY), "--set", "30"], env, check=True)
+        preference = json.loads((root / "state" / "preference.json").read_text())
+        if (root / "supply" / "ADP" / "online").read_text().strip() != "0":
+            fail("the writer re-reads the power source after the write")
+        if currents(armoury) == (30, 43, 53) or preference.get("requested_spl") != 30 or payload_of(result).get("source") != "battery":
+            fail("a source change during the write is re-planned under the lock", f"{currents(armoury)} {preference}")
+        ok("a source change during the write is re-planned under the lock")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-lock-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        run([str(APPLY), "--set", "30"], env, check=True)
+        rc71_dc(armoury, current=(30, 43, 53))
+        (root / "supply" / "ADP" / "online").write_text("0\n")
+        trace = root / "trace"
+        env["OMARCHY_ALLY_TDP_TRACE"] = str(trace)
+        env["OMARCHY_ALLY_TDP_WRITE_DELAY"] = "0.05"
+        first = subprocess.Popen([str(APPLY), "--reassert"], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        second = subprocess.Popen([str(APPLY), "--reassert"], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        first.wait(timeout=10)
+        second.wait(timeout=10)
+        lines = [line for line in trace.read_text().splitlines() if line.strip()]
+        if first.returncode != 0 or second.returncode != 0 or not ordered(lines) or currents(armoury) != (20, 20, 25):
+            fail("two reasserts keep SPL <= SPPT <= FPPT on every step", f"{currents(armoury)} {lines}")
+        ok("two reasserts keep SPL <= SPPT <= FPPT on every step")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-held-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        env = environment(root)
+        (root / "run").mkdir()
+        import fcntl
+
+        descriptor = os.open(root / "run" / "lock", os.O_CREAT | os.O_RDWR)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = run([str(APPLY), "--set", "15"], env)
+        os.close(descriptor)
+        if result.returncode == 0 or currents(armoury) != (30, 43, 53) or "lock" not in result.stderr:
+            fail("a held lock rejects the write", result.stderr)
+        ok("a held lock rejects the write")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-tamper-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root, online="0")
+        rc71_dc(armoury, current=(15, 20, 25))
+        env = environment(root)
+        run([str(APPLY), "--set", "15"], env, check=True)
+        ceilings = json.loads((root / "run" / "ceilings.json").read_text())
+        ceilings["sources"]["battery"]["spl"]["default"] = 1
+        (root / "run" / "ceilings.json").write_text(json.dumps(ceilings))
+        test_rejects_without_writes(root, armoury, env, ["--set", "14"], "a tampered ceilings snapshot is rejected")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-symlink-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        real = root / "real-state"
+        real.mkdir()
+        (root / "state").symlink_to(real)
+        (real / "sentinel").write_text("keep\n")
+        env = environment(root)
+        result = run([str(APPLY), "--set", "15"], env)
+        if result.returncode == 0 or currents(armoury) != (30, 43, 53) or (real / "sentinel").read_text() != "keep\n":
+            fail("a symlinked state directory is refused", result.stderr)
+        ok("a symlinked state directory is refused")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-mode-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root)
+        rc71_ac(armoury)
+        state = root / "state"
+        state.mkdir()
+        os.chmod(state, 0o777)
+        env = environment(root)
+        result = run([str(APPLY), "--set", "15"], env)
+        os.chmod(state, 0o755)
+        if result.returncode == 0 or currents(armoury) != (30, 43, 53):
+            fail("a world-writable state directory is refused", result.stderr)
+        ok("a world-writable state directory is refused")
+
+    for variable in (
+        "OMARCHY_ALLY_TDP_ASUSD_STATE",
+        "OMARCHY_ALLY_TDP_HHD_STATE",
+        "OMARCHY_ALLY_TDP_TUNED_STATE",
+        "OMARCHY_ALLY_TDP_GAMEMODE_STATE",
+    ):
+        with tempfile.TemporaryDirectory(prefix="ally-tdp-conflict-") as temporary:
+            root = Path(temporary)
+            armoury = layout(root)
+            rc71_ac(armoury)
+            env = environment(root, **{variable: "active"})
+            test_rejects_without_writes(root, armoury, env, ["--set", "15"], f"{variable} active refuses the write")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-config-") as temporary:
+        root = Path(temporary)
+        saved = {key: os.environ.get(key) for key in (
+            "OMARCHY_PATH",
+            "OMARCHY_ALLY_TDP_STATE_DIR",
+            "OMARCHY_ALLY_TDP_PPD_STATE",
+            "OMARCHY_ALLY_TDP_FIXTURE",
+            "OMARCHY_DMI_PRODUCT_NAME_PATH",
+        )}
+        os.environ["OMARCHY_PATH"] = "/tmp/not-the-tree"
+        os.environ["OMARCHY_ALLY_TDP_STATE_DIR"] = str(root / "state")
+        os.environ["OMARCHY_ALLY_TDP_PPD_STATE"] = "active"
+        os.environ["OMARCHY_ALLY_TDP_FIXTURE"] = "1"
+        os.environ["OMARCHY_DMI_PRODUCT_NAME_PATH"] = str(root / "fake")
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ally_tdp_config", ROOT / "default/handheld/ally_tdp.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        config = module.effective_config(0)
+        if (
+            config["omarchy_path"] != "/usr/share/omarchy"
+            or config["state_dir"] != "/var/lib/omarchy/ally-tdp"
+            or config["ppd_state"] is not None
+            or config["fixture"]
+            or config["dmi_overrides"]
+        ):
+            fail("root ignores environment overrides", str(config))
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        ok("root ignores environment overrides")
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-missing-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        log = root / "systemctl.log"
+        stub = root / "bin"
+        stub.mkdir()
+        (stub / "systemctl").write_text("#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nexit 0\n")
+        (stub / "systemctl").chmod(0o755)
+        env = environment(root)
+        env["PATH"] = f"{stub}:{env['PATH']}"
+        env["SYSTEMCTL_LOG"] = str(log)
+        result = run([str(PREPARE)], env)
+        logged = log.read_text() if log.exists() else ""
+        if result.returncode == 0 or "mask" in logged:
+            fail("prepare does not mask PPD when the armoury snapshot fails", f"{result.returncode} {logged} {result.stderr}")
+        ok("prepare does not mask PPD when the armoury snapshot fails")
+
+    source = ROOT / "bin" / "omarchy-ally-tdp-source"
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-udev-") as temporary:
+        root = Path(temporary)
+        layout(root, product="ROG Strix G16", board="GU605CX")
+        env = environment(root)
+        result = run([str(source)], env, check=True)
+        if result.returncode != 0:
+            fail("the power-supply helper is quiet when the owner gate is closed", result.stderr)
+        ok("the power-supply helper is quiet when the owner gate is closed")
+
+
+def start_shim(env):
+    log = []
+    ready = threading.Event()
+    process = subprocess.Popen(
+        [str(SHIM)],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    wait_ready(process, log, ready)
+    return process, log, ready
+
+
+def stop_shim(process):
+    if process.poll() is None:
+        process.send_signal(signal.SIGTERM)
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+def shim_review():
+    import dbus
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-seed-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root, online="0")
+        rc71_dc(armoury, current=(15, 20, 25))
+        write_text(root / "state" / "preference.json", json.dumps({"requested_spl": 30}) + "\n")
+        address, pid = start_bus()
+        env = environment(root)
+        env["DBUS_SESSION_BUS_ADDRESS"] = address
+        process, log, ready = start_shim(env)
+        try:
+            if not ready.wait(5):
+                fail("a battery start with a stored request becomes ready", "".join(log))
+            stored = json.loads((root / "state" / "preference.json").read_text())
+            if stored.get("requested_spl") != 30 or currents(armoury) != (20, 20, 25):
+                fail("a battery start keeps the stored 30 W request and clamps the tuple", f"{stored} {currents(armoury)}")
+            bus = dbus.bus.BusConnection(address)
+            props = dbus.Interface(bus.get_object(BUS, PATH), "org.freedesktop.DBus.Properties")
+            if props.Get(TDP, "TdpLimitMax") != 20 or props.Get(TDP, "TdpLimit") != 20:
+                fail("TdpLimitMax is 20 on battery")
+            ok("a battery start keeps the stored 30 W request and reports TdpLimitMax 20")
+        finally:
+            stop_shim(process)
+            os.kill(pid, signal.SIGTERM)
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-squat-") as temporary:
+        root = Path(temporary)
+        layout(root)
+        rc71_ac(root / "armoury")
+        address, pid = start_bus()
+        env = environment(root)
+        env["DBUS_SESSION_BUS_ADDRESS"] = address
+        owner, log, ready = start_shim(env)
+        try:
+            if not ready.wait(5):
+                fail("the first shim owns the name", "".join(log))
+            second = subprocess.run([str(SHIM)], env=env, text=True, capture_output=True)
+            if second.returncode != 2 or "already owned" not in second.stderr:
+                fail("a second shim exits 2 when the name is taken", f"{second.returncode} {second.stderr}")
+            shown = run([str(APPLY), "--show"], env, check=True)
+            if not (payload_of(shown).get("bus_owner") or {}).get("name"):
+                fail("show reports the current bus owner", shown.stdout)
+            ok("a second shim exits 2 and show reports the owner")
+        finally:
+            stop_shim(owner)
+            os.kill(pid, signal.SIGTERM)
+
+    with tempfile.TemporaryDirectory(prefix="ally-tdp-bounds-") as temporary:
+        root = Path(temporary)
+        armoury = layout(root, online="0")
+        rc71_dc(armoury, current=(15, 20, 25))
+        write_text(
+            root / "state" / "preference.json",
+            json.dumps({"requested_spl": 15, "applied_spl": 15, "applied_sppt": 20, "applied_fppt": 25, "source": "battery"}) + "\n",
+        )
+        session_address, session_pid = start_bus()
+        system_address, system_pid = start_bus()
+        env = environment(root)
+        env["DBUS_SESSION_BUS_ADDRESS"] = session_address
+        env["DBUS_SYSTEM_BUS_ADDRESS"] = system_address
+        env["OMARCHY_ALLY_TDP_WATCH_SYSTEM"] = "1"
+        process, log, ready = start_shim(env)
+        try:
+            if not ready.wait(5):
+                fail("bounds shim becomes ready", "".join(log))
+            bus = dbus.bus.BusConnection(session_address, mainloop=dbus.mainloop.glib.DBusGMainLoop())
+            props = dbus.Interface(bus.get_object(BUS, PATH), "org.freedesktop.DBus.Properties")
+            if props.Get(TDP, "TdpLimitMax") != 20 or props.Get(TDP, "TdpLimit") != 15:
+                fail("battery TdpLimit stays 15 with max 20", f"{props.Get(TDP, 'TdpLimit')} {props.Get(TDP, 'TdpLimitMax')}")
+            rc71_ac(armoury)
+            (armoury / "ppt_pl1_spl" / "current_value").write_text("15\n")
+            (root / "supply" / "ADP" / "online").write_text("1\n")
+            seen = {}
+            got = threading.Event()
+
+            def on_changed(interface, values, _invalidated):
+                if interface == TDP and "TdpLimitMax" in values:
+                    seen["max"] = int(values["TdpLimitMax"])
+                    seen["limit"] = int(values.get("TdpLimit", -1))
+                    got.set()
+
+            bus.add_signal_receiver(
+                on_changed,
+                signal_name="PropertiesChanged",
+                dbus_interface="org.freedesktop.DBus.Properties",
+                path=PATH,
+            )
+            system = dbus.bus.BusConnection(system_address)
+            message = dbus.lowlevel.SignalMessage(
+                "/org/freedesktop/UPower",
+                "org.freedesktop.DBus.Properties",
+                "PropertiesChanged",
+            )
+            message.append("org.freedesktop.UPower", {"OnBattery": False}, dbus.Array([], signature="s"))
+            system.send_message(message)
+            loop = GLib.MainLoop()
+
+            def pump():
+                if got.is_set() or time.time() > deadline:
+                    loop.quit()
+                    return False
+                return True
+
+            deadline = time.time() + 3
+            GLib.timeout_add(50, pump)
+            loop.run()
+            if seen.get("max") != 30 or currents(armoury)[0] != 15:
+                fail("a source change signals TdpLimitMax when SPL stays 15", f"{seen} {currents(armoury)} {''.join(log)}")
+            ok("a source change signals TdpLimitMax when SPL stays 15")
+        finally:
+            stop_shim(process)
+            os.kill(session_pid, signal.SIGTERM)
+            os.kill(system_pid, signal.SIGTERM)
+
+
 def main():
     policy_cases()
     probe_and_prepare()
     policy_file()
+    review_cases()
     shim_cases()
+    shim_review()
 
 
 if __name__ == "__main__":

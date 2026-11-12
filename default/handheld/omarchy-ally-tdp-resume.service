@@ -1,5 +1,6 @@
 [Unit]
 Description=Re-apply the ROG Ally PPT limits after resume
+ConditionPathExists=/sys/class/firmware-attributes/asus-armoury
 # Ordered after the sleep target, so systemd starts this once the machine is
 # back. It calls the same writer as the session shim.
 After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
