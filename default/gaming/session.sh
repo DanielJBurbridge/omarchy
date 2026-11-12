@@ -145,10 +145,24 @@ gaming_docked() {
   command -v omarchy-display-rog-ally >/dev/null && omarchy-display-rog-ally docked
 }
 
-# SDDM Relogin always comes back to gaming. The recovery latch and a docked
-# auto preference decide a preferred login, not this return.
+# SDDM Relogin comes back to gaming. The recovery latch and a docked auto
+# preference decide a preferred login, not this return. The one exception is
+# next=desktop, the session user's one-shot at
+# ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next (mode 0600,
+# in the mode 0700 state directory). An explicit Switch to Desktop writes it.
+# This consumes that value once. Any other relogin stays on gaming and leaves
+# the file alone.
 gaming_entry_selection() {
+  local choice=''
   if [[ $1 == relogin ]]; then
+    if [[ -f $gaming_state/next ]]; then
+      read -r choice < "$gaming_state/next" || true
+      if [[ $choice == "desktop" ]]; then
+        rm -f -- "$gaming_state/next"
+        printf '%s\n' desktop
+        return
+      fi
+    fi
     printf '%s\n' gaming
     return
   fi
