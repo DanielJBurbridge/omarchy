@@ -4,13 +4,14 @@
 # omarchy:group=system
 # omarchy:hidden=true
 
-# The suspend broker runs this as the desktop user and treats any exit but 0,
-# and any timeout, as "the screen is not locked", so it does not suspend.
-#   0   the lock surface is confirmed secure
-#   1   a lock was required and was not confirmed
-#   10  skipped: handheld, no physical keyboard, desktop-lock is not on
+# There is no suspend broker on this branch. omarchy-system-sleep-monitor
+# allows suspend only for the two exits below that mean the desktop is not
+# left unlocked. A timeout is not one of them.
+#   0   the lock surface is confirmed secure; suspend
+#   1   a lock was required and was not confirmed; do not suspend
+#   10  skipped: handheld, no physical keyboard, desktop-lock is not on; suspend
 #   11  refused: handheld, no physical keyboard, desktop-lock is on; the
-#       desktop is sent back to gaming instead of locking
+#       desktop is sent back to gaming instead of locking; do not suspend
 # Before K07 the handheld skips this suspend lock unless a physical keyboard
 # is attached now. Explicit desktop-lock on, with none, returns to gaming
 # instead. The K07 marker restores the ordinary lock. Other machines do not
