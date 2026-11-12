@@ -1,14 +1,14 @@
 #!/bin/bash
 # omarchy:hidden=true
 # omarchy:summary=Supervise the optional authenticated handheld login session
-# omarchy:args=<preferred|gaming>
+# omarchy:args=<preferred|gaming|relogin>
 
 set -uo pipefail
 # This is a pre-UWSM login boundary; use the canonical environment bootstrap.
 # shellcheck source=/dev/null
 source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
-(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" ]] || exit 2
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
 
 start_hyprland() {
   export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
@@ -60,10 +60,19 @@ gaming_session_target=omarchy-gaming-session.target
 scope_pid='' ready_pid='' return_pid=''
 started_power_units=()
 gaming_target_started=0
+gaming_autologin_ready=0
+autologin_watch=0
 
 stop_gaming() {
   if [[ -n $scope_pid ]]; then
     systemctl --user stop "$scope" || true
+    # A scope that ignores the stop must not hold the next login open.
+    local waited=0
+    while kill -0 "$scope_pid" 2>/dev/null && (( waited < 20 )); do
+      sleep 0.1
+      waited=$(( waited + 1 ))
+    done
+    kill "$scope_pid" 2>/dev/null || true
     wait "$scope_pid" 2>/dev/null || true
     scope_pid=''
   fi
@@ -84,7 +93,17 @@ stop_gaming() {
     gaming_target_started=0
   fi
 }
-cleanup() { stop_gaming; rm -f "$gaming_runtime/active" "$gaming_runtime/switch"; }
+cleanup() {
+  stop_gaming
+  rm -f "$gaming_runtime/active" "$gaming_runtime/switch"
+  # A session that exits without the ready FIFO reading started is a failed
+  # gaming start. The ready read is the only reset.
+  if (( autologin_watch && ! gaming_autologin_ready )); then
+    if omarchy-cmd-present omarchy-handheld-autologin; then
+      omarchy-handheld-autologin fail || true
+    fi
+  fi
+}
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 
@@ -170,6 +189,10 @@ run_gaming() {
   wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
   if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
     started=true
+    gaming_autologin_ready=1
+    if omarchy-cmd-present omarchy-handheld-autologin; then
+      omarchy-handheld-autologin reset || true
+    fi
     steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
@@ -216,11 +239,15 @@ if [[ $1 == "gaming" ]]; then
   selection=gaming
   rm -f "$gaming_state/recovery"
 else
-  selection=$(gaming_selection)
+  selection=$(gaming_entry_selection "$1")
 fi
 retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
 [[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
+if omarchy-cmd-present omarchy-handheld-autologin && omarchy-handheld-autologin tripped; then
+  exit 0
+fi
 retries=0
+autologin_watch=1
 while true; do
   printf '%s\n' "$selection" > "$gaming_runtime/active"
   if [[ $selection == "gaming" ]]; then

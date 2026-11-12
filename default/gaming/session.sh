@@ -112,14 +112,20 @@ gaming_selection() {
       read -r choice < "$gaming_state/last" 2>/dev/null || choice=desktop
     fi
   elif gaming_handheld_variant; then
-    # Handheld default is auto. No display helper on this branch, so auto is undocked.
+    # Handheld default is auto. Docked auto is desktop; otherwise gaming.
     choice=auto
   else
     choice=desktop
   fi
   case $choice in
     desktop | gaming) ;;
-    auto) choice=gaming ;;
+    auto)
+      if gaming_docked; then
+        choice=desktop
+      else
+        choice=gaming
+      fi
+      ;;
     *)
       if gaming_handheld_variant; then
         printf '%s\n' reset > "$gaming_state/preference-reset"
@@ -132,6 +138,21 @@ gaming_selection() {
   # An unsuccessful gaming launch never becomes an automatic login loop.
   if [[ -f $gaming_state/recovery ]]; then choice=desktop; fi
   printf '%s\n' "$choice"
+}
+
+# A docked handheld reports through the display helper. No helper means undocked.
+gaming_docked() {
+  command -v omarchy-display-rog-ally >/dev/null && omarchy-display-rog-ally docked
+}
+
+# SDDM Relogin always comes back to gaming. The recovery latch and a docked
+# auto preference decide a preferred login, not this return.
+gaming_entry_selection() {
+  if [[ $1 == relogin ]]; then
+    printf '%s\n' gaming
+    return
+  fi
+  gaming_selection
 }
 
 # Before K07 the handheld has no touch keyboard. allow keeps the caller's

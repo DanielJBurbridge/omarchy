@@ -68,8 +68,18 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if 'start' in sys.argv:
             sys.exit(1 if sys.argv[-1] == os.environ.get('POWER_FAIL') else 0)
         if not sys.argv[-1].endswith('.scope'): sys.exit(0)
-        try: os.killpg(int(pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid').read_text()), signal.SIGTERM)
-        except (FileNotFoundError, ProcessLookupError): pass
+        import time
+        pid_path = pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid')
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            try:
+                os.killpg(int(pid_path.read_text()), signal.SIGTERM)
+                break
+            except FileNotFoundError:
+                time.sleep(0.05)
+            except ProcessLookupError:
+                break
+        sys.exit(0)
     ''')
     command('gamescope', '''#!/bin/bash
         printf 'gamescope:%s\\n' "$*" >> "$TEST_ROOT/actions"

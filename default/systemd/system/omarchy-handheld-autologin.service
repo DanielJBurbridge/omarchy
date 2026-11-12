@@ -1,0 +1,11 @@
+[Unit]
+Description=Write the handheld SDDM autologin drop-in
+Before=sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-handheld-autologin apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sddm.service

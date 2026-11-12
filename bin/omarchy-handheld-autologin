@@ -1,0 +1,146 @@
+#!/bin/bash
+# omarchy:hidden=true
+# omarchy:summary=Autologin the handheld into gaming and stop after three failed starts
+
+set -euo pipefail
+
+# Root-owned crash-loop state. /run is empty after a reboot, so the next boot
+# autologins again. The counter is not a user setting.
+run_root=${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-/run/omarchy/handheld-autologin}
+conf_dir=${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}
+failures=$run_root/failures
+stop=$run_root/stop
+dropin=$conf_dir/zz-omarchy-handheld.conf
+
+if (( EUID == 0 )) && [[ -z ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+  export PATH=/usr/bin:/bin
+fi
+
+action=${1:-session}
+
+if [[ $action == fail || $action == reset || $action == apply ]] && (( EUID != 0 )); then
+  if [[ -z ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} && -x /usr/bin/omarchy-handheld-autologin ]] && sudo -n -l /usr/bin/omarchy-handheld-autologin "$action" >/dev/null 2>&1; then
+    exec sudo -n -- /usr/bin/omarchy-handheld-autologin "$action"
+  fi
+  exit 0
+fi
+
+refuse_symlink() {
+  local path
+  for path in "$run_root" "$conf_dir" "$failures" "$stop" "$dropin"; do
+    if [[ -L $path ]]; then
+      echo "omarchy-handheld-autologin: refusing a symlink at $path" >&2
+      exit 1
+    fi
+  done
+}
+
+ensure_dir() {
+  local dir=$1
+  (( EUID == 0 )) || exit 1
+  install -d -o root -g root -m 0755 "$dir"
+}
+
+write_file() {
+  local dest=$1
+  local temporary
+  (( EUID == 0 )) || exit 1
+  temporary=$(mktemp)
+  cat > "$temporary"
+  install -o root -g root -m 0644 "$temporary" "$dest"
+  rm -f -- "$temporary"
+}
+
+now_s() {
+  if [[ ${OMARCHY_AUTOLOGIN_NOW:-} =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$OMARCHY_AUTOLOGIN_NOW"
+  else
+    date +%s
+  fi
+}
+
+handheld_variant() {
+  command -v omarchy-hw-rog-ally >/dev/null && omarchy-hw-rog-ally &&
+    command -v omarchy-pkg-present >/dev/null && omarchy-pkg-present omarchy-gaming-session
+}
+
+write_dropin() {
+  local relogin=$1
+  ensure_dir "$conf_dir"
+  write_file "$dropin" <<EOF
+[Autologin]
+Session=omarchy-handheld.desktop
+Relogin=$relogin
+EOF
+}
+
+apply_dropin() {
+  refuse_symlink
+  if ! handheld_variant; then
+    rm -f -- "$dropin"
+    return 0
+  fi
+  if [[ -f $stop ]]; then
+    write_dropin false
+  else
+    write_dropin true
+  fi
+}
+
+restart_greeter() {
+  if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+    printf 'sddm-restart\n' >> "$OMARCHY_HANDHELD_AUTOLOGIN_DIR/actions"
+  else
+    systemctl restart sddm.service || true
+  fi
+}
+
+case $action in
+  session)
+    refuse_symlink
+    if [[ -f $stop ]]; then
+      exit 0
+    fi
+    exec omarchy-session-start relogin
+    ;;
+  apply)
+    apply_dropin
+    ;;
+  reset)
+    # The ready FIFO read "started". That is the only healthy session.
+    refuse_symlink
+    ensure_dir "$run_root"
+    write_file "$failures" </dev/null
+    ;;
+  fail)
+    refuse_symlink
+    ensure_dir "$run_root"
+    now=$(now_s)
+    kept=()
+    if [[ -f $failures ]]; then
+      while read -r stamp; do
+        [[ $stamp =~ ^[0-9]+$ ]] || continue
+        if (( stamp + 60 >= now )); then
+          kept+=("$stamp")
+        fi
+      done < "$failures"
+    fi
+    kept+=("$now")
+    write_file "$failures" <<EOF
+$(printf '%s\n' "${kept[@]}")
+EOF
+    if (( ${#kept[@]} >= 3 )); then
+      write_file "$stop" <<'EOF'
+stop
+EOF
+      apply_dropin
+      restart_greeter
+    fi
+    ;;
+  tripped)
+    [[ -f $stop ]]
+    ;;
+  *)
+    exit 2
+    ;;
+esac

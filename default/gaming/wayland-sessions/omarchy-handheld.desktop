@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Omarchy (session preference)
 Comment=Authenticated Omarchy desktop or gaming with a reversible user preference
-Exec=omarchy-session-start preferred
-TryExec=omarchy-session-start
+Exec=omarchy-handheld-autologin
+TryExec=omarchy-handheld-autologin
 Type=Application
