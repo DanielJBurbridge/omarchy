@@ -7,7 +7,7 @@ Controls.Button {
   id: root
   property bool selected: false
   implicitHeight: 48
-  focusPolicy: Qt.NoFocus
+  focusPolicy: Qt.TabFocus
   hoverEnabled: true
   font.family: Theme.fontFamily
   font.pixelSize: Theme.fontSize
@@ -25,6 +25,6 @@ Controls.Button {
     radius: Theme.radius
     color: Theme.alpha(Theme.foreground, root.down ? 0.22 : (root.hovered || root.selected || root.activeFocus ? 0.08 : 0.04))
     border.width: 1
-    border.color: Theme.alpha(Theme.foreground, root.selected ? 1 : 0.4)
+    border.color: Theme.alpha(Theme.foreground, root.selected || root.activeFocus ? 1 : 0.4)
   }
 }

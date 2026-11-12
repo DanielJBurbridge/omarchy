@@ -5,7 +5,7 @@ Controls.ComboBox {
   id: root
   signal inputRequested()
   implicitHeight: 44
-  focusPolicy: Qt.NoFocus
+  focusPolicy: Qt.TabFocus
   hoverEnabled: true
   font.family: Theme.fontFamily
   font.pixelSize: Theme.fontSize
@@ -36,9 +36,9 @@ Controls.ComboBox {
   }
   background: Rectangle {
     radius: Theme.radius
-    color: Theme.alpha(Theme.foreground, root.hovered || root.popup.visible ? 0.08 : 0.04)
+    color: Theme.alpha(Theme.foreground, root.hovered || root.popup.visible || root.activeFocus ? 0.08 : 0.04)
     border.width: 1
-    border.color: Theme.alpha(Theme.foreground, root.popup.visible ? 1 : 0.4)
+    border.color: Theme.alpha(Theme.foreground, root.popup.visible || root.activeFocus ? 1 : 0.4)
   }
   delegate: Controls.ItemDelegate {
     required property int index
