@@ -1,6 +1,6 @@
 # 02 · Mode switch (gaming ⇄ desktop) and dock / undock
 
-Status: draft for dev-lead review, revision 2, 12 November 2026. Revision 1 followed the red-team review. Revision 2 sets the handheld `desktop-lock` default. Device: ROG Ally RC71L (lid-less, s2idle only). Builds on [01 · Controller and button map](01-controller-button-map.md).
+Status: draft for dev-lead review, revision 3, 12 November 2026. Revision 1 followed the red-team review. Revision 2 sets the handheld `desktop-lock` default. Revision 3 records the pre-K07 suspend lock (D11) and hides the overlay's Switch to Desktop while the lock is off (D12). Device: ROG Ally RC71L (lid-less, s2idle only). Builds on [01 · Controller and button map](01-controller-button-map.md).
 Out of scope: lock-screen / greeter design (AUTH). Where this spec touches authentication it states the requirement and names what is handed to AUTH. It does not design the lock screen.
 
 ## 0. Decisions in one table
@@ -17,6 +17,8 @@ Out of scope: lock-screen / greeter design (AUTH). Where this spec touches authe
 | D8 | The switch also swaps the InputPlumber **target and profile**: gaming = `gaming` profile on a **Steam Deck (`deck-uhid`) or DualSense Edge** target (native QAM button, paddles); desktop = `desktop` profile (mouse + keyboard only). Those profile and target names are new (Δ). Today's CLI words are `gamepad` and `dualsense`. Steam starts only after the new target reports ready. If it does not, fall back to `gamepad` atomically. Held inputs are released *before* the swap. | Research final, 12 Nov, plus red review C |
 | D9 | No switch or system action is hold-only. Every path has a menu route; Armoury (right) is the only button with a real long press (`F17`); Command Centre (left) long is firmware Ctrl+Alt+Del and is not used here. | Research final + accessibility |
 | D10 | **Desktop lock on entry**, one choke point. Every entry into the Hyprland desktop from an autologged-in session goes through `desktop()` in `bin/omarchy-session-start`. When the effective value is `on`, the lock is engaged there, before `uwsm start` shows a frame and before autostart runs. If the lock does not come up and a D2 retry remains, log out back to gaming; if the D2 budget is already spent, exit to SDDM and do not start gaming again. The handheld variant is `omarchy-hw-rog-ally` and the `omarchy-gaming-session` package together. Only that pair ships `default-off`, and only while the root-owned K07 marker is absent. A laptop with the package alone stays `on`. Once the marker exists, a missing, corrupt, or unknown value means `on`, never `default-off`. `default-off` is not `explicit-off`. A one-time migration after K07 sets `default-off` to `on` and leaves `explicit-off` alone. The marker is `/var/lib/omarchy/handheld/k07-landed`, `root:root` mode `0644`, in `/var/lib/omarchy/handheld`, which is `0755` and `root:root`. `desktop()` reads it as the desktop user. Writes stay root-only, and a downgrade does not remove the file. ENOENT means absent, which is how the handheld ships `default-off` before K07. Any other read error treats the marker as present, so `desktop-lock` is `on`. Root-owned. Turning it off requires an interactive password prompt, never a passwordless polkit rule. Turning it on needs no auth. Desktop → gaming does not lock. No new lock UI. | Lead, revision 2; follow-up after the pass review |
+| D11 | **Before K07, suspend locks only with a physical keyboard.** While `/var/lib/omarchy/handheld/k07-landed` is absent (§7.4), on the handheld variant, the desktop suspend path locks only when a physical keyboard is attached at suspend. If `desktop-lock` is `on` and no physical keyboard is attached, suspend ends the desktop session and returns to gaming instead of locking. If it is `default-off` or `explicit-off` and no physical keyboard is attached, suspend does not lock. Never lock without a usable keyboard. Once the marker exists, suspend follows the normal `desktop-lock` rules. | Lead, 12 Nov 2026 |
+| D12 | **Overlay Switch to Desktop follows the lock.** While `desktop-lock` is `default-off` or `explicit-off`, the gaming quick overlay (spec 04) hides Switch to Desktop. The switch is Steam's own menu, which honours Steam's PIN. While `desktop-lock` is `on`, that row is shown and our switch runs the lock before any desktop frame. | Lead, 12 Nov 2026; spec 04 |
 
 ## 1. Baseline: what is already built
 
@@ -86,6 +88,8 @@ Rendered with `omarchy-menu-select` (same walker/shell styling and theme as ever
 ### 4.2 Gaming → desktop
 
 Steam’s Power → Switch to Desktop. Whether Steam itself warns about a running game is **unverified** (OQ-5). The shim must not stop the scope silently. `omarchy-launch-gaming-desktop` does not write `desktop` to the return FIFO while a game is detected, and does not write it when detection is uncertain, until the user has confirmed. On confirm, the supervisor stops the scope as today (games end; Steam saves cloud data on exit as usual).
+
+While `desktop-lock` is `default-off` or `explicit-off`, the gaming quick overlay (spec 04) hides Switch to Desktop and does not call the desktop launcher. The switch is Steam's own Power → Switch to Desktop, which honours Steam's PIN. While `desktop-lock` is `on`, that overlay row is shown, and our switch runs the §7.4 lock before any desktop frame (D12).
 
 ### 4.3 What survives a switch
 
@@ -205,7 +209,7 @@ The notification is a desktop client. When §7.4 engages the lock, the notificat
 
 One choke point: `desktop()` in `bin/omarchy-session-start`, before `uwsm start -g -1 -e -D Hyprland hyprland.desktop`. Every path that reaches the desktop from an autologged-in session uses that function and no other lock call. The paths are: the D2 fallback after two attempts, a later boot with the recovery latch set, `auto` with a dock connected at power-on, `default desktop` / `last` / `next=desktop`, an accepted dock or undock prompt, Steam Power → Switch to Desktop, Exit Steam, a Steam crash, and a Gamescope crash.
 
-The lock engaged there, when it is engaged, is the lock-on-resume mechanism dev-blue is building on `feat/ally-session-20261111`. This spec does not define a second implementation. `omarchy-system-sleep-lock` remains the desktop power-button path (lock, then suspend) and is not copied into the supervisor.
+The lock engaged there, when it is engaged, is the lock-on-resume mechanism dev-blue is building on `feat/ally-session-20261111`. This spec does not define a second implementation. `omarchy-system-sleep-lock` remains the desktop power-button path (lock, then suspend) and is not copied into the supervisor. Before K07, on the handheld variant, that path follows §7.7 and does not lock without a usable keyboard.
 
 The root-owned value is one of three, and `default-off` is stored separately from `explicit-off`:
 
@@ -217,7 +221,7 @@ The root-owned value is one of three, and `default-off` is stored separately fro
 
 The handheld variant is both `omarchy-hw-rog-ally` (the RC71L detector) and the installed `omarchy-gaming-session` package. Either one alone is not enough. A laptop that installs the package, and any machine the detector rejects, keeps `desktop-lock` at `on`.
 
-Until AUTH item K07 lands, that handheld variant ships `default-off`. K07 is the lock-screen touch keyboard (plan row K07: a keyboard inside the trusted lock surface). It is an additive pull request into `feat/ally-parity-release-20261111` (Task C). The K07 package, when it installs, and the migration, when it runs, each write `/var/lib/omarchy/handheld/k07-landed`. The file is `root:root` mode `0644`. Its directory, `/var/lib/omarchy/handheld`, is `0755` and `root:root`: the desktop user can read and search it, and only root can create, replace, or remove anything in it. The handheld package creates that directory, at that mode, before the first session, and `/var/lib/omarchy` and its parents are searchable by the desktop user, so the pre-K07 path is not a permission error. The file is not owned by the K07 package, so removing or downgrading K07 does not delete it. `desktop()` in `bin/omarchy-session-start` reads the marker as the autologged-in desktop user, not as root. The installer and the migration treat “K07 has merged” as that file being present. They do not read it from a package version. ENOENT means absent, whether the file is missing or the directory has not been created yet. That is the only absence. No expected pre-K07 state returns any other error. A real read error other than ENOENT, including `EACCES`, I/O, or an odd mount, is treated as the marker being present, so `desktop-lock` is `on` and `default-off` is not written. While the marker is absent, the handheld installer may write `default-off`. Once it is present, or a read fails with anything but ENOENT, nothing writes `default-off` again. A marker file or directory the desktop user can write is not a valid install.
+Until AUTH item K07 lands, that handheld variant ships `default-off`. K07 is the lock-screen touch keyboard (plan row K07: a keyboard inside the trusted lock surface). It is an additive pull request into `feat/ally-parity-release-20261111` (Task C). The K07 package, when it installs, and the migration, when it runs, each write `/var/lib/omarchy/handheld/k07-landed`. The file is `root:root` mode `0644`. Its directory, `/var/lib/omarchy/handheld`, is `0755` and `root:root`: the desktop user can read and search it, and only root can create, replace, or remove anything in it. The handheld package creates that directory, at that mode, before the first session. `/var/lib/omarchy`, the parent, is `0755` and `root:root`: the desktop user can search it and cannot create, rename, or replace anything in it, so the user cannot rename or replace `handheld` and turn a present marker into ENOENT. That directory and its parents are searchable by the desktop user, so the pre-K07 path is not a permission error. The file is not owned by the K07 package, so removing or downgrading K07 does not delete it. `desktop()` in `bin/omarchy-session-start` reads the marker as the autologged-in desktop user, not as root. The installer and the migration treat “K07 has merged” as that file being present. They do not read it from a package version. ENOENT means absent, whether the file is missing or the directory has not been created yet. That is the only absence. No expected pre-K07 state returns any other error. A real read error other than ENOENT, including `EACCES`, I/O, or an odd mount, is treated as the marker being present, so `desktop-lock` is `on` and `default-off` is not written. While the marker is absent, the handheld installer may write `default-off`. Once it is present, or a read fails with anything but ENOENT, nothing writes `default-off` again. A marker file or directory the desktop user can write is not a valid install.
 
 When the marker is present, one migration runs once. If the stored value is `default-off`, it becomes `on`. If the stored value is `explicit-off`, it stays `explicit-off`. If it is already `on`, it stays `on`. The marker is what records that the migration has run, so a later `explicit-off` is not treated as `default-off`. Before the marker exists, a missing, corrupt, or unknown value on the handheld variant is `default-off`. After the marker exists, a missing, corrupt, or unknown value is `on`.
 
@@ -234,7 +238,7 @@ No getty autologin. Getty still asks for a password. No desktop session is left 
 | Who | Anyone holding the RC71L. Autologin (Daniel, 12 Nov 2026) gives the same unauthenticated local access as SteamOS or Bazzite Gaming Mode. |
 | What they can already do | Use the gaming session as the desktop user: Steam, games, and anything else that session starts. The UID is the desktop user's UID. |
 | What the lock protects, once it is on | The desktop UI. No Hyprland frame, autostart client, notification or keystroke into a desktop app until the lock is acknowledged. |
-| Interim exposure, until K07 | Honest gap, and only on the handheld variant (`omarchy-hw-rog-ally` and `omarchy-gaming-session`). It ships `default-off`, so Switch to Desktop, Exit Steam, the dock prompt, and the gaming-failure fallback all show the Hyprland desktop with no lock. Anyone holding the device then has the desktop UI, autostart, and the user's files. This is accepted because there is no lock-screen touch keyboard to unlock with. It is not a user opt-out: the stored value is `default-off`, and the K07 migration will turn it on. A laptop with the package installed is not in this gap. Once `/var/lib/omarchy/handheld/k07-landed` exists, deleting or corrupting the value fails closed to `on`. A read error other than ENOENT also fails closed to `on`. ENOENT is the pre-K07 absence, and the directory mode `0755` lets the desktop user see that absence. Downgrading K07 does not delete the marker and does not restore `default-off`. An `explicit-off` is a separate choice, made with an interactive password prompt, and stays off after the migration. |
+| Interim exposure, until K07 | Honest gap, and only on the handheld variant (`omarchy-hw-rog-ally` and `omarchy-gaming-session`). It ships `default-off`, so Switch to Desktop, Exit Steam, the dock prompt, and the gaming-failure fallback all show the Hyprland desktop with no lock. Anyone holding the device then has the desktop UI, autostart, and the user's files. This is accepted because there is no lock-screen touch keyboard to unlock with. Suspend follows §7.7 and never leaves a keyboard-less Ally at a lock screen. It is not a user opt-out: the stored value is `default-off`, and the K07 migration will turn it on. A laptop with the package installed is not in this gap. Once `/var/lib/omarchy/handheld/k07-landed` exists, deleting or corrupting the value fails closed to `on`. A read error other than ENOENT also fails closed to `on`. ENOENT is the pre-K07 absence, and the directory mode `0755` lets the desktop user see that absence. Downgrading K07 does not delete the marker and does not restore `default-off`. An `explicit-off` is a separate choice, made with an interactive password prompt, and stays off after the migration. |
 | What the lock does not protect, even when on | User files, Steam data, prefixes, or a shell, file manager or Omarchy menu started inside Gamescope. Disk encryption. A TTY, which still requires a password. |
 | Required audit | No default non-Steam shortcut and no gaming-setup launcher opens a shell, a file manager or the Omarchy menu inside the Gamescope session. |
 
@@ -247,6 +251,28 @@ These are lock UI. This project states them and does not implement them.
 | A **Return to Gaming** action on the lock screen that logs out without unlocking | With only the controller, fingerprint failed, and no on-screen keyboard, the user cannot unlock. While the lock is up the bridge stays on `gamepad`, so the lock has no controller pointer (red review C4). Logout is safe. |
 | The lock host refuses a request when its mode file is missing | The red review names `omarchy-lock-mode-<sig>` (branch review finding 2). That path is not in this branch or in `feat/ally-session-20261111`. AUTH owns the refusal. If the lock is refused or missing, the supervisor follows §7.4 and returns to gaming. |
 | On-screen keyboard on the SDDM greeter after an unexpected supervisor exit | `Relogin=false` shows the password greeter. OQ-7. Usability blocker, not a lock bypass. |
+
+### 7.7 Suspend lock before K07 (D11)
+
+`omarchy-system-sleep-lock` is still the desktop power-button path, and it is still not copied into the supervisor. While `/var/lib/omarchy/handheld/k07-landed` is absent, on the handheld variant, that path locks only when a physical keyboard is attached at suspend.
+
+A physical keyboard is an external keyboard attached at that moment, one the user can type a password on. The Ally's own Asus Keyboard HID, InputPlumber's virtual keyboard and the desktop bridge's uinput keyboard enumerate as keyboards and do not count. That is the PR #24 physical-keyboard rule. wvkbd and Steam's on-screen keyboard do not count. The check is the handheld variant only. A laptop keeps today's lock, then suspend.
+
+The marker check is §7.4. ENOENT means absent. Any other result means present, and suspend then uses the post-K07 rows.
+
+| Marker | `desktop-lock` | Physical keyboard at suspend | What suspend does |
+|---|---|---|---|
+| Absent | `on`, `default-off` or `explicit-off` | Attached | Lock, then suspend. Wake stays locked. This is the only pre-K07 suspend that locks. |
+| Absent | `on` | Not attached | Do not lock. End the desktop session and return to gaming, then suspend from the gaming session. Wake is gaming, not a lock screen and not the desktop. |
+| Absent | `default-off` or `explicit-off` | Not attached | Do not lock. Suspend the desktop. Wake is the same unlocked desktop. |
+| Present | `on`, including a `default-off` the migration has set to `on` | Not required | Normal rule: lock, then suspend. The lock-screen touch keyboard is the usable keyboard. |
+| Present | `explicit-off` | Not required | Normal rule: do not lock. Wake is the unlocked desktop. |
+
+Never lock without a usable keyboard. While the marker is absent the usable keyboard is the physical keyboard in the first row. Once the marker exists it is the lock-screen touch keyboard. No path leaves a keyboard-less Ally at a lock screen.
+
+Gaming suspend is unchanged: `steamos-powerbuttond` inside the scope, and no desktop lock.
+
+The K07 migration restores lock-on-suspend for the shipped handheld default, because it sets `default-off` to `on` and the present marker then follows the normal rules. An `explicit-off` stays off, so that suspend still does not lock.
 
 ## 8. Input and profile rules (ties to spec 01)
 
@@ -284,9 +310,10 @@ stateDiagram-v2
     Desktop --> Desktop: dock (layout only) / prompt declined
     Desktop --> SDDM: logout / supervisor exit
     Gaming --> Suspended: power button
-    Suspended --> Gaming: wake (same game)
-    Desktop --> Suspended: power button (lock first)
+    Desktop --> Suspended: suspend with a usable keyboard (lock first)
+    Desktop --> Gaming: suspend before K07, value on, no physical keyboard
     Suspended --> Desktop: wake, still locked if it was locked
+    Suspended --> Gaming: wake in the same game, or after that pre-K07 return
 ```
 
 ## 10. User flows
@@ -303,6 +330,9 @@ stateDiagram-v2
 | F8 | Pin desktop | Menu → Session → Always Desktop; dock/undock never prompts; reboot lands on the desktop, locked only when the value is `on` |
 | F9 | Lock cannot start, value `on` | If a D2 retry remains, back to gaming. If the D2 budget is already spent, SDDM, and no further gaming attempt. No unlocked desktop frame. Latch unchanged |
 | F10 | K07 migration | A handheld `default-off` becomes `on` once. An `explicit-off` stays off |
+| F11 | Suspend before K07 | §7.7. A physical keyboard attached: lock, then suspend, wake stays locked. `on` and no physical keyboard: back to gaming, then suspend, wake in gaming. `default-off` or `explicit-off` and no physical keyboard: no lock, wake on the same desktop |
+| F12 | Suspend after K07 | Normal `desktop-lock` rules. `on` locks without a physical keyboard. `explicit-off` does not lock |
+| F13 | Overlay Switch to Desktop | Hidden while the lock is `default-off` or `explicit-off`. Steam's own menu is the switch, and it honours Steam's PIN. Shown while `on`, and the lock runs first. Spec 04 |
 
 ## 11. Acceptance criteria
 
@@ -339,7 +369,12 @@ stateDiagram-v2
 31. After `/var/lib/omarchy/handheld/k07-landed` exists, delete the `desktop-lock` file, and separately replace it with a corrupt or unknown value. The next desktop entry treats each case as `on` and locks before the first frame. Neither case becomes `default-off`, and neither waits for the migration to run again.
 32. When reading `/var/lib/omarchy/handheld/k07-landed` fails with anything other than ENOENT (permission, I/O, or an odd mount), the check treats the marker as present, so `desktop-lock` is `on` and not `default-off`. ENOENT means absent. The installer does not write `default-off` on a real error. Unless the stored value is `explicit-off`, the next desktop entry locks before the first frame.
 33. Before K07, a check run as the desktop user, the same user `desktop()` runs as, returns absent. `/var/lib/omarchy/handheld` is `0755` `root:root` and the marker file is not there, and that check does not return an error. `desktop-lock` stays `default-off`, and the desktop is shown unlocked.
-34. A marker file or directory the desktop user can write is a test failure. The directory is `0755` `root:root` and the file, once written, is `0644` `root:root`.
+34. A marker file or directory the desktop user can write is a test failure. `/var/lib/omarchy/handheld` is `0755` `root:root` and the file, once written, is `0644` `root:root`. `/var/lib/omarchy`, the parent directory, is also `0755` `root:root` and not writable by the desktop user. That user cannot rename or replace `handheld`, so they cannot turn a present marker into ENOENT.
+35. Before K07, on the handheld variant, suspend from the desktop with a physical keyboard attached locks before the machine sleeps, and wake stays locked. The Ally's Asus Keyboard HID, InputPlumber's virtual keyboard and the bridge uinput keyboard do not count as that keyboard. This holds when `desktop-lock` is `on`, `default-off` or `explicit-off`. A laptop is not on this path.
+36. Before K07, on the handheld variant, with `desktop-lock` `on` and no physical keyboard attached, suspend does not lock. The desktop session ends and the session that suspends is gaming. Wake is gaming, not a lock screen and not the desktop.
+37. Before K07, on the handheld variant, with `desktop-lock` `default-off` or `explicit-off` and no physical keyboard attached, suspend does not lock. Wake is the same unlocked desktop. No path in AC 35–37 leaves a keyboard-less Ally at a lock screen.
+38. After `/var/lib/omarchy/handheld/k07-landed` exists, suspend follows the normal `desktop-lock` rules. `on` locks without a physical keyboard, because the lock-screen touch keyboard is the usable keyboard. `explicit-off` does not lock. A `default-off` has already been migrated to `on`. A marker read that is not ENOENT is this row, not AC 35–37.
+39. While `desktop-lock` is `default-off` or `explicit-off`, the gaming quick overlay (spec 04) does not show Switch to Desktop and does not call the desktop launcher. Steam's own Power → Switch to Desktop still switches, and it honours Steam's PIN. While `desktop-lock` is `on`, that overlay row is shown and the switch runs the §7.4 lock before any Hyprland frame.
 
 ## 12. Open questions
 
