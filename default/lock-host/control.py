@@ -3,6 +3,7 @@
 No operation accepts passwords, unlock requests, code or application commands
 from a socket. Configuration and role files are data, never imported/executed.
 """
+from contextlib import contextmanager
 import fcntl
 import json
 import os
@@ -41,6 +42,11 @@ def preference():
 
 def mode(initialize=False):
   path = session_path("mode")
+  if not path.exists() and not initialize:
+    # The launcher that predates session selection never wrote this file.
+    # The running shell still owns the generic lock. A lock or status query
+    # must not create the file or latch the trusted host.
+    return "shell"
   if initialize and not path.exists():
     # Publish a complete immutable selection atomically. Two simultaneous
     # launchers must never read an empty file between O_EXCL and write().
@@ -128,13 +134,34 @@ def checked_peer(connection):
     raise ValueError("untrusted lock-host peer")
 
 
+def wayland_display(runtime):
+  display = os.environ.get("WAYLAND_DISPLAY", "")
+  if display:
+    return display
+  # restart-shell recovers the compositor signature for a TTY or SSH caller
+  # and then asks for context. The display is the socket of that same session.
+  # The peer check below rejects a socket that belongs to a different compositor.
+  candidates = []
+  for path in runtime.glob("wayland-[0-9]*"):
+    if not re.fullmatch(r"wayland-[0-9]+", path.name):
+      continue
+    if path.is_symlink() or not path.is_socket():
+      continue
+    candidates.append(path)
+  if not candidates:
+    raise ValueError("lock IPC requires the current Wayland display")
+  candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+  return candidates[0].name
+
+
 def context():
   # Lock IPC never guesses a session from the newest socket or caller env
-  # alone. A stripped TTY/SSH context is explicitly unsupported. Bind both
-  # supplied endpoints to the same live system compositor and live owner.
+  # alone. Bind both endpoints to the same live system compositor and live owner.
+  # A TTY or SSH restart may omit WAYLAND_DISPLAY after recovering the signature;
+  # that display is taken from the matching socket, then checked like any other.
   selected = mode()
   runtime, instance = paths()
-  display = os.environ["WAYLAND_DISPLAY"]
+  display = wayland_display(runtime)
   if not display:
     raise ValueError("lock IPC requires the current Wayland display")
   display_path = Path(display) if display.startswith("/") else runtime / display
@@ -205,6 +232,25 @@ def validate_status(data):
   return {key: data[key] for key in ("protocol", "ready", "locked", "requested", "secure", "owner")}
 
 
+@contextmanager
+def owner_lease(path):
+  # The successful exec does not return, so the owner keeps this descriptor.
+  # Every other exit, including a failed exec or a role write, closes it.
+  fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+  try:
+    try:
+      fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+      os.close(fd)
+      fd = -1
+      raise
+    os.set_inheritable(fd, True)
+    yield fd
+  finally:
+    if fd >= 0:
+      os.close(fd)
+
+
 def run(role, command):
   if role == "shell" and not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
     os.execvpe(command[0], command, dict(os.environ, OMARCHY_LOCK_HOST="0"))
@@ -215,36 +261,29 @@ def run(role, command):
     raise ValueError("trusted host must launch as the reviewed unit MainPID")
   actual_role = "broker" if role == "shell" and selected == "host" else role
   lease = "broker.lock" if actual_role == "broker" else "owner.lock"
-  fd = os.open(session_path(lease), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
   try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with owner_lease(session_path(lease)):
+      write_role(actual_role)
+      environment = dict(os.environ)
+      environment["OMARCHY_LOCK_HOST"] = "1" if selected == "host" else "0"
+      if role == "host":
+        for name in ("QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_PLUGIN_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "PYTHONPATH", "PYTHONHOME", "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QUICK_CONTROLS_CONF", "QT_QUICK_CONTROLS_STYLE_PATH", "QML_DISK_CACHE_PATH"):
+          environment.pop(name, None)
+        for name in list(environment):
+          # Qt has several independent native/QML plugin selectors, including
+          # generic plugins and keyboard styles. Use only this host's fixed ones.
+          if name.startswith(("BASH_FUNC_", "QT_", "QML_", "QV4_", "QS_", "LD_")):
+            environment.pop(name)
+        environment["PATH"] = os.environ["OMARCHY_PATH"] + "/bin:/usr/bin:/bin"
+        environment.update(QT_IM_MODULE="qtvirtualkeyboard", QT_IM_MODULES="qtvirtualkeyboard",
+                           QT_VIRTUALKEYBOARD_DESKTOP_DISABLE="1", QT_QPA_PLATFORM="wayland", QT_QPA_PLATFORMTHEME="",
+                           QT_QUICK_CONTROLS_STYLE="Basic", QML_DISABLE_DISK_CACHE="1", QS_DISABLE_FILE_WATCHER="1",
+                           QS_NO_RELOAD_POPUP="1")
+      os.execvpe(command[0], command, environment)
   except BlockingIOError:
-    os.close(fd)
     if actual_role == "broker":
       return 0  # Existing desktop already owns the single broker role.
     raise
-  os.set_inheritable(fd, True)
-  write_role(actual_role)
-  environment = dict(os.environ)
-  environment["OMARCHY_LOCK_HOST"] = "1" if selected == "host" else "0"
-  if role == "host":
-    for name in ("QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_PLUGIN_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "PYTHONPATH", "PYTHONHOME", "QT_QPA_PLATFORM_PLUGIN_PATH", "QT_QUICK_CONTROLS_CONF", "QT_QUICK_CONTROLS_STYLE_PATH", "QML_DISK_CACHE_PATH"):
-      environment.pop(name, None)
-    for name in list(environment):
-      # Qt has several independent native/QML plugin selectors, including
-      # generic plugins and keyboard styles. Use only this host's fixed ones.
-      if name.startswith(("BASH_FUNC_", "QT_", "QML_", "QV4_", "QS_", "LD_")):
-        environment.pop(name)
-    environment["PATH"] = os.environ["OMARCHY_PATH"] + "/bin:/usr/bin:/bin"
-    environment.update(QT_IM_MODULE="qtvirtualkeyboard", QT_IM_MODULES="qtvirtualkeyboard",
-                       QT_VIRTUALKEYBOARD_DESKTOP_DISABLE="1", QT_QPA_PLATFORM="wayland", QT_QPA_PLATFORMTHEME="",
-                       QT_QUICK_CONTROLS_STYLE="Basic", QML_DISABLE_DISK_CACHE="1", QS_DISABLE_FILE_WATCHER="1",
-                       QS_NO_RELOAD_POPUP="1")
-  try:
-    os.execvpe(command[0], command, environment)
-  finally:
-    # Only reached on failed exec (or a test's intercepted exec).
-    os.close(fd)
 
 
 def stranded(own_pid):

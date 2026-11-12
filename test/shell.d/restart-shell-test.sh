@@ -27,10 +27,18 @@ mkdir -p "$restart_root/shell" "$restart_bin" "$runtime_dir" "$restart_root/defa
 chmod 700 "$runtime_dir"
 # This fixture tests restart policy; native context identity is covered by
 # trusted-lock-host-test, rather than pretending these sleep/qs stubs are Qt.
-export HYPRLAND_INSTANCE_SIGNATURE=restart-fixture WAYLAND_DISPLAY=wayland-fixture
+# WAYLAND_DISPLAY is not exported: a TTY/SSH restart recovers it from the
+# runtime socket before context() runs. The stub records that recovered name.
+export HYPRLAND_INSTANCE_SIGNATURE=restart-fixture
+unset WAYLAND_DISPLAY
+: >"$test_tmp/context-display"
+python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])' "$runtime_dir/wayland-7"
 cat >"$restart_bin/omarchy-lock-host" <<'SH'
 #!/bin/bash
 if [[ $1 == "context" ]]; then
+  printf '%s\n' "${WAYLAND_DISPLAY:-missing}" >>"$XDG_RUNTIME_DIR/context-display"
+  # A TTY caller with no recovered display is not a validated session.
+  [[ -n ${WAYLAND_DISPLAY:-} ]] || exit 1
   [[ ${OMARCHY_TEST_CONTEXT_VALID:-1} == "1" ]] || exit 1
   echo shell
 else
@@ -249,7 +257,19 @@ locked_error=$(PATH="$restart_bin:$PATH" \
 [[ $locked_error == "Refusing to restart Omarchy shell while the session is locked." ]] || fail "locked restart explains why it was refused" "$locked_error"
 [[ $(<"$restart_state") == 303 ]] || fail "locked restart preserves the running shell"
 [[ ! -s $restart_log ]] || fail "locked restart does not stop or launch Quickshell"
+grep -qx 'wayland-7' "$runtime_dir/context-display" || fail "TTY restart recovers WAYLAND_DISPLAY before checking the lock" "$(<"$runtime_dir/context-display")"
 pass "restart preserves the shell while its lock is active"
+pass "TTY restart recovers the Wayland display from the session socket"
+
+: >"$runtime_dir/context-display"
+mv "$runtime_dir/wayland-7" "$runtime_dir/wayland-7.away"
+locked_error=$(PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
+  OMARCHY_TEST_SESSION_LOCKED=1 OMARCHY_TEST_QS_STATE="$restart_state" \
+  OMARCHY_TEST_QS_LOG="$restart_log" OMARCHY_TEST_SESSION_PATH="$restart_root" \
+  "$ROOT/bin/omarchy-restart-shell" 2>&1) && fail "TTY restart without a display socket must refuse"
+[[ $locked_error == "Refusing locked desktop restart without a validated graphical session context." ]] || fail "missing display socket is not mistaken for orphan recovery" "$locked_error"
+mv "$runtime_dir/wayland-7.away" "$runtime_dir/wayland-7"
+pass "TTY restart without a display socket refuses before killing the lock client"
 
 locked_error=$(PATH="$restart_bin:$PATH" OMARCHY_PATH="$restart_root" XDG_RUNTIME_DIR="$runtime_dir" \
   OMARCHY_TEST_CONTEXT_VALID=0 OMARCHY_TEST_SESSION_LOCKED=1 OMARCHY_TEST_QS_STATE="$restart_state" \
