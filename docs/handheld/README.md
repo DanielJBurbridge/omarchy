@@ -12,9 +12,9 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 | 02 | [Mode switch (gaming ⇄ desktop) and dock / undock](02-mode-switch-and-dock.md) | Draft, revision 2 |
 | 03 | First boot and install flow (handheld variant) | TODO |
 | 04 | Quick-access overlay: TDP, fan, RGB, brightness, performance profile | TODO |
-| 05 | Notifications (gaming and desktop) | TODO |
-| 06 | Accessibility: text size, contrast, haptics, one-handed | TODO |
-| 07 | On-screen keyboard (desktop wvkbd and Steam OSK) | TODO |
+| 05 | [Notifications (gaming and desktop)](05-notifications.md) | Draft, revision 1 |
+| 06 | [Accessibility: text size, contrast, haptics, one-handed](06-accessibility.md) | Draft, revision 1 |
+| 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 1 |
 
 Out of scope for now: lock screen, greeter and disk-unlock design (AUTH owns those surfaces).
 
