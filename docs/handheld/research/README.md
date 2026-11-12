@@ -4,6 +4,8 @@ Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (R
 
 **steamos-manager is a recommendation, not a decision. An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive, and it is being re-assessed.**
 
+**Superseded (12 Nov 2026).** Do not ship stock steamos-manager and do not fork it. Build backlog #10 (a small root writer for the power limits) and #11 (a session-bus shim implementing the public SteamOSManager1 API, so Steam's QAM performance slider works). The stock package enables a root service on install, its root RootManager API lacks Polkit/caller authorisation, its root daemon manages InputPlumber targets, it has a networking-helper dependency, and its root interface is monolithic.
+
 Per-button codes and paddle mapping are pending a device press test.
 
 Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1-or-later) and the CachyOS handheld configs are not copied into this tree. For each of those, reimplement the behaviour, or vendor the files in a clearly separate path with their own LICENSE and SPDX headers. Checked licence ids are in [`distros.md`](distros.md).
