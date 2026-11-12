@@ -36,7 +36,7 @@ cat > "$stub/omarchy-pkg-present" <<'EOF'
 [[ $1 == omarchy-gaming-session && ${LOCK_PKG:-yes} == yes ]]
 EOF
 chmod +x "$stub/"*
-export PATH="$stub:$PATH"
+export PATH="$stub:$ROOT/bin:$PATH"
 export HOME=$work/home
 export LOCK_HW=ally LOCK_PKG=yes
 mkdir -p "$HOME/.local/state/omarchy"
@@ -179,14 +179,36 @@ mkdir -p "$stub"
 cat > "$stub/omarchy-shell" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$sleep_log"
+if [[ \$1 == lock && \$2 == lock ]]; then
+  printf '%s\n' lock-attempt >> "$work/desktop-actions"
+  if [[ \${LOCK_FAIL:-0} == 1 ]]; then
+    exit 1
+  fi
+  printf '%s\n' lock >> "$work/desktop-actions"
+fi
 if [[ \$1 == lock && \$2 == status ]]; then
+  if [[ \${LOCK_FAIL:-0} == 1 ]]; then
+    exit 1
+  fi
   printf '%s\n' '{"secure":true}'
 fi
 exit 0
 EOF
-cat > "$stub/omarchy-launch-gaming-session" <<EOF
+cat > "$stub/systemd-run" <<EOF
 #!/bin/bash
-printf '%s\n' "launch:\$*" >> "$sleep_log"
+printf '%s\n' "systemd-run:\$*" >> "$sleep_log"
+exit 0
+EOF
+cat > "$stub/pgrep" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+cat > "$stub/gamescope" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat > "$stub/steam" <<'EOF'
+#!/bin/bash
 exit 0
 EOF
 cat > "$stub/omarchy-hw-physical-keyboard" <<'EOF'
@@ -246,6 +268,15 @@ run_sleep() {
   sleep_status=0
   "$@" || sleep_status=$?
 }
+return_runtime=$work/return-runtime
+prepare_return() {
+  mkdir -p "$return_runtime/omarchy-gaming-locktest"
+  printf '%s\n' desktop > "$return_runtime/omarchy-gaming-locktest/active"
+}
+assert_returned() {
+  grep -q 'default/gaming/switch.sh' "$sleep_log" || fail "$1" "$(cat "$sleep_log")"
+  if grep -q -- '--confirm' "$sleep_log"; then fail "$1 passed --confirm" "$(cat "$sleep_log")"; fi
+}
 root_do rm -f "$marker" "$value"
 : > "$sleep_log"
 LOCK_HW=laptop LOCK_PKG=yes LOCK_KEYBOARD=1
@@ -279,11 +310,16 @@ pass "pre-K07 handheld suspend locks only while a physical keyboard is attached"
 write_value on
 : > "$sleep_log"
 status=0
+prepare_return
 LOCK_KEYBOARD=1 HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
+  XDG_RUNTIME_DIR=$return_runtime XDG_SESSION_ID=locktest \
   "$ROOT/bin/omarchy-system-sleep-lock" || status=$?
 [[ $status == 11 ]] || fail "explicit on without a keyboard cancels suspend" "$status"
 assert_unlocked "explicit on without a keyboard still locks on suspend"
-grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on without a keyboard returns to gaming" "$(cat "$sleep_log")"
+assert_returned "explicit on without a keyboard returns to gaming"
+status=0
+"$ROOT/bin/omarchy-launch-gaming-session" --confirm >/dev/null 2>&1 || status=$?
+[[ $status == 2 ]] || fail "the launcher accepts --confirm" "$status"
 pass "explicit on with no keyboard returns to gaming instead of locking"
 
 root_do install -o root -g root -m 0644 /dev/null "$marker"
@@ -298,11 +334,13 @@ pass "the K07 marker brings the ordinary suspend lock back"
 write_value on
 : > "$sleep_log"
 status=0
+prepare_return
 LOCK_KEYBOARD=1 LOCK_HOST_MODE=shell HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
+  XDG_RUNTIME_DIR=$return_runtime XDG_SESSION_ID=locktest \
   "$ROOT/bin/omarchy-system-sleep-lock" || status=$?
 [[ $status == 11 ]] || fail "a shell-owned session after K07 must not lock without a keyboard" "$status"
 assert_unlocked "a shell-owned session after K07 still locks without a keyboard"
-grep -q 'launch:--confirm' "$sleep_log" || fail "a shell-owned session after K07 did not return to gaming" "$(cat "$sleep_log")"
+assert_returned "a shell-owned session after K07 did not return to gaming"
 : > "$sleep_log"
 status=0
 LOCK_KEYBOARD=1 LOCK_HOST_MODE=host HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
@@ -329,11 +367,13 @@ assert_unlocked "idle locks a keyboard-less handheld before K07"
 : > "$sleep_log"
 status=0
 write_value on
+prepare_return
 LOCK_KEYBOARD=1 HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
+  XDG_RUNTIME_DIR=$return_runtime XDG_SESSION_ID=locktest \
   "$ROOT/bin/omarchy-system-lock" || status=$?
 [[ $status == 1 ]] || fail "explicit on idle returns to gaming" "$status"
 assert_unlocked "explicit on idle still locks without a keyboard"
-grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on idle does not return to gaming" "$(cat "$sleep_log")"
+assert_returned "explicit on idle does not return to gaming"
 : > "$sleep_log"
 LOCK_KEYBOARD=0 "$ROOT/bin/omarchy-system-lock"
 assert_locked "a physical keyboard lets idle and the lock hotkey lock"
@@ -348,14 +388,35 @@ case $1 in
 esac
 command -v "$1" >/dev/null
 EOF
+cat > "$work/hold-socket.py" <<'PY'
+import os, signal, socket, sys
+path = sys.argv[1]
+try:
+    os.remove(path)
+except FileNotFoundError:
+    pass
+sock = socket.socket(socket.AF_UNIX)
+sock.bind(path)
+sock.listen(1)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+signal.pause()
+PY
 cat > "$sweep/uwsm" <<EOF
 #!/bin/bash
+runtime=\${XDG_RUNTIME_DIR:-}
+holder=''
+cleanup() { [[ -n \$holder ]] && kill "\$holder" 2>/dev/null || true; }
+trap cleanup EXIT
+if [[ -n \$runtime ]]; then
+  mkdir -p "\$runtime/hypr/fixture"
+  python3 "$work/hold-socket.py" "\$runtime/wayland-1" &
+  holder=\$!
+fi
 printf '%s\n' "uwsm:\$*" >> "$work/desktop-actions"
-exit 0
-EOF
-cat > "$sweep/omarchy-system-lock" <<EOF
-#!/bin/bash
-printf '%s\n' lock >> "$work/desktop-actions"
+for _ in {1..50}; do
+  grep -q '^lock-attempt$' "$work/desktop-actions" && break
+  sleep 0.05
+done
 exit 0
 EOF
 chmod +x "$sweep/"*
@@ -374,9 +435,19 @@ run_desktop_entry() {
     "$work/session-start" preferred || status=$?
   [[ $status == "$expect" ]] || fail "switch to desktop exited $expect" "$status"
   log=$HOME/.local/state/omarchy/gaming-session/session.log
-  if [[ $3 == locked ]]; then
-    grep -q '^lock$' "$actions" || fail "$2 never locked" "$(cat "$actions")"
-    grep -q '^uwsm:' "$actions" || fail "$2 never started the desktop" "$(cat "$actions")"
+  if [[ $3 == locked || $3 == failed ]]; then
+    grep -q '^uwsm:' "$actions" || fail "$2 never started Hyprland" "$(cat "$actions")"
+    grep -q '^lock-attempt$' "$actions" || fail "$2 never asked the lock host" "$(cat "$actions")"
+    local uwsm_line lock_line
+    uwsm_line=$(grep -n '^uwsm:' "$actions" | head -n 1 | cut -d: -f1)
+    lock_line=$(grep -n '^lock-attempt$' "$actions" | head -n 1 | cut -d: -f1)
+    (( uwsm_line < lock_line )) || fail "$2 locked before Hyprland was up" "$(cat "$actions")"
+    if [[ $3 == locked ]]; then
+      grep -q '^lock$' "$actions" || fail "$2 never locked" "$(cat "$actions")"
+    else
+      if grep -q '^lock$' "$actions"; then fail "$2 treated a failed lock host as engaged" "$(cat "$actions")"; fi
+      grep -q 'not leaving an unlocked desktop' "$log" || fail "$2 left the desktop up" "$(cat "$log" 2>/dev/null)"
+    fi
   elif [[ $3 == desktop ]]; then
     if grep -q '^lock$' "$actions"; then fail "$2 locked" "$(cat "$actions")"; fi
     grep -q '^uwsm:' "$actions" || fail "$2 never started the desktop" "$(cat "$actions")"
@@ -395,20 +466,27 @@ root_do rm -f "$value"
 run_desktop_entry 0 "switch to desktop with default-off and no keyboard" desktop
 write_value on
 LOCK_KEYBOARD=0 run_desktop_entry 0 "switch to desktop with a keyboard and explicit on" locked
+LOCK_KEYBOARD=0 LOCK_FAIL=1 run_desktop_entry 1 "a failed lock host after Hyprland is up" failed
 pass "switch to desktop never leaves a keyboard-less handheld on the lock screen before K07"
 
 root_do rm -f "$marker" "$value"
 write_value default-off
 root_do env OMARCHY_PATH="$OMARCHY_PATH" "$ROOT/bin/omarchy-setup-handheld-k07"
-[[ $(user_state) == present ]] || fail "K07 setup creates the marker" "$(user_state)"
-[[ $(head -n 1 -- "$value") == on ]] || fail "K07 setup turns default-off into on" "$(head -n 1 -- "$value")"
-[[ $(user_effective) == on ]] || fail "K07 setup leaves desktop-lock on" "$(user_effective)"
-root_do rm -f "$marker"
+[[ $(user_state) == absent ]] || fail "K07 setup writes the marker before a device lock test" "$(user_state)"
+[[ $(head -n 1 -- "$value") == default-off ]] || fail "K07 setup turns desktop-lock on while dormant" "$(head -n 1 -- "$value")"
+[[ $(user_effective) == default-off ]] || fail "a dormant handheld does not stay desktop-lock off" "$(user_effective)"
 write_value explicit-off
 root_do env OMARCHY_PATH="$OMARCHY_PATH" "$ROOT/bin/omarchy-setup-handheld-k07"
-[[ $(head -n 1 -- "$value") == explicit-off ]] || fail "K07 setup keeps an explicit off" "$(head -n 1 -- "$value")"
-[[ $(user_effective) == explicit-off ]] || fail "explicit-off still reads as off after K07" "$(user_effective)"
-pass "K07 setup creates the marker and keeps an explicit off"
+[[ $(head -n 1 -- "$value") == explicit-off ]] || fail "K07 setup changes an explicit off" "$(head -n 1 -- "$value")"
+root_do install -o root -g root -m 0644 /dev/null "$marker"
+status=0
+as_user "$ROOT/bin/omarchy-rollback-handheld-k07" >/dev/null 2>"$work/rollback.err" || status=$?
+[[ $status != 0 ]] || fail "a non-root user removed the K07 marker"
+grep -q 'must run as root' "$work/rollback.err" || fail "rollback does not say it needs root" "$(cat "$work/rollback.err")"
+[[ $(user_state) == present ]] || fail "a refused rollback deleted the marker" "$(user_state)"
+root_do "$ROOT/bin/omarchy-rollback-handheld-k07"
+[[ $(user_state) == absent ]] || fail "root rollback left the K07 marker" "$(user_state)"
+pass "K07 stays dormant and only root can remove the marker"
 
 host_home=$work/host-home
 laptop_home=$work/laptop-home
@@ -456,23 +534,27 @@ LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/oma
 [[ $sleep_status == 0 ]] || fail "idle with desktop-lock off exits quietly" "$sleep_status"
 assert_unlocked "idle locks when desktop-lock is off and no keyboard is attached"
 grep -q 'blank:off' "$sleep_log" || fail "idle with desktop-lock off does not blank" "$(cat "$sleep_log")"
-if grep -q 'launch:' "$sleep_log"; then fail "idle with desktop-lock off returns to gaming" "$(cat "$sleep_log")"; fi
+if grep -q 'systemd-run:' "$sleep_log"; then fail "idle with desktop-lock off returns to gaming" "$(cat "$sleep_log")"; fi
 if grep -q 'broker:' "$sleep_log"; then fail "idle with desktop-lock off calls the broker" "$(cat "$sleep_log")"; fi
 : > "$sleep_log"
 write_value default-off
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
 [[ $sleep_status == 0 ]] || fail "idle with default-off exits quietly" "$sleep_status"
 grep -q 'blank:off' "$sleep_log" || fail "idle with default-off does not blank" "$(cat "$sleep_log")"
-if grep -q 'launch:\|broker:\|lock lock' "$sleep_log"; then fail "idle with default-off locks or suspends" "$(cat "$sleep_log")"; fi
+if grep -q 'systemd-run:\|broker:\|lock lock' "$sleep_log"; then fail "idle with default-off locks or suspends" "$(cat "$sleep_log")"; fi
 : > "$sleep_log"
 write_value on
-LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=0 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
+prepare_return
+LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=0 \
+  XDG_RUNTIME_DIR=$return_runtime XDG_SESSION_ID=locktest \
+  HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
+  run_sleep "$ROOT/bin/omarchy-system-idle-lock"
 assert_unlocked "idle locks when desktop-lock is on and no keyboard is attached"
-grep -q 'launch:--confirm' "$sleep_log" || fail "idle without a broker does not return to gaming" "$(cat "$sleep_log")"
+assert_returned "idle without a broker does not return to gaming"
 : > "$sleep_log"
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1 LOCK_BROKER=1 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
 grep -q 'broker:call org.omarchy.Handheld.Suspend1' "$sleep_log" || fail "idle does not call the suspend broker" "$(cat "$sleep_log")"
-if grep -q 'launch:' "$sleep_log"; then fail "idle calls the broker and also switches session" "$(cat "$sleep_log")"; fi
+if grep -q 'systemd-run:' "$sleep_log"; then fail "idle calls the broker and also switches session" "$(cat "$sleep_log")"; fi
 : > "$sleep_log"
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=0 LOCK_BROKER=0 run_sleep "$ROOT/bin/omarchy-system-idle-lock"
 [[ $sleep_status == 0 ]] || fail "idle with a physical keyboard exits 0" "$sleep_status"

@@ -22,6 +22,62 @@ start_hyprland() {
   return "$status"
 }
 
+hypr_pid=''
+
+# Hyprland publishes a signature directory and a wayland-N socket once the
+# compositor is actually up. Locking before either exists fails open.
+hyprland_up() {
+  local runtime=${XDG_RUNTIME_DIR:-} signature='' socket='' candidate name dir
+  [[ -n $runtime && -d $runtime ]] || return 1
+  for dir in "$runtime"/hypr/*; do
+    [[ -d $dir && ! -L $dir ]] || continue
+    signature=${dir##*/}
+    break
+  done
+  for candidate in "$runtime"/wayland-[0-9]*; do
+    [[ -S $candidate ]] || continue
+    name=${candidate##*/}
+    [[ $name =~ ^wayland-[0-9]+$ ]] || continue
+    socket=$name
+    break
+  done
+  [[ -n $signature && -n $socket ]] || return 1
+  export HYPRLAND_INSTANCE_SIGNATURE=$signature WAYLAND_DISPLAY=$socket
+}
+
+wait_for_hyprland() {
+  local i
+  for (( i = 0; i < 100; i++ )); do
+    if hyprland_up; then return 0; fi
+    if [[ -n $hypr_pid ]] && ! kill -0 "$hypr_pid" 2>/dev/null; then
+      wait "$hypr_pid" 2>/dev/null || true
+      hypr_pid=''
+      hyprland_up && return 0
+      return 1
+    fi
+    sleep 0.05
+  done
+  return 1
+}
+
+stop_started_hyprland() {
+  if [[ -n $hypr_pid ]]; then
+    kill "$hypr_pid" 2>/dev/null || true
+    wait "$hypr_pid" 2>/dev/null || true
+    hypr_pid=''
+  fi
+  unset OMARCHY_HANDHELD_SESSION
+}
+
+lock_engaged() {
+  local status
+  status=$(omarchy-shell lock status 2>/dev/null || true)
+  case $status in
+    *'"secure":true'* | *'"secure": true'* | *'"locked":true'* | *'"locked": true'*) return 0 ;;
+  esac
+  return 1
+}
+
 # Before K07 on the handheld, do not lock without a physical keyboard. Explicit
 # on with none returns to gaming. Off with none starts the desktop unlocked.
 # The K07 marker restores the ordinary lock once the touch keyboard can run.
@@ -33,10 +89,34 @@ desktop() {
       ;;
     allow)
       if [[ $(gaming_desktop_lock_effective) == on ]]; then
-        if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
-          echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+        # The lock has to run against a live compositor. Calling it first
+        # fails silently and the desktop then opens unlocked.
+        if ! omarchy-cmd-present omarchy-system-lock; then
+          echo 'Desktop lock was not acknowledged; not leaving an unlocked desktop.' >> "$gaming_state/session.log"
           return 1
         fi
+        export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
+        if [[ -n ${gaming_runtime:-} ]]; then export OMARCHY_HANDHELD_SESSION=$XDG_SESSION_ID; fi
+        unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+        uwsm start -g -1 -e -D Hyprland hyprland.desktop &
+        hypr_pid=$!
+        if ! wait_for_hyprland; then
+          stop_started_hyprland
+          echo 'Desktop lock was not acknowledged; Hyprland was not up.' >> "$gaming_state/session.log"
+          return 1
+        fi
+        if ! timeout --kill-after=1s 15s omarchy-system-lock || ! lock_engaged; then
+          stop_started_hyprland
+          echo 'Desktop lock was not acknowledged; not leaving an unlocked desktop.' >> "$gaming_state/session.log"
+          return 1
+        fi
+        local status=0
+        if [[ -n $hypr_pid ]]; then
+          wait "$hypr_pid" || status=$?
+          hypr_pid=''
+        fi
+        unset OMARCHY_HANDHELD_SESSION
+        return "$status"
       fi
       ;;
   esac

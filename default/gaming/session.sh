@@ -145,7 +145,7 @@ gaming_apply_lock_gate() {
     skip) return 10 ;;
     return)
       if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]]; then
-        omarchy-launch-gaming-session --confirm >/dev/null 2>&1 || true
+        omarchy-launch-gaming-session >/dev/null 2>&1 || true
       fi
       return 11
       ;;

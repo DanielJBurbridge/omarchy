@@ -1,11 +1,11 @@
-echo "Land the lock-screen touch keyboard and turn handheld desktop lock on unless it was turned off explicitly"
+echo "Leave the Ally lock-screen keyboard dormant until a device lock test is recorded"
 
-if (( EUID == 0 )); then
-  "$OMARCHY_PATH/bin/omarchy-setup-handheld-k07"
-else
-  sudo env OMARCHY_PATH="$OMARCHY_PATH" "$OMARCHY_PATH/bin/omarchy-setup-handheld-k07"
+# A laptop is not an RC71L. Do not ask for a password and do not write a marker.
+PATH="$OMARCHY_PATH/bin:$PATH"
+if ! omarchy-hw-rog-ally; then
+  exit 0
 fi
 
-# The marker is root-owned. The host opt-in is this user's file, so the next
-# graphical session loads the touch keyboard inside the trusted lock host.
-PATH="$OMARCHY_PATH/bin:$PATH" "$OMARCHY_PATH/bin/omarchy-setup-handheld-lock-host"
+# The Ally stays dormant too. This migration does not record a device lock
+# test and does not write /var/lib/omarchy/handheld/k07-landed.
+exit 0

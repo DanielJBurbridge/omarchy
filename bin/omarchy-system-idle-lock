@@ -34,4 +34,4 @@ if busctl status org.omarchy.Handheld.Suspend1 >/dev/null 2>&1; then
     org.omarchy.Handheld.Suspend1 Suspend
 fi
 
-exec omarchy-launch-gaming-session --confirm
+exec omarchy-launch-gaming-session

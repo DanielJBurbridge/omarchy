@@ -3,11 +3,18 @@
 # omarchy:summary=Record that the lock-screen touch keyboard has landed
 # omarchy:requires-sudo=true
 
-# Creates the K07 marker and turns a stored handheld default-off into on.
-# explicit-off stays. A missing value stays missing; with the marker present
-# that already reads as on. Downgrading this command must not delete the marker.
+# K07 ships dormant. Nothing here writes /var/lib/omarchy/handheld/k07-landed
+# until a recorded device lock test has passed. That record is not created by
+# install or by the migration. The handheld therefore stays desktop-lock off.
+# omarchy-rollback-handheld-k07 removes a marker that an earlier run left behind.
 
 set -euo pipefail
+
+recorded=/var/lib/omarchy/handheld/k07-device-lock-passed
+if [[ ! -f $recorded || -L $recorded ]]; then
+  echo 'K07 is dormant until a recorded device lock test passes; not writing the marker.' >&2
+  exit 0
+fi
 
 if (( EUID != 0 )); then
   echo 'omarchy-setup-handheld-k07 must run as root.' >&2
