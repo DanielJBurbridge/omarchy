@@ -5,8 +5,21 @@ o.bind("SUPER + CTRL + C", "Capture menu", { menu = "capture" })
 o.bind("SUPER + CTRL + O", "Toggle menu", { menu = "toggle" })
 o.bind("SUPER + CTRL + H", "Hardware menu", { menu = "hardware" })
 -- Optional Ally panel; leave ordinary desktop keyboards and shortcuts alone.
-if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds("omarchy-hw-rog-ally") then
+-- The predicate is an absolute path: Hyprland's PATH at config load is not
+-- the session PATH the shell uses. A crashed wvkbd otherwise leaves its
+-- pressed keys and a latched Shift or Ctrl down; Hyprland only releases them
+-- when this option is on, and it defaults to off.
+local paths = require("default.hypr.paths")
+local ally = o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-ally")
+if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds(ally) then
   o.bind("SUPER + CTRL + Y", "Desktop keyboard", "omarchy-toggle-desktop-keyboard")
+  hl.config({
+    input = {
+      virtualkeyboard = {
+        release_pressed_on_close = true,
+      },
+    },
+  })
 end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })

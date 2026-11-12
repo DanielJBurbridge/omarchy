@@ -32,7 +32,16 @@ HELP
 esac
 (( $# <= 1 )) || { echo 'Too many arguments; use --help.' >&2; exit 2; }
 
-fail() { echo "Desktop keyboard: $*" >&2; exit 1; }
+fail() {
+  echo "Desktop keyboard: $*" >&2
+  # A bar tap runs this detached, so a missing keyboard would otherwise be silent.
+  if [[ $* == *wvkbd-mobintl\ is\ missing* ]]; then
+    omarchy-notification-send -u normal -i input-keyboard \
+      "$(omarchy-i18n keyboard.missingTitle)" \
+      "$(omarchy-i18n keyboard.missingBody)" >/dev/null 2>&1 || true
+  fi
+  exit 1
+}
 if [[ $action == "show" || $action == "toggle" ]]; then
   desktop=${XDG_CURRENT_DESKTOP:-}
   [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && ${desktop,,} != *gamescope* ]] ||
@@ -99,12 +108,22 @@ else
     -l full,special --landscape-layers full,special \
     --no-popup >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
-  sleep 0.2
-  [[ -r /proc/$pid/stat ]] || fail "startup failed; see $state/output.log"
-  stat=$(cat "/proc/$pid/stat")
-  stat=${stat##*) }
-  read -ra fields <<< "$stat"
-  started=${fields[19]}
-  identity || fail "startup failed; see $state/output.log"
+  # Poll until the child is the keyboard we just started. A fixed sleep
+  # returns before exec under load, and then the identity check fails closed.
+  ready=false
+  for _ in {1..100}; do
+    if [[ -r /proc/$pid/stat ]]; then
+      stat=$(cat "/proc/$pid/stat" 2>/dev/null || true)
+      stat=${stat##*) }
+      read -ra fields <<< "$stat"
+      started=${fields[19]:-}
+      if [[ -n ${started:-} ]] && identity; then
+        ready=true
+        break
+      fi
+    fi
+    sleep 0.02
+  done
+  $ready || fail "startup failed; see $state/output.log"
   printf '%s %s %s\n' "$pid" "$started" "$binary" > "$state/process"
 fi

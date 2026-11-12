@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Install the optional ROG Ally desktop keyboard from reviewed AUR source
-# omarchy:args=[--help|--configure-reviewed-package|--install-reviewed-aur]
+# omarchy:args=[--help|--configure-reviewed-package|--install-reviewed-aur|--remove]
 
 set -euo pipefail
 case "${1:-}" in
@@ -8,6 +8,7 @@ case "${1:-}" in
     cat <<'HELP'
 Usage: omarchy-setup-rog-ally-keyboard --configure-reviewed-package
        omarchy-setup-rog-ally-keyboard --install-reviewed-aur
+       omarchy-setup-rog-ally-keyboard --remove
 
 Optional ROG Ally RC71L desktop keyboard setup. Configure-reviewed-package
 requires the already installed, reviewed wvkbd 0.21-1 and never installs.
@@ -18,14 +19,68 @@ This flag confirms the AUR installation choice, not a pinned package version.
 Does not start the keyboard, change input permissions or enable a service.
 Adds a visible Keyboard button to the bar when the Omarchy shell is running.
 Super+Ctrl+Y toggles it after Hyprland reload or next login.
+--remove drops that button and the launcher this setup created. It also runs
+when this machine is no longer an RC71L, so the button does not stay behind.
 HELP
     exit 0
     ;;
-  --configure-reviewed-package | --install-reviewed-aur) action=$1 ;;
+  --configure-reviewed-package | --install-reviewed-aur | --remove) action=$1 ;;
   *) echo 'Review the AUR package first; use --help.' >&2; exit 2 ;;
 esac
 (( $# == 1 )) || exit 2
+
+# Drop only the launcher this setup installed, and the bar entry. A launcher
+# the user edited is left in place. With the shell up, disable goes through
+# it; otherwise the config file is edited directly.
+strip_keyboard_widget() {
+  local config tmp
+  config="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"
+  [[ -f $config ]] || return 0
+  tmp=$(mktemp)
+  if jq '
+    def is_keyboard:
+      if type == "string" then . == "omarchy.desktop-keyboard"
+      elif type == "object" then (.id == "omarchy.desktop-keyboard")
+      else false end;
+    def drop: map(select(is_keyboard | not));
+    if (.bar.layout | type) == "object" then
+      .bar.layout |= map_values(if type == "array" then drop else . end)
+    else . end
+    | if (.plugins | type) == "array" then .plugins |= drop else . end
+  ' "$config" >"$tmp"; then
+    mv "$tmp" "$config"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+remove_desktop_keyboard() {
+  local apps launcher shipped
+  if [[ -n ${OMARCHY_PATH:-} ]]; then
+    apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    launcher="$apps/omarchy-desktop-keyboard.desktop"
+    shipped="$OMARCHY_PATH/default/omarchy/applications/Desktop Keyboard.desktop"
+    if [[ -f $launcher && -f $shipped ]] && cmp -s "$launcher" "$shipped"; then
+      rm -f "$launcher"
+      echo 'Removed the Desktop Keyboard launcher created by this setup.'
+    elif [[ -e $launcher || -L $launcher ]]; then
+      echo 'An existing Desktop Keyboard entry was preserved.'
+    fi
+  fi
+  if [[ -n ${WAYLAND_DISPLAY:-} ]] && omarchy-shell shell ping >/dev/null 2>&1; then
+    omarchy-plugin-disable omarchy.desktop-keyboard >/dev/null 2>&1 || strip_keyboard_widget
+  else
+    strip_keyboard_widget
+  fi
+}
+
+if [[ $action == --remove ]]; then
+  remove_desktop_keyboard
+  echo 'Desktop Keyboard was removed from the bar.'
+  exit 0
+fi
 if ! omarchy-hw-rog-ally; then
+  remove_desktop_keyboard
   echo 'This optional setup is for ASUS ROG Ally RC71L.' >&2
   exit 1
 fi
@@ -61,11 +116,18 @@ else
 fi
 # Keep user placement and all unrelated bar settings. No shell restart or
 # offline config rewrite: a stopped shell can place the widget at next setup.
-if omarchy-shell -q shell ping >/dev/null 2>&1; then
-  omarchy-shell shell rescanPlugins >/dev/null
-  omarchy-bar put omarchy.desktop-keyboard --section right
+# A failed rescan or put must not fail the install that already succeeded.
+placed=false
+if [[ -n ${WAYLAND_DISPLAY:-} ]] && omarchy-shell shell ping >/dev/null 2>&1; then
+  if omarchy-shell shell rescanPlugins >/dev/null 2>&1 &&
+    omarchy-bar put omarchy.desktop-keyboard --section right >/dev/null 2>&1; then
+    placed=true
+  fi
+fi
+if $placed; then
+  echo 'Desktop Keyboard is available in Apps. Tap Keyboard in the bar to show or hide.'
 else
   echo 'Bar is not running; rerun this setup in the desktop to add its Keyboard button.'
+  echo 'Desktop Keyboard is available in Apps.'
 fi
-echo 'Desktop Keyboard is available in Apps. Tap Keyboard in the bar to show or hide.'
 echo 'Super+Ctrl+Y becomes available after Hyprland reload or next login.'

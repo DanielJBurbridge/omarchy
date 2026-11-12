@@ -41,7 +41,7 @@ while true; do
     play=$(row '' "$(omarchy-i18n gaming.installSteam)" "$(omarchy-i18n gaming.chooseSteamInstaller)")
   fi
   options=("$play" "$(row '󰍹' "$(omarchy-i18n gaming.desktopMode)" "$(omarchy-i18n gaming.preserveDownloads)")")
-  if omarchy-cmd-present omarchy-toggle-desktop-keyboard && omarchy-cmd-present wvkbd-mobintl; then
+  if omarchy-cmd-present omarchy-toggle-desktop-keyboard && omarchy-cmd-present wvkbd-mobintl && omarchy-hw-rog-ally; then
     options+=("$(row '' "$(omarchy-i18n gaming.desktopKeyboard)" "$(omarchy-i18n gaming.keyboardToggle)")")
   elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-rog-ally; then
     options+=("$(row '' "$(omarchy-i18n gaming.installKeyboard)" "$(omarchy-i18n gaming.keyboardAur)")")
