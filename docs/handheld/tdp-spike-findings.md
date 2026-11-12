@@ -164,6 +164,11 @@ Not run here. Record the polkit version on the device (`pkaction --version`). Th
 
 This matrix is merge-blocking for #10. Record `pkaction --version` next to the result.
 
+Two packaging follow-ups stay open for #10 and are not fixed here:
+
+- `21-omarchy-ally-tdp-variant.hook` enables a path unit from a package hook on an Ally. That conflicts with the rule that no package scriptlet enables a unit, so it needs an explicit sign-off before #10.
+- If restoring the recorded PPT tuple fails while the `omarchy` package is being removed (the armoury tree missing, for example), power-profiles-daemon stays masked after Omarchy is gone. The removal hook should unmask anyway and log the tuple failure.
+
 ## Risks and open questions
 
 - The slider itself is unproven until Steam is started after the shim on this device. Steam can cache the probed range until it is restarted.
