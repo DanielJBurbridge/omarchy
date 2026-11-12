@@ -14,7 +14,13 @@ PATH="$test_dir/host-bin:$PATH" python3 "$ROOT/test/helpers/desktop-keyboard-pro
 # must stay absent on a laptop, newer Ally, or machine without optional wvkbd.
 require_command lua
 mkdir -p "$test_dir/bin" "$test_dir/optional"
-ln -s "$ROOT/bin/omarchy-hw-rog-ally" "$test_dir/bin/omarchy-hw-rog-ally"
+# A PATH decoy must not satisfy the bind. The config calls the predicate by
+# its path under OMARCHY_PATH, which is the real detector.
+cat >"$test_dir/bin/omarchy-hw-rog-ally" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$test_dir/bin/omarchy-hw-rog-ally"
 ln -s /usr/bin/cat "$test_dir/bin/cat"
 : >"$test_dir/optional/wvkbd-mobintl"
 bind_log=$test_dir/binds
@@ -42,6 +48,14 @@ hl = {
       print(command)
     end
   end,
+  config = function(value)
+    local vk = value.input and value.input.virtualkeyboard
+    if vk and vk.release_pressed_on_close then
+      local marker = io.open(os.getenv("OMARCHY_BIND_LOG"), "a")
+      marker:write("release_pressed_on_close\n")
+      marker:close()
+    end
+  end,
   on = function() end,
   dsp = setmetatable({}, { __index = function(_, name)
     return function(value) return name .. ":" .. tostring(value) end
@@ -52,11 +66,20 @@ require("default.hypr.bindings.utilities")
 LUA
 }
 
+before_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 [[ $(shortcut_for 'ROG Ally' 'RC71L' installed) == 'exec_cmd:omarchy-toggle-desktop-keyboard' ]] || fail "RC71L keyboard shortcut routes to the manual OSK"
+after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
+(( after_release == before_release + 1 )) || fail "RC71L releases virtual-keyboard keys when the client dies"
 [[ -z $(shortcut_for 'ROG Ally' 'RC71L' '') ]] || fail "keyboard shortcut needs optional wvkbd"
+before_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 [[ -z $(shortcut_for 'ROG Ally X RC72LA' 'RC72LA' installed) ]] || fail "keyboard shortcut excludes Ally X"
+after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
+(( after_release == before_release )) || fail "Ally X does not change virtual-keyboard key release"
 [[ -z $(shortcut_for 'ROG Zephyrus' 'GU604' installed) ]] || fail "keyboard shortcut excludes a non-Ally ROG laptop"
+before_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 [[ -z $(shortcut_for 'XPS 13' '0A1B' installed 'Dell Inc.') ]] || fail "keyboard shortcut excludes a generic laptop"
+after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
+(( after_release == before_release )) || fail "a generic laptop does not change virtual-keyboard key release"
 [[ $(<"$bind_log") == *omarchy.agents* && $(<"$bind_log") != *omarchy-toggle-desktop-keyboard* ]] ||
   fail "Super+Ctrl+Y does not take the Agents panel binding Super+Ctrl+X"
 pass "keyboard shortcut requires RC71L and optional wvkbd, and never runs while locked"
