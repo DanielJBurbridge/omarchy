@@ -173,8 +173,13 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if mode == 'switch':
             run(env, setup, 'default', 'desktop')
             run(env, selector, 'preferred')
-        elif mode == 'return-up':
-            run(env, selector, 'preferred', timeout=10)
+        elif mode in ('return', 'return-up'):
+            # Steam switches at startup. The default 0.2s ready timeout can
+            # win that race under a loaded CI runner and stop the scope
+            # before the return FIFO is read. Give the explicit return time
+            # to land, which is what writes next=desktop.
+            env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
+            run(env, selector, 'preferred', timeout=25)
         else:
             run(env, selector, 'preferred')
         actions = (directory / 'actions').read_text()
