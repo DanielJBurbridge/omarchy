@@ -23,3 +23,8 @@ From [PR #34](https://github.com/DanielJBurbridge/omarchy/pull/34). The FAIL is 
 - L26. After `stop` is written, choosing the handheld session entry exits 0 immediately. The regular desktop session is the way back in. Source: PR #34, review 5870966296.
 - L27. There is no migration that enables `omarchy-handheld-autologin.service` and runs `apply` on an existing Ally install. A new install that runs the hardware leaf is fine. An Ally that is already installed has to do that apply step itself ([ALPHA.md](ALPHA.md)). Source: PR #34, review 5870966296. Owner: install.
 - L28. `test/handheld/power-rollback-test.sh` still loads `bin/omarchy-setup-rog-ally-power` from `c88d5344` (`HANDHELD_RELEASE_SHA` in `test/handheld/gaming-fixture.sh`). The test stays skipped while power is on hold. Source: PR #34, review 5870592622. The PASS review did not close it.
+
+From dev-red's low notes on #10 packaging in the [PR #33](https://github.com/DanielJBurbridge/omarchy/pull/33) PASS review, [review 5870574866](https://github.com/DanielJBurbridge/omarchy/pull/33#pullrequestreview-5870574866).
+
+- L29. `21-omarchy-ally-tdp-variant.hook` enables a path unit from a package hook on Allys. That conflicts with the r1 "no scriptlet enables anything" test, so it needs an explicit sign-off. Source: PR #33, review 5870574866. Owner: #10 packaging.
+- L30. If `write_recorded_spl` fails in the removal hook (for example armoury is missing), power-profiles-daemon stays masked after Omarchy is removed. Unmask anyway and log the tuple failure. Source: PR #33, review 5870574866. Owner: #10 packaging.

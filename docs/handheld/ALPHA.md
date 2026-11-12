@@ -16,6 +16,18 @@ What's missing:
 - A greeter keyboard that can backspace, shift, enter symbols, and submit (spec 02 AC 59).
 - A migration that enables autologin on an Ally that is already installed.
 
+## Before you install the alpha
+
+SSH is the way back if the screen sticks, and it only works if sshd is already running. A stock install ships OpenSSH with the service disabled and port 22 closed. While the desktop still works, run:
+
+```bash
+omarchy-setup-security-sshd
+```
+
+That authorizes a key, turns password logins off, then runs `sudo systemctl enable sshd.service` and `sudo systemctl reload-or-restart sshd.service`, and opens the port with `sudo ufw limit 22/tcp`. A bare `systemctl enable --now sshd` skips the key, the password lock, and the firewall.
+
+From another machine, `ssh rog-ally` must log in before you go on. The setup prints `ssh $USER@$(hostname)`. If that name is not `rog-ally`, set it with `sudo hostnamectl set-hostname rog-ally` and check `ssh rog-ally` again.
+
 ## Install
 
 `omarchy-handheld-autologin apply` writes `/etc/sddm.conf.d/zz-omarchy-handheld.conf` only when `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` both succeed. Otherwise it deletes that file. The drop-in is `Session=omarchy-handheld.desktop` and `Relogin=true`, with no `User=`. The session runs `omarchy-handheld-autologin`, which starts `omarchy-session-start relogin`. The boot unit is `omarchy-handheld-autologin.service` (`Before=sddm.service`, `ExecStart=/usr/bin/omarchy-handheld-autologin apply`). Install Gamescope, Steam, and the session package ([gaming session note](../rog-ally-gaming-session.md)) before apply. The command has to be `/usr/bin/omarchy-handheld-autologin`.
@@ -48,16 +60,30 @@ On the RC71L the desktop power button runs `omarchy-system-sleep-lock`, then `sy
 
 ## Escape and recovery
 
-Recovery is SSH. From another machine: `ssh rog-ally`. Turn sshd on while the desktop still works: `omarchy-setup-security-sshd`. This tree has no TTY switch, so a TTY is not a fallback.
+Recovery is `ssh rog-ally`, and only if sshd was already enabled and that check worked. The other way in is a USB keyboard: Enter submits the password. The greeter grid cannot submit by touch, and there is no session picker. This tree has no TTY switch.
 
 The F17 escape and the watchdog aren't in this alpha because no InputPlumber intercept ships in the tree, so there's no stuck intercept to escape. They become required when the intercept lands.
 
-Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop` and set `Relogin=false`. SDDM shows the greeter. Pick **Omarchy (Hyprland uwsm)** there. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
+Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop` and set `Relogin=false`. SDDM shows the greeter. You cannot pick a session there. Use SSH, or a USB keyboard's Enter. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
 
 ```bash
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
 sudo systemctl restart sddm
 ```
+
+`systemctl restart sddm` kills the current graphical session.
+
+### Turn autologin back on without a reboot
+
+`apply` rewrites the drop-in and does not restart SDDM. After the stop file is gone, restart SDDM or reboot.
+
+```bash
+sudo rm -f /run/omarchy/handheld-autologin/stop
+sudo omarchy-handheld-autologin apply
+sudo systemctl restart sddm
+```
+
+That restart kills the current graphical session. Reboot instead if you want to keep this session until you are ready. The boot unit writes `Relogin=true` on its own once `/run` is empty.
 
 ## Rollback
 
@@ -78,4 +104,4 @@ systemctl --user daemon-reload
 omarchy-pkg-drop omarchy-gaming-session
 ```
 
-Reboot and choose **Omarchy (Hyprland uwsm)**. That leaves Steam's games and saves. `/etc/sudoers.d/omarchy-handheld-autologin` is the passwordless `fail` / `reset` / `apply` grant. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.
+Reboot. Autologin is gone, so the greeter is up. A USB keyboard's Enter submits the password. There is no session picker. That leaves Steam's games and saves. `/etc/sudoers.d/omarchy-handheld-autologin` is the passwordless `fail` / `reset` / `apply` grant. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.
