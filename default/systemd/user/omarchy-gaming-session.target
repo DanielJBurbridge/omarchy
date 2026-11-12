@@ -3,3 +3,4 @@
 # with PartOf= and WantedBy=. It is not part of the desktop session.
 [Unit]
 Description=Omarchy handheld gaming session
+Wants=omarchy-gaming-input-profile.service

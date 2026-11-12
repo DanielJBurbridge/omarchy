@@ -19,6 +19,30 @@ if grep -q '^\[Service\]' "$unit"; then
 fi
 pass "omarchy-gaming-session.target is a plain user target"
 
+profile_unit=$ROOT/default/systemd/user/omarchy-gaming-input-profile.service
+bridge_dropin=$ROOT/default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf
+shim_dropin=$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf
+grep -q '^Wants=omarchy-gaming-input-profile.service$' "$unit" ||
+  fail "the gaming session target wants the profile load"
+grep -q '^Before=omarchy-rog-ally-input.service$' "$profile_unit" ||
+  fail "the profile load is ordered before the gaming bridge"
+grep -q '^PartOf=omarchy-gaming-session.target$' "$profile_unit" ||
+  fail "the profile load is part of the gaming session target"
+grep -q '^WantedBy=omarchy-gaming-session.target$' "$profile_unit" ||
+  fail "the profile load is wanted by the gaming session target"
+grep -q '^After=omarchy-gaming-input-profile.service$' "$bridge_dropin" ||
+  fail "the bridge unit is After= the profile load"
+grep -q '^PartOf=omarchy-gaming-session.target$' "$bridge_dropin" ||
+  fail "the bridge unit is part of the gaming session target"
+grep -q '^WantedBy=omarchy-gaming-session.target$' "$bridge_dropin" ||
+  fail "the bridge unit is wanted by the gaming session target"
+grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_dropin" ||
+  fail "the TDP shim is part of the gaming session target"
+grep -q '^WantedBy=omarchy-gaming-session.target$' "$shim_dropin" ||
+  fail "the TDP shim is wanted by the gaming session target"
+OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
+pass "profile load is before the bridge, and both follow the gaming session target"
+
 work=$(mktemp -d)
 session_pid=
 cleanup() {
@@ -61,6 +85,44 @@ if [[ -z $stop_line || -z $desktop_line ]] || (( stop_line <= gamescope_line || 
   fail "switching to the desktop stops omarchy-gaming-session.target first" "$detail"
 fi
 pass "gamescope start pulls in the target and the desktop switch stops it"
+
+bridge_line=$(grep -n 'systemctl:--user start omarchy-rog-ally-input.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
+shim_line=$(grep -n 'systemctl:--user restart omarchy-ally-tdp-shim.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
+if [[ -z $bridge_line || -z $start_line || -z $gamescope_line ]] || (( bridge_line <= start_line || bridge_line >= gamescope_line )); then
+  fail "the bridge starts after the session target and before Gamescope" "$detail"
+fi
+if [[ -z $shim_line ]] || (( shim_line <= start_line || shim_line >= gamescope_line )); then
+  fail "an installed TDP shim is restarted before Gamescope" "$detail"
+fi
+pass "bridge starts after the profile target and the installed TDP shim is restarted"
+
+# The fixture systemctl answers every cat. This one reports #33's unit absent.
+cat > "$HANDHELD_STUB/systemctl" <<'EOF'
+#!/bin/bash
+printf 'systemctl:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+if [[ $* == *'cat omarchy-ally-tdp-shim.service'* || $* == *'cat omarchy-rog-ally-input.service'* ]]; then
+  exit 1
+fi
+if [[ $* == *stop* && -f ${HANDHELD_SCOPE_PID:-} ]]; then
+  scope_pid=$(cat "$HANDHELD_SCOPE_PID")
+  kill -- -"$scope_pid" 2>/dev/null || kill "$scope_pid" 2>/dev/null || true
+fi
+exit 0
+EOF
+chmod +x "$HANDHELD_STUB/systemctl"
+: > "$HANDHELD_LOG"
+setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/absent-out" 2>"$work/absent-err" &
+session_pid=$!
+wait "$session_pid" || true
+session_pid=
+absent=$(cat "$HANDHELD_LOG")
+if grep -q 'restart omarchy-ally-tdp-shim.service' <<<"$absent"; then
+  fail "a missing TDP shim is not restarted" "$absent"
+fi
+grep -q 'start omarchy-rog-ally-input.service' <<<"$absent" &&
+  fail "a missing bridge unit is not started" "$absent"
+grep -q '^gamescope$' <<<"$absent" || fail "a missing TDP shim still starts Gamescope" "$absent"
+pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
 
 # A machine that is not the handheld never enters the gaming supervisor.
 printf 'Dell Inc.\n' > "$work/dmi/sys_vendor"
