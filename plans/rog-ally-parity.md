@@ -4,7 +4,7 @@ Research date: 11 November 2026. Target: Daniel's original ASUS ROG Ally RC71L r
 
 This inventory covers the documented handheld, gaming, desktop and operating-system feature families in Bazzite and CachyOS. It is not a list of every package either distribution can install. Entries marked optional, hardware dependent or unverified must not be advertised as working defaults on the Ally. An implementation task is not complete until its installed behaviour has been checked; source presence alone is insufficient.
 
-Changed 12 November 2026 to match [spec 02](../docs/handheld/02-mode-switch-and-dock.md). The handheld variant autologins into gaming by default and falls back to the desktop if gaming does not start. Desktop entry from that session locks before the first Hyprland frame. What changed: G03, G04, G06, G07, the autologin paragraph under Touch and typing, and end-to-end check 1. Locking and PAM are unchanged. The installer writes autologin for the user it created; nothing guesses a username at runtime.
+Changed 12 November 2026 to match [spec 02](../docs/handheld/02-mode-switch-and-dock.md). Autologin into gaming is Daniel's decision (12 Nov 2026). The handheld variant autologins into gaming by default and falls back to the desktop if gaming does not start. Until AUTH K07 (lock-screen touch keyboard, Task C) has merged, that handheld desktop ships with `desktop-lock` `default-off`, stored separately from a user's `explicit-off`; other variants stay locked. What changed: G03, G04, G06, G07, K07, the autologin paragraph under Touch and typing, and end-to-end check 1. Revision 2: handheld `desktop-lock` ships `default-off` until K07. Locking and PAM are unchanged. The installer writes autologin for the user it created; nothing guesses a username at runtime.
 
 ## What the distributions actually supply
 
@@ -32,11 +32,11 @@ Sources: [Bazzite Gaming Mode](https://docs.bazzite.gg/Handheld_and_HTPC_edition
 | --- | --- | --- | --- | --- |
 | G01 | Dedicated Gamescope gaming session | Included | Included | SESSION: separate login session, not desktop Big Picture |
 | G02 | Controller-first Steam library and settings | Included | Included | SESSION: retain existing Steam installation and library |
-| G03 | Boot directly into gaming | Included | Included | SESSION: handheld autologins into gaming by default (spec 02); the preference stays reversible |
-| G04 | Return to a full desktop | Included | Included | SESSION: return to Omarchy Hyprland, locked before the first frame (spec 02) |
+| G03 | Boot directly into gaming | Included | Included | SESSION: handheld autologins into gaming by default (Daniel, 12 Nov 2026; spec 02); the preference stays reversible |
+| G04 | Return to a full desktop | Included | Included | SESSION: return to Omarchy Hyprland through the spec 02 choke point. Locked before the first frame when `desktop-lock` is `on`. Handheld ships `default-off` until K07 |
 | G05 | Return from desktop to gaming | Included | Included | SESSION: visible touch/controller action |
 | G06 | Remember last session or select gaming on next boot | Included integration | Included integration | SESSION: no hard-coded user IDs and no runtime guess of the autologin user; the installer writes autologin for the created user (spec 02) |
-| G07 | Recover when Steam or Gamescope fails | Session lifecycle | Session lifecycle | SESSION: one gaming retry, then desktop fallback with the lock (spec 02); diagnostics kept |
+| G07 | Recover when Steam or Gamescope fails | Session lifecycle | Session lifecycle | SESSION: one gaming retry, then desktop fallback (spec 02); lock only when `desktop-lock` is `on`; diagnostics kept |
 | G08 | Quick access menu while playing | Included | Included Steam integration | INPUT and SESSION: hardware-button routes |
 | G09 | Non-Steam titles in controller library | Available | Available | GAMES: reuse existing launchers and shortcuts |
 | G10 | Independent game resolution and fullscreen presentation | Gamescope | Gamescope | DISPLAY: capability-tested configuration |
@@ -78,7 +78,7 @@ Sources: [Bazzite desktop controller and keyboard setup](https://docs.bazzite.gg
 | K04 | Touch/controller show and hide control | Mapping dependent | Mapping dependent | TOUCH and INPUT: discoverable, reliable access |
 | K05 | Automatic keyboard on text-field focus | Desktop/application dependent | Desktop/application dependent | TOUCH: implement only where protocol support exists |
 | K06 | Floating keyboard at password sign-in | Unverified universal default | Unverified universal default | AUTH: trusted greeter keyboard and touch submit |
-| K07 | Floating keyboard to unlock session | Unverified universal default | Unverified universal default | AUTH: keyboard inside trusted lock surface |
+| K07 | Floating keyboard to unlock session | Unverified universal default | Unverified universal default | AUTH: keyboard inside trusted lock surface. Task C, additive PR on the release branch. Until it merges, handheld `desktop-lock` ships `default-off` (spec 02) |
 | K08 | Visible session chooser at sign-in | Greeter/configuration dependent | Greeter/configuration dependent | AUTH: cooperate with dedicated gaming session |
 | K09 | Non-US layouts, modifiers, symbols and editing keys | Keyboard/application dependent | Keyboard/application dependent | TOUCH and AUTH: exercise actual password characters |
 | K10 | Touch-sized controls and useful display scaling | Desktop-dependent | KDE integration | TOUCH and DISPLAY: Ally-sized layouts |
@@ -250,7 +250,7 @@ For each increment record: source commit, installed package versions, changed co
 
 ## End-to-end acceptance
 
-1. Undocked cold boot autologins into gaming with no password prompt (spec 02). If disk encryption prompts first, explicitly record that separate input result. Entering the desktop from that session locks before the desktop is shown; unlocking with touch belongs to AUTH's lock keyboard. The unchanged Omarchy sign-in entry still asks for a password.
+1. Undocked cold boot autologins into gaming with no password prompt (Daniel, 12 Nov 2026; spec 02). If disk encryption prompts first, explicitly record that separate input result. Entering the desktop from that session locks before the desktop is shown when `desktop-lock` is `on`. Until K07, the handheld ships `default-off` and the desktop is unlocked; unlocking with touch belongs to AUTH's lock keyboard (K07). The unchanged Omarchy sign-in entry still asks for a password.
 2. Enter the Omarchy desktop; use the sticks to move the pointer, click, scroll and summon a keyboard while Steam is closed.
 3. Launch the dedicated gaming session; navigate the library, start a game, open quick settings and change a supported power setting with visible readback.
 4. Suspend and resume; check game, controller, speakers, Wi-Fi and Bluetooth.
