@@ -90,7 +90,10 @@ Rectangle {
     // The handheld sign-in screen keeps Qt Virtual Keyboard. A missing
     // module must not swap in the laptop form, which has no touch keyboard.
     if (root.detectHandheld()) {
+      // active stays false until set. Assigning source alone stores the
+      // form and never loads it.
       styledLogin.source = "LoginForm.qml"
+      styledLogin.active = true
     } else {
       fallbackLogin.active = true
     }
