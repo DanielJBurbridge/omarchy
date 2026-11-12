@@ -1,6 +1,6 @@
 # 07 · On-screen keyboard
 
-Status: draft, revision 3, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 3 takes the second dev-red review of PR #30. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1). Suspend outcomes are spec 02 §7.7.
+Status: draft, revision 4, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (CC long, Δ6 `osk` profile), [03](03-first-boot-and-install.md) (buffyboard, `tty` profile), [06](06-accessibility.md). Lock-screen keyboard (K07) is AUTH's: **requirements only** here (§7). Rulings applied: `desktop-lock` ships off until K07 lands; no extra Ally binds; `SUPER + CTRL + X` taken. Revision 4 cites spec 02 §7.7 for suspend teardown, including the broker `omarchy-handheld-suspend.service`, and does not restate that mechanism. Switching to desktop is spec 02 D12. Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and reads “Connect a keyboard to unlock” (§4.1).
 
 ## 0. Decisions in one table
 
@@ -118,15 +118,19 @@ Decision: manual summon; Δ-K2 auto-show only for Omarchy shell search fields wh
 
 Applied by the helper at launch; a `theme-set` hook restarts a **hidden** keyboard only (never a visible one mid-typing; visible ⇒ restyle on next hide). That restart is a planned generation change: the bridge re-arms the new PID, start time and executable and does not treat it as a crash. `bin/omarchy-theme-set` runs `omarchy-hook theme-set` after retint (`docs/theming.md`). `bin/omarchy-hook` runs `~/.config/omarchy/hooks/theme-set` and every file in `~/.config/omarchy/hooks/theme-set.d/` except `*.sample`. The shipped sample is `config/omarchy/hooks/theme-set.d/show-theme-notification.sample`. There is no wvkbd hook yet. `bin/omarchy-theme-set-keyboard` retints keyboard backlight, not wvkbd. Flags verified in [wvkbd v0.21 `main.c`](https://github.com/jjsullivan5196/wvkbd/blob/v0.21/main.c).
 
+### 3.6 Armoury hold escape
+
+Holding Armoury Crate for 3 s releases a stuck overlay intercept. The owner is the InputPlumber/session layer, the bridge unit `omarchy-rog-ally-input.service`. The hold sets InputPlumber `InterceptMode` to 0 and releases the overlay intercept. It does this when the overlay process is stopped or gone. Spec 04 cites this section and does not restate it.
+
 ## 4. First boot only: buffyboard
 
 Same bar as spec 03 §3.1. Buffyboard is not on the live ISO and not on the installed desktop. It runs only as a child of first-boot provisioning (`BindsTo` and `PartOf` the provision unit), started for a text field and stopped when that field is left. It is stopped before `display-manager.service`. The upstream `buffyboard.service` (`WantedBy=multi-user.target`) and its getty drop-in are not enabled. It runs as root. uinput, input and tty access are not granted to a user or to the `input` group. Keys go through its own uinput; the VT is resized so the form stays visible. Theme via buffyboard config (`/etc/buffyboard.conf.d/`) with Omarchy colours. The handheld forces the US console keymap for the form (spec 03). Upstream: [buffyboard README](https://gitlab.com/postmarketOS/buffybox/-/raw/master/buffyboard/README.md).
 
 ## 4.1 Suspend before K07
 
-Who locks, who returns to gaming, and who stays on the unlocked desktop are spec 02 §7.7 (D11) and its AC 35–38. The marker `/var/lib/omarchy/handheld/k07-landed`, ENOENT versus any other read, and the laptop exception are spec 02 §7.4. This section does not restate those tables. It is lock-on-suspend only. Desktop entry stays spec 02 §7.4 and D10, and this section does not let `desktop()` start an unlocked Hyprland.
+Who locks, who returns to gaming, and who stays on the unlocked desktop are spec 02 §7.7 (D11). The marker `/var/lib/omarchy/handheld/k07-landed`, ENOENT versus any other read, and the laptop exception are spec 02 §7.4. This section does not restate those tables. It is lock-on-suspend only. Desktop entry stays spec 02 §7.4 and D10, and this section does not let `desktop()` start an unlocked Hyprland.
 
-When spec 02 §7.7 ends the desktop session instead of locking, hold a logind `delay` sleep inhibitor for the teardown. On `PrepareForSleep`, blank every output and cut input first (InputPlumber intercept or disable), then end the session. If it has not exited before `InhibitDelayMaxSec` (default 5 s), run `loginctl terminate-session`. Do not release the inhibitor while the desktop is visible or receiving input. The triggers are the power button, idle, low battery, Steam suspend and `systemctl suspend`. The RC71L has no lid, so there is no lid trigger. No desktop frame is shown on wake.
+Suspend teardown is spec 02 §7.7 (`omarchy-handheld-suspend.service`). The input cut is the same section: every evdev device, including touch and the keyboard HID. This section does not define either.
 
 Before K07, with the effective value `on` and no usable keyboard, the overlay row is shown disabled and its label is “Connect a keyboard to unlock”. `desktop()` returns to gaming (spec 02 §7.4). The user does not reach a lock screen. With a usable keyboard, or once the marker is present, the row and the lock are spec 02 D12 and §7.4.
 
@@ -174,10 +178,11 @@ If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard s
 10. Steam OSK opens with CC long in Steam search and in one game's text field on the gaming target in use.
 11. buffyboard appears on text fields in first boot only, types the expected characters with the US console keymap, and is stopped before SDDM. After SDDM starts there is no buffyboard uinput device in `/proc/bus/input/devices`, and touch on Hyprland or Steam types nothing through it. No user and no `input` group holds uinput, input or tty access for it. It does not run on the live ISO.
 12. Entering gaming from a desktop with wvkbd visible stops it before Gamescope starts (no orphan process). A delayed exit does not replace the gaming profile.
-13. Suspend from the desktop follows spec 02 §7.7 and AC 35–38, and the marker rule in spec 02 §7.4. The triggers are the power button, idle, low battery, Steam suspend and `systemctl suspend`. The RC71L has no lid trigger. On the row that returns to gaming, no desktop frame is shown on wake. This criterion does not change desktop entry.
+13. Suspend from the desktop follows spec 02 §7.7. The marker rule is spec 02 §7.4. On the row that returns to gaming, no desktop frame is shown on wake. This criterion does not change desktop entry and does not define a teardown.
 14. Before K07, effective value `on`, no usable keyboard: the overlay row is shown disabled and reads “Connect a keyboard to unlock”. Steam → Switch to Desktop, and any other call into `desktop()`, returns to gaming. There is no unlocked Hyprland frame and no lock screen.
-15. A desktop process that ignores SIGTERM for 10 s is running. Suspend from the power button, from idle, from low battery, from Steam, and from `systemctl suspend`. The device never sleeps with the desktop visible or interactive: outputs are blank and input is cut before the session ends, and `loginctl terminate-session` has run if the session is still up at the inhibitor timeout. No desktop frame is shown on wake.
+15. Suspend teardown is spec 02 §7.7 (`omarchy-handheld-suspend.service`). The input cut is that section: every evdev device, including touch and the keyboard HID. This criterion adds no mechanism of its own.
 16. Resume after a lock-on-suspend whose keyboard is no longer attached: the session is back in gaming, the lock is not left up, and nothing auto-unlocked. No desktop frame is shown on wake. The next desktop entry is spec 02 §7.4, and criterion 14 while K07 has not landed.
+17. Holding Armoury Crate for 3 s while the overlay client is stopped sets InputPlumber `InterceptMode` to 0 and releases the overlay intercept. The bridge unit `omarchy-rog-ally-input.service` does it. The overlay process does not.
 
 ## 9. Open questions
 
