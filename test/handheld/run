@@ -1,0 +1,19 @@
+#!/bin/bash
+# Handheld review tests. Session, Steam and keyboard-gate failures are
+# intentional until those bugs are fixed. Power rollback is skipped while
+# that work is on hold for a TDP redesign.
+
+set -uo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+failed=()
+for test in "$ROOT/test/handheld/"*-test.sh; do
+  printf '==> %s\n' "${test#$ROOT/}"
+  bash "$test" || failed+=("${test#$ROOT/}")
+done
+
+if (( ${#failed[@]} > 0 )); then
+  printf '\n%d handheld test(s) failed:\n' "${#failed[@]}" >&2
+  printf '  %s\n' "${failed[@]}" >&2
+  exit 1
+fi
