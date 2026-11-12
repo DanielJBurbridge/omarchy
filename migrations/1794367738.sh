@@ -1,22 +1,23 @@
-echo "Add an optional Steam Big Picture launcher without replacing local entries"
+echo "Add optional gaming launchers without replacing local entries"
 
-launcher="$HOME/.local/share/applications/Steam Big Picture.desktop"
-if [[ ! -e $launcher && ! -L $launcher ]]; then
-  mkdir -p "$HOME/.local/share/applications"
-  cp "$OMARCHY_PATH/applications/Steam Big Picture.desktop" "$launcher"
-  update-desktop-database "$HOME/.local/share/applications"
+# Steam shortcuts are useless without Steam. Gaming Setup in the app launcher
+# is the Ally shortcut; other machines already reach it from Install > Gaming.
+install_launcher() {
+  local name=$1
+  local apps="$HOME/.local/share/applications"
+  local launcher="$apps/$name"
+  if [[ -e $launcher || -L $launcher ]]; then
+    return 0
+  fi
+  mkdir -p "$apps"
+  cp "$OMARCHY_PATH/applications/$name" "$launcher"
+  update-desktop-database "$apps"
+}
+
+if omarchy-cmd-present steam; then
+  install_launcher "Steam Big Picture.desktop"
+  install_launcher "Desktop Mode.desktop"
 fi
-
-launcher="$HOME/.local/share/applications/Gaming Setup.desktop"
-if [[ ! -e $launcher && ! -L $launcher ]]; then
-  mkdir -p "$HOME/.local/share/applications"
-  cp "$OMARCHY_PATH/applications/Gaming Setup.desktop" "$launcher"
-  update-desktop-database "$HOME/.local/share/applications"
-fi
-
-launcher="$HOME/.local/share/applications/Desktop Mode.desktop"
-if [[ ! -e $launcher && ! -L $launcher ]]; then
-  mkdir -p "$HOME/.local/share/applications"
-  cp "$OMARCHY_PATH/applications/Desktop Mode.desktop" "$launcher"
-  update-desktop-database "$HOME/.local/share/applications"
+if omarchy-hw-rog-ally; then
+  install_launcher "Gaming Setup.desktop"
 fi
