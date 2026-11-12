@@ -26,8 +26,83 @@ gaming_runtime_init() {
   [[ -d $gaming_runtime && ! -L $gaming_runtime && -O $gaming_runtime ]]
 }
 
+# Spec 02 §7.4. One path. ENOENT is absent; any other stat error is present.
+gaming_k07_marker=/var/lib/omarchy/handheld/k07-landed
+# Spec 02 does not name the value file. It lives beside the marker, root-owned.
+gaming_desktop_lock_file=/var/lib/omarchy/handheld/desktop-lock
+
+gaming_handheld_variant() {
+  omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session
+}
+
+# present or absent. A clean ENOENT (missing file or missing directory) is
+# absent. Permission, I/O, and every other stat failure are present.
+gaming_k07_marker_state() {
+  local err
+  if err=$(LC_ALL=C stat -c %u -- "$gaming_k07_marker" 2>&1); then
+    printf '%s\n' present
+    return
+  fi
+  if [[ $err == *"No such file or directory"* ]]; then
+    printf '%s\n' absent
+    return
+  fi
+  printf '%s\n' present
+}
+
+# on, default-off, explicit-off, missing, corrupt, or error.
+# A user-owned, group-writable, or world-writable file is not the setting.
+gaming_desktop_lock_stored() {
+  local meta owner mode kind value
+  if ! meta=$(LC_ALL=C stat -c '%u %a %F' -- "$gaming_desktop_lock_file" 2>&1); then
+    if [[ $meta == *"No such file or directory"* ]]; then
+      printf '%s\n' missing
+    else
+      printf '%s\n' error
+    fi
+    return
+  fi
+  read -r owner mode kind _ <<< "$meta"
+  if [[ $owner != 0 || $kind != regular ]]; then
+    printf '%s\n' missing
+    return
+  fi
+  if (( (8#$mode & 8#022) != 0 )); then
+    printf '%s\n' missing
+    return
+  fi
+  if ! value=$(head -n 1 -- "$gaming_desktop_lock_file" 2>/dev/null); then
+    printf '%s\n' error
+    return
+  fi
+  case $value in
+    on | default-off | explicit-off) printf '%s\n' "$value" ;;
+    *) printf '%s\n' corrupt ;;
+  esac
+}
+
+gaming_desktop_lock_effective() {
+  local stored marker
+  stored=$(gaming_desktop_lock_stored)
+  marker=$(gaming_k07_marker_state)
+  case $stored in
+    explicit-off) printf '%s\n' explicit-off; return ;;
+    on) printf '%s\n' on; return ;;
+  esac
+  if [[ $marker == present || $stored == error ]]; then
+    printf '%s\n' on
+    return
+  fi
+  if gaming_handheld_variant; then
+    case $stored in
+      missing | corrupt | default-off) printf '%s\n' default-off; return ;;
+    esac
+  fi
+  printf '%s\n' on
+}
+
 gaming_selection() {
-  local choice=desktop
+  local choice=''
   if [[ -f $gaming_state/next ]]; then
     read -r choice < "$gaming_state/next" || true
     rm -f "$gaming_state/next"
@@ -36,8 +111,24 @@ gaming_selection() {
     if [[ $choice == "last" ]]; then
       read -r choice < "$gaming_state/last" 2>/dev/null || choice=desktop
     fi
+  elif gaming_handheld_variant; then
+    # Handheld default is auto. No display helper on this branch, so auto is undocked.
+    choice=auto
+  else
+    choice=desktop
   fi
-  case $choice in desktop | gaming) ;; *) choice=desktop ;; esac
+  case $choice in
+    desktop | gaming) ;;
+    auto) choice=gaming ;;
+    *)
+      if gaming_handheld_variant; then
+        printf '%s\n' reset > "$gaming_state/preference-reset"
+        choice=gaming
+      else
+        choice=desktop
+      fi
+      ;;
+  esac
   # An unsuccessful gaming launch never becomes an automatic login loop.
   if [[ -f $gaming_state/recovery ]]; then choice=desktop; fi
   printf '%s\n' "$choice"

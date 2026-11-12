@@ -64,7 +64,7 @@ If the `omarchy-rog-ally-powerbutton` companion and `/usr/bin/steamos-powerbutto
 
 ## Failure recovery and evidence
 
-The supervisor waits for process events and private FIFOs. A single 60-second startup deadline bounds a compositor that never starts its Steam child; there is no background polling. The child acknowledgement proves that Gamescope started the wrapper with an X display, **not** that Steam's UI finished updating or signing in. Steam can remain on its own update/sign-in UI without a time limit.
+The supervisor waits for process events and private FIFOs. A single 60-second startup deadline (`OMARCHY_GAMING_READY_TIMEOUT`, default 60) bounds a compositor whose Steam child never gains a display connection. There is no background polling. The ready signal is written only after that Steam process holds the X socket for `DISPLAY`. A live pid with no display connection is not ready. Steam can remain on its own update/sign-in UI after that without a further time limit. One automatic retry follows a retryable failure, 3 seconds apart.
 
 An early compositor exit, nonzero Steam result, invalid settings or a missing dependency returns to Hyprland and writes a recovery latch. Spec 02 adds one automatic retry before that fallback, then the latch. Further preference logins choose desktop until an explicit `default`, `next`, or direct Gaming choice clears it. Steam is not relaunched in a loop. Normal Steam exit and explicit desktop return also start Hyprland. That desktop start uses the spec 02 choke point, and locks first only when `desktop-lock` is `on`. If Hyprland itself fails, the selector exits to SDDM rather than retrying it.
 
@@ -82,7 +82,7 @@ Build the optional companion locally from the same commit, with no install scrip
 # In the reviewed source checkout. Use a fresh build directory.
 session_build=$(mktemp -d /tmp/omarchy-gaming-package.XXXXXX)
 git archive --format=tar --prefix=omarchy/ HEAD | gzip > "$session_build/omarchy-source.tar.gz"
-cp packages/omarchy-gaming-session/PKGBUILD "$session_build/"
+cp packages/omarchy-gaming-session/PKGBUILD packages/omarchy-gaming-session/omarchy-gaming-session.install "$session_build/"
 cd "$session_build"
 # Pin the local archive's checksum before review/build.
 updpkgsums
@@ -96,7 +96,7 @@ sudo pacman -U omarchy-gaming-session-1.0.0-1-x86_64.pkg.tar.zst
 
 `--nodeps` permits an isolated build host without Steam; the installation transaction still enforces dependencies. Arch Extra currently supplies Gamescope 3.17.0-1, checked against its primary package page on 11 November 2026. The companion requires Gamescope ≥3.17.0. The manual local archive is trusted only after the source commit and generated checksum have been reviewed. Do not overwrite package files using `cp` or edit installed package trees.
 
-The package manifest contains only `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop` and its MIT licence. It neither replaces the existing Omarchy session nor writes `/etc`, PAM, SDDM configuration, autologin or systemd enablement. Spec 02's autologin is the installer's one-time configuration for the created user, not this package. No update hook is required: pacman owns registration and removal directly. Runtime updates remain the main package's responsibility.
+The package manifest contains only `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop` and its MIT licence. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker, and it neither replaces the existing Omarchy session nor writes `/etc`, PAM, SDDM configuration, autologin or systemd enablement. Spec 02's autologin is the installer's one-time configuration for the created user, not this package. Runtime updates remain the main package's responsibility.
 
 ## Rollback and physical acceptance
 

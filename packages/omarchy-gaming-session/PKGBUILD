@@ -10,6 +10,7 @@ depends=('omarchy' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
 # Create this exact source archive from the reviewed commit; see docs.
 source=('omarchy-source.tar.gz')
 sha256sums=('SKIP')
+install=omarchy-gaming-session.install
 
 package() {
   cd "$srcdir/omarchy"

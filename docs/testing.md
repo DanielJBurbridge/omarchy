@@ -8,8 +8,8 @@ VM; see [`agents/skills/acceptance-tests.md`](../agents/skills/acceptance-tests.
 
 ## Suite map
 
-`./test/all` runs both suites below and keeps going when one fails, so a single
-failure cannot hide the other suite behind it. It reports the failed suites at
+`./test/all` runs the suites below and keeps going when one fails, so a single
+failure cannot hide another suite behind it. It reports the failed suites at
 the end and exits non-zero.
 
 - **`./test/cli`** — one big script, one suite. It owns the CLI router: help
@@ -24,6 +24,8 @@ the end and exits non-zero.
 - **`./test/shell`** — runs every `test/shell.d/*-test.sh` (except
   `base-test.sh` itself). Each file is an independent suite covering one area:
   a shell plugin, a `bin/` command, or a config invariant. This is where new tests go.
+- **`./test/handheld/run`** — runs every `test/handheld/*-test.sh`. These exercise
+  the ROG Ally session supervisor with stubbed gamescope, Steam and lock commands.
 - **Acceptance** — everything that needs a real desktop doing real things.
   Deliberately excluded from `./test/all`; it runs in a VM, not the
   development session.

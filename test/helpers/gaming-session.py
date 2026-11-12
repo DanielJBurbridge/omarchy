@@ -25,14 +25,14 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
 
     # Fixed login bootstrap and timeout are the only rewritten boundaries.
     selector = command('selector', (repo / 'bin/omarchy-session-start').read_text()
-                       .replace('source /usr/share/omarchy/default/bash/env-bootstrap', ':')
-                       .replace('read -r -t 60 event', 'read -r -t 0.2 event'))
+                       .replace('source /usr/share/omarchy/default/bash/env-bootstrap', ':'))
     command('omarchy-hw-rog-ally', '#!/bin/bash\n[[ ${HARDWARE:-ally} == ally ]]\n')
     command('omarchy-pkg-present', '#!/bin/bash\n[[ ${INPUT:-absent} != absent ]]\n')
     command('omarchy-hw-rog-ally-input', '#!/bin/bash\necho "input:$*" >> "$TEST_ROOT/actions"\n[[ $INPUT == good ]]\n')
     command('omarchy-cmd-present', '#!/bin/bash\n[[ ${MISSING:-} != "$1" ]] && command -v "$1" >/dev/null\n')
     command('pgrep', '#!/bin/bash\n[[ ${BUSY:-0} == 1 ]]\n')
     command('omarchy-notification-send', '#!/bin/bash\nexit 0\n')
+    command('omarchy-system-lock', '#!/bin/bash\necho "lock" >> "$TEST_ROOT/actions"\nexit 0\n')
     command('omarchy-system', '#!/bin/bash\necho "system:$*" >> "$TEST_ROOT/actions"\nif [[ $MODE == logout-fail && ${2:-} == --execute ]]; then sleep 0.05; exit 42; fi\n')
     command('omarchy-toggle-desktop-keyboard', '#!/bin/bash\necho "keyboard:$*:$WAYLAND_DISPLAY" >> "$TEST_ROOT/actions"\n')
     command('uwsm', '''#!/bin/bash
@@ -92,6 +92,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         env = dict(os.environ, HOME=str(directory), XDG_STATE_HOME=str(directory / 'state'),
                    XDG_RUNTIME_DIR=str(directory / 'runtime'), XDG_SESSION_ID='c71',
                    OMARCHY_PATH=str(repo), TEST_ROOT=str(directory), MODE='normal',
+                   OMARCHY_GAMING_READY_TIMEOUT='0.2', OMARCHY_GAMING_RETRY_GAP='0',
                    PATH=f'{bindir}:{repo / "bin"}:/usr/bin:/bin')
         for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE'):
             env.pop(key, None)

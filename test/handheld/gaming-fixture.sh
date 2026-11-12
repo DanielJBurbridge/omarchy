@@ -1,7 +1,6 @@
-# Shared release-tip gaming scripts for the handheld review tests.
-# Sourced by those tests; not a test itself. The pinned commit is the
-# feat/ally-parity-release-20261111 tip these cases were read against.
-# Session, Steam and power tests run these blobs. They do not merge that branch.
+# Working-tree gaming scripts for the handheld review tests.
+# Sourced by those tests; not a test itself. Power rollback still reads one
+# release-tip script; that checkout is not part of this branch.
 
 HANDHELD_RELEASE_SHA=c88d5344b2fdc64ba74e9221c52ccfca131b3ba2
 
@@ -13,12 +12,12 @@ handheld_release_blob() {
 handheld_gaming_tree() {
   local tree=$1
   mkdir -p "$tree/bin" "$tree/default/gaming/bin"
-  handheld_release_blob bin/omarchy-session-start "$tree/bin/omarchy-session-start"
+  cp "$ROOT/bin/omarchy-session-start" "$tree/bin/omarchy-session-start"
   sed -i 's|^source /usr/share/omarchy/default/bash/env-bootstrap$|:|' "$tree/bin/omarchy-session-start"
-  handheld_release_blob bin/omarchy-gaming-steam "$tree/bin/omarchy-gaming-steam"
-  handheld_release_blob bin/omarchy-launch-gaming-desktop "$tree/bin/omarchy-launch-gaming-desktop"
-  handheld_release_blob default/gaming/session.sh "$tree/default/gaming/session.sh"
-  handheld_release_blob default/gaming/bin/steamos-session-select "$tree/default/gaming/bin/steamos-session-select"
+  cp "$ROOT/bin/omarchy-gaming-steam" "$tree/bin/omarchy-gaming-steam"
+  cp "$ROOT/bin/omarchy-launch-gaming-desktop" "$tree/bin/omarchy-launch-gaming-desktop"
+  cp "$ROOT/default/gaming/session.sh" "$tree/default/gaming/session.sh"
+  cp "$ROOT/default/gaming/bin/steamos-session-select" "$tree/default/gaming/bin/steamos-session-select"
   chmod +x "$tree/bin/"* "$tree/default/gaming/bin/"*
 }
 
@@ -38,6 +37,7 @@ handheld_prepare_gaming() {
   HANDHELD_TREE=$work/tree
   HANDHELD_STUB=$work/bin
   HANDHELD_LOG=$work/actions
+  HANDHELD_SCOPE_PID=$work/scope-pid
   HANDHELD_RUNTIME=$(mktemp -d)
   HANDHELD_HOME=$(mktemp -d)
   chmod 700 "$HANDHELD_RUNTIME"
@@ -52,7 +52,10 @@ args=("$@")
 while (( ${#args[@]} )) && [[ ${args[0]} == --* ]]; do
   args=("${args[@]:1}")
 done
-exec "${args[@]}"
+setsid "${args[@]}" &
+child=$!
+printf '%s\n' "$child" > "$HANDHELD_SCOPE_PID"
+wait "$child"
 EOF
   cat > "$HANDHELD_STUB/gamescope" <<'EOF'
 #!/bin/bash
@@ -78,6 +81,14 @@ EOF
   cat > "$HANDHELD_STUB/systemctl" <<'EOF'
 #!/bin/bash
 printf 'systemctl:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+if [[ $* == *stop* && -f ${HANDHELD_SCOPE_PID:-} ]]; then
+  scope_pid=$(cat "$HANDHELD_SCOPE_PID")
+  kill -- -"$scope_pid" 2>/dev/null || kill "$scope_pid" 2>/dev/null || true
+fi
+exit 0
+EOF
+  cat > "$HANDHELD_STUB/omarchy-notification-send" <<'EOF'
+#!/bin/bash
 exit 0
 EOF
   cat > "$HANDHELD_STUB/omarchy-system-lock" <<'EOF'
@@ -101,4 +112,7 @@ handheld_gaming_env() {
   export XDG_STATE_HOME=$HANDHELD_HOME/.local/state
   export XDG_SESSION_ID=redteam
   export HANDHELD_ACTIONS=$HANDHELD_LOG
+  export HANDHELD_SCOPE_PID=$work/scope-pid
+  export OMARCHY_GAMING_READY_TIMEOUT=1
+  export OMARCHY_GAMING_RETRY_GAP=0
 }

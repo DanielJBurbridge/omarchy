@@ -1,7 +1,6 @@
 #!/bin/bash
-# Handheld review tests. Session, Steam and keyboard-gate failures are
-# intentional until those bugs are fixed. Power rollback is skipped while
-# that work is on hold for a TDP redesign.
+# Handheld review tests. Power rollback is skipped while that work is on
+# hold for a TDP redesign.
 
 set -uo pipefail
 

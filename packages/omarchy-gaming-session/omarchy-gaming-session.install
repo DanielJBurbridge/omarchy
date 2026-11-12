@@ -1,0 +1,9 @@
+post_install() {
+  if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
+    omarchy-setup-handheld-dirs
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

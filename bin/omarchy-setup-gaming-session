@@ -1,10 +1,10 @@
 #!/bin/bash
 # omarchy:summary=Choose a reversible authenticated gaming session preference
-# omarchy:args=[status|default <desktop|gaming|last>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|reset]
+# omarchy:args=[status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|reset]
 
 set -euo pipefail
 if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
-  echo 'Usage: omarchy-setup-gaming-session [status|default <desktop|gaming|last>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|reset]'
+  echo 'Usage: omarchy-setup-gaming-session [status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|reset]'
   echo 'Select Omarchy (session preference) at SDDM. Password sign-in is retained.'
   echo 'Display settings affect game rendering, not physical output modes. FPS: 0,30,40,45,60,90,120.'
   exit 0
@@ -24,7 +24,7 @@ case ${1:-status} in
     ;;
   default)
     (( $# == 2 )) || exit 2
-    case $2 in desktop | gaming | last) ;; *) exit 2 ;; esac
+    case $2 in desktop | gaming | last | auto) ;; *) exit 2 ;; esac
     gaming_save preference "$2"
     rm -f "$gaming_state/recovery"
     ;;
@@ -49,6 +49,26 @@ case ${1:-status} in
   overlay)
     (( $# == 2 )) || exit 2
     case $2 in on | off) gaming_save overlay "$2" ;; *) exit 2 ;; esac
+    ;;
+  desktop-lock)
+    (( $# == 2 )) || exit 2
+    case $2 in
+      on) lock_value=on ;;
+      off)
+        # A background process, including Steam, has no terminal to answer sudo.
+        if [[ ! -t 0 && ! -t 1 ]]; then
+          gaming_fail 'desktop-lock off needs a terminal so sudo can ask for a password.'
+          exit 1
+        fi
+        lock_value=explicit-off
+        ;;
+      *) exit 2 ;;
+    esac
+    if (( EUID == 0 )); then
+      "$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs" --value "$lock_value"
+    else
+      sudo env OMARCHY_PATH="$OMARCHY_PATH" "$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs" --value "$lock_value"
+    fi
     ;;
   reset)
     (( $# == 1 )) || exit 2

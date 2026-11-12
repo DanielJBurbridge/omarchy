@@ -10,20 +10,36 @@ source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 (( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" ]] || exit 2
 
-desktop() {
+start_hyprland() {
   export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
   # UWSM intentionally removes XDG_SESSION_ID from the user manager. Carry our
   # managed login identity through its normal environment import/cleanup.
   if [[ -n ${gaming_runtime:-} ]]; then export OMARCHY_HANDHELD_SESSION=$XDG_SESSION_ID; fi
   unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  if [[ -n ${gaming_state:-} && -f $gaming_state/preference-reset ]]; then
+    rm -f "$gaming_state/preference-reset"
+    omarchy-notification-send 'Omarchy' 'Session preference reset' || true
+  fi
   uwsm start -g -1 -e -D Hyprland hyprland.desktop
   local status=$?
   unset OMARCHY_HANDHELD_SESSION
   return "$status"
 }
 
+# One choke point for every autologged-in desktop entry. Return 10 when the
+# lock is required and was not acknowledged, without starting Hyprland.
+desktop() {
+  if [[ $(gaming_desktop_lock_effective) == on ]]; then
+    if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
+      echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
+      return 10
+    fi
+  fi
+  start_hyprland
+}
+
 if ! omarchy-hw-rog-ally; then
-  desktop
+  start_hyprland
   exit $?
 fi
 gaming_state_init && gaming_runtime_init || exit 1
@@ -55,13 +71,13 @@ trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
 
 run_gaming() {
-  omarchy-cmd-present gamescope && omarchy-cmd-present steam || return 1
+  omarchy-cmd-present gamescope && omarchy-cmd-present steam || return 2
   # A surviving desktop client would forward the startup request elsewhere.
   if pgrep -u "$UID" -x steam >/dev/null; then
     gaming_fail 'Steam is still running. Exit Steam before switching sessions.'
-    return 1
+    return 2
   fi
-  gaming_display_args || { gaming_fail 'invalid display settings; reset them.'; return 1; }
+  gaming_display_args || { gaming_fail 'invalid display settings; reset them.'; return 2; }
   # These companion integrations are optional; installed backends own their
   # resources and a failed mode switch must not leave a half-switched session.
   if omarchy-pkg-present omarchy-rog-ally-input; then
@@ -86,8 +102,10 @@ run_gaming() {
   fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" || return 1
+  local ready_timeout=${OMARCHY_GAMING_READY_TIMEOUT:-60}
+  [[ $ready_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] || ready_timeout=60
   # Open read/write to make timeout include the wait for the first writer.
-  (read -r -t 60 event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
+  (read -r -t "$ready_timeout" event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
   ready_pid=$!
   (read -r event <> "$gaming_runtime/return" && [[ $event == "desktop" ]]) &
   return_pid=$!
@@ -95,7 +113,8 @@ run_gaming() {
   export XDG_CURRENT_DESKTOP=gamescope XDG_SESSION_DESKTOP=gamescope
   unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE
   mv -f "$gaming_state/session.log" "$gaming_state/session.previous.log" 2>/dev/null || true
-  # A scope preserves logind seat access. A user service would lose that link.
+  # Group Gamescope and its children for teardown. Scope membership does not
+  # establish logind session membership or target DRM/libseat access.
   # Scope stop owns only this session's subtree, including games and helpers.
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
@@ -103,29 +122,47 @@ run_gaming() {
     "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" \
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
-  local finished='' status=0
+  local finished='' status=0 started=false steam_ready_at=0 returned=false
   wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
-  local started=false
   if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
     started=true
+    steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
     wait -n -p finished "$scope_pid" "$return_pid" || status=$?
   fi
   if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
-    echo 'Requested return to desktop.' >> "$gaming_state/session.log"
+    returned=true
   elif [[ $finished == "$ready_pid" ]]; then
     status=1
-    echo 'Gamescope did not start its Steam child within 60 seconds.' >> "$gaming_state/session.log"
+    echo "Gamescope did not start its Steam child within ${ready_timeout} seconds." >> "$gaming_state/session.log"
   elif ! $started; then
     status=1
     echo 'Gamescope exited before starting its Steam child.' >> "$gaming_state/session.log"
   fi
   stop_gaming
-  # Gamescope can return zero after its primary child fails. Preserve Steam's
-  # own result rather than confusing a compositor exit with a client success.
-  if [[ -f $gaming_runtime/steam-exit && $(cat "$gaming_runtime/steam-exit") != "0" ]]; then
-    status=1
+  # Append after Gamescope's log redirection has closed, so its exit text
+  # cannot overwrite the return line the desktop switch is recognised by.
+  if $returned; then
+    echo 'Requested return to desktop.' >> "$gaming_state/session.log"
+  fi
+  # Gamescope can return zero after its primary child fails. A non-zero Steam
+  # exit in the first 120 seconds is a failure. A later exit returns to desktop.
+  # An explicit Switch to Desktop is not a failure, whatever Steam's status is.
+  if $returned; then
+    status=0
+  elif [[ -f $gaming_runtime/steam-exit && $(cat "$gaming_runtime/steam-exit") != "0" ]]; then
+    if $started; then
+      local now
+      now=$(date +%s)
+      if (( now - steam_ready_at < 120 )); then
+        status=1
+      else
+        status=0
+      fi
+    else
+      status=1
+    fi
   fi
   unset OMARCHY_GAMING_RUNTIME
   return "$status"
@@ -137,19 +174,38 @@ if [[ $1 == "gaming" ]]; then
 else
   selection=$(gaming_selection)
 fi
+retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
+[[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
+retries=0
 while true; do
   printf '%s\n' "$selection" > "$gaming_runtime/active"
   if [[ $selection == "gaming" ]]; then
-    if ! run_gaming; then
-      gaming_save recovery 'Gaming failed; desktop selected until an explicit gaming choice.'
-    fi
+    run_gaming
+    status=$?
     stop_gaming
-    selection=desktop
+    if (( status == 0 )); then
+      selection=desktop
+    elif (( status == 2 || retries >= 1 )); then
+      gaming_save recovery 'Gaming failed; desktop selected until an explicit gaming choice.'
+      omarchy-notification-send 'Gaming Mode didn’t start' 'Gaming did not start. Log: ~/.local/state/omarchy/gaming-session/session.log' || true
+      retries=1
+      selection=desktop
+    else
+      retries=1
+      sleep "$retry_gap"
+    fi
   else
     gaming_save last desktop
     desktop
     status=$?
-    if [[ -f $gaming_runtime/switch ]] && [[ $(cat "$gaming_runtime/switch") == "gaming" ]]; then
+    if (( status == 10 )); then
+      # The recovery latch stays. A remaining D2 retry goes back to gaming.
+      if (( retries >= 1 )); then
+        exit 1
+      fi
+      retries=1
+      selection=gaming
+    elif [[ -f $gaming_runtime/switch ]] && [[ $(cat "$gaming_runtime/switch") == "gaming" ]]; then
       rm -f "$gaming_runtime/switch"
       selection=gaming
     else

@@ -1,11 +1,16 @@
 #!/bin/bash
 # omarchy:summary=Switch a managed Hyprland session to standalone gaming
-# omarchy:args=[--help]
+# omarchy:args=[--help|--confirm]
 
 set -euo pipefail
 if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
   echo 'Save your work and exit Steam, then run omarchy-launch-gaming-session from Omarchy (session preference).'
   exit 0
+fi
+# --confirm is the menu's confirmation. Steam's Switch to Desktop is the other
+# confirmation; neither path prompts again inside gamescope.
+if (( $# == 1 )) && [[ $1 == --confirm ]]; then
+  set --
 fi
 (( $# == 0 )) || exit 2
 source "$OMARCHY_PATH/default/gaming/session.sh"
