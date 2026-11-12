@@ -331,7 +331,21 @@ write_dmi "$vendor" "ROG Strix G16" "GU605CX"
 reject_keyboard_setup "keyboard setup rejects a non-Ally ROG laptop"
 write_dmi "Dell Inc." "XPS 13" "0A1B"
 reject_keyboard_setup "keyboard setup rejects a generic laptop"
-pass "keyboard setup stays closed on a ROG laptop and a generic laptop"
+write_dmi "$vendor" "ROG Ally X RC72LA_RC72LA" "RC72LA"
+reject_keyboard_setup "keyboard setup rejects Ally X"
+write_dmi "$vendor" "ROG Xbox Ally RC73YA" "RC73YA"
+reject_keyboard_setup "keyboard setup rejects Xbox Ally"
+write_dmi "$vendor" "ROG Xbox Ally X RC73XA" "RC73XA"
+reject_keyboard_setup "keyboard setup rejects Xbox Ally X"
+if note=$(OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/missing-vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/missing-product" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/missing-board" \
+  HOME="$home" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+  fail "keyboard setup rejects missing DMI"
+fi
+[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* ]] || fail "keyboard setup rejects missing DMI" "$note"
+pass "keyboard setup stays closed on a ROG laptop, a generic laptop, Ally X, Xbox Ally and missing DMI"
 
 # A present reviewed package and a running shell still place the bar widget
 # only after omarchy-hw-rog-ally accepts the machine.
@@ -351,6 +365,10 @@ SH
 cat >"$stub/omarchy-shell" <<'SH'
 #!/bin/bash
 printf 'shell %s\n' "$*" >>"$PKG_LOG"
+if [[ $1 == shell && $2 == ping ]]; then
+  [[ ${OMARCHY_TEST_SHELL_UP:-0} == 1 ]]
+  exit
+fi
 if [[ $1 == -q && $2 == shell && $3 == ping ]]; then
   [[ ${OMARCHY_TEST_SHELL_UP:-0} == 1 ]]
   exit
@@ -360,6 +378,8 @@ SH
 cat >"$stub/omarchy-bar" <<'SH'
 #!/bin/bash
 printf 'bar %s\n' "$*" >>"$PKG_LOG"
+[[ ${OMARCHY_TEST_BAR_FAIL:-0} == 1 ]] && exit 1
+exit 0
 SH
 chmod +x "$stub/pacman" "$stub/wvkbd-mobintl" "$stub/omarchy-cmd-present" "$stub/omarchy-shell" "$stub/omarchy-bar"
 mkdir -p "$home/.local/share/applications"
@@ -371,7 +391,8 @@ run_keyboard_setup() {
     OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
     OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
     HOME="$home" OMARCHY_PATH="$ROOT" PKG_LOG="$pkg_log" \
-    OMARCHY_TEST_SHELL_UP="$1" \
+    OMARCHY_TEST_SHELL_UP="$1" OMARCHY_TEST_BAR_FAIL="${2:-0}" \
+    WAYLAND_DISPLAY=wayland-test \
     PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package
 }
@@ -384,17 +405,109 @@ fi
 [[ $(<"$pkg_log") == *"bar put omarchy.desktop-keyboard --section right"* ]] ||
   fail "keyboard setup places the bar widget on RC71L" "$(<"$pkg_log")"
 
+reject_widget() {
+  local label=$1
+  if note=$(run_keyboard_setup 1 2>&1); then
+    fail "$label"
+  fi
+  [[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $(<"$pkg_log") != *'bar put'* ]] ||
+    fail "$label" "$note $(<"$pkg_log")"
+}
+
 write_dmi "$vendor" "ROG Strix G16" "GU605CX"
-if note=$(run_keyboard_setup 1 2>&1); then
-  fail "keyboard setup does not place the widget on a ROG laptop"
+reject_widget "keyboard setup does not place the widget on a ROG laptop"
+write_dmi "Dell Inc." "XPS 13" "0A1B"
+reject_widget "keyboard setup does not place the widget on a generic laptop"
+write_dmi "$vendor" "ROG Ally X RC72LA_RC72LA" "RC72LA"
+reject_widget "keyboard setup does not place the widget on Ally X"
+write_dmi "$vendor" "ROG Xbox Ally RC73YA" "RC73YA"
+reject_widget "keyboard setup does not place the widget on Xbox Ally"
+write_dmi "$vendor" "ROG Xbox Ally X RC73XA" "RC73XA"
+reject_widget "keyboard setup does not place the widget on Xbox Ally X"
+: >"$pkg_log"
+if note=$(OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/missing-vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/missing-product" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/missing-board" \
+  HOME="$home" OMARCHY_PATH="$ROOT" PKG_LOG="$pkg_log" \
+  OMARCHY_TEST_SHELL_UP=1 WAYLAND_DISPLAY=wayland-test \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+  fail "keyboard setup does not place the widget when DMI is missing"
 fi
-[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && ! -s $pkg_log ]] ||
-  fail "keyboard setup does not place the widget on a ROG laptop" "$note $(<"$pkg_log")"
+[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $(<"$pkg_log") != *'bar put'* ]] ||
+  fail "keyboard setup does not place the widget when DMI is missing" "$note $(<"$pkg_log")"
+pass "bar widget is placed only for RC71L"
+
+write_dmi "$vendor" "ROG Ally" "RC71L"
+if ! note=$(run_keyboard_setup 1 1 2>&1); then
+  fail "a failed bar placement still finishes a successful keyboard install" "$note"
+fi
+[[ $note == *"rerun this setup in the desktop"* && $note != *"Tap Keyboard in the bar"* ]] ||
+  fail "a failed bar placement still finishes a successful keyboard install" "$note"
+pass "bar placement failure does not fail keyboard setup"
+
+config="$home/.config/omarchy/shell.json"
+mkdir -p "$(dirname "$config")" "$home/.local/share/applications"
+cp "$ROOT/default/omarchy/applications/Desktop Keyboard.desktop" \
+  "$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
+printf '%s\n' '{"version":1,"bar":{"layout":{"right":["omarchy.clock",{"id":"omarchy.desktop-keyboard"}]}},"plugins":[{"id":"omarchy.desktop-keyboard"}]}' >"$config"
+if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "keyboard setup removes the bar button" "$note"
+fi
+[[ ! -e $home/.local/share/applications/omarchy-desktop-keyboard.desktop ]] ||
+  fail "keyboard setup removes the launcher it created"
+[[ $(<"$config") != *omarchy.desktop-keyboard* && $(<"$config") == *omarchy.clock* ]] ||
+  fail "keyboard setup removes only the keyboard widget" "$(<"$config")"
+printf '%s\n' 'custom launcher' >"$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
+HOME="$home" OMARCHY_PATH="$ROOT" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove >/dev/null
+[[ $(<"$home/.local/share/applications/omarchy-desktop-keyboard.desktop") == 'custom launcher' ]] ||
+  fail "keyboard setup keeps a launcher it did not create"
+pass "removing the keyboard drops the button and only the launcher this setup created"
+
+# A laptop that has wvkbd, or the setup command, still gets neither keyboard row.
+# Dropping the RC71L check from the install row makes this fail.
+menu_log=$test_tmp/gaming-menu
+cat >"$stub/omarchy-menu-select" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >"$MENU_LOG"
+exit 1
+SH
+cat >"$stub/omarchy-cmd-present" <<'SH'
+#!/bin/bash
+case $1 in
+  omarchy-toggle-desktop-keyboard) [[ ${HAS_TOGGLE:-0} == 1 ]] ;;
+  wvkbd-mobintl) [[ ${HAS_WVKBD:-0} == 1 ]] ;;
+  omarchy-setup-rog-ally-keyboard) [[ ${HAS_SETUP:-0} == 1 ]] ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$stub/omarchy-menu-select" "$stub/omarchy-cmd-present"
+toggle_label=$(OMARCHY_PATH="$ROOT" "$ROOT/bin/omarchy-i18n" gaming.desktopKeyboard)
+install_label=$(OMARCHY_PATH="$ROOT" "$ROOT/bin/omarchy-i18n" gaming.installKeyboard)
+
+run_gaming_menu() {
+  : >"$menu_log"
+  HOME="$home" OMARCHY_PATH="$ROOT" MENU_LOG="$menu_log" \
+    OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    HAS_TOGGLE="$1" HAS_WVKBD="$2" HAS_SETUP="$3" \
+    PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-setup-gaming" >/dev/null
+}
 
 write_dmi "Dell Inc." "XPS 13" "0A1B"
-if note=$(run_keyboard_setup 1 2>&1); then
-  fail "keyboard setup does not place the widget on a generic laptop"
-fi
-[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && ! -s $pkg_log ]] ||
-  fail "keyboard setup does not place the widget on a generic laptop" "$note $(<"$pkg_log")"
-pass "bar widget is placed only for RC71L"
+run_gaming_menu 1 1 1
+[[ $(<"$menu_log") != *"$toggle_label"* && $(<"$menu_log") != *"$install_label"* ]] ||
+  fail "a laptop with wvkbd gets no desktop keyboard row" "$(<"$menu_log")"
+write_dmi "$vendor" "ROG Ally" "RC71L"
+run_gaming_menu 0 0 1
+[[ $(<"$menu_log") == *"$install_label"* && $(<"$menu_log") != *"$toggle_label"* ]] ||
+  fail "RC71L offers keyboard setup when wvkbd is absent" "$(<"$menu_log")"
+run_gaming_menu 1 1 1
+[[ $(<"$menu_log") == *"$toggle_label"* && $(<"$menu_log") != *"$install_label"* ]] ||
+  fail "RC71L with wvkbd offers the keyboard toggle" "$(<"$menu_log")"
+pass "gaming keyboard rows stay on RC71L"

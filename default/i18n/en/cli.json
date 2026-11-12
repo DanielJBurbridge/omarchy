@@ -409,6 +409,8 @@
   "gaming.desktopMode": "Desktop Mode",
   "gaming.preserveDownloads": "Keep Steam, downloads and games running",
   "gaming.desktopKeyboard": "Desktop Keyboard",
+  "keyboard.missingTitle": "Desktop keyboard",
+  "keyboard.missingBody": "wvkbd-mobintl is missing. Use the optional ROG Ally keyboard setup.",
   "gaming.keyboardToggle": "Show or hide the touch keyboard",
   "gaming.installKeyboard": "Install desktop keyboard…",
   "gaming.keyboardAur": "Optional third-party AUR keyboard for this Ally",
