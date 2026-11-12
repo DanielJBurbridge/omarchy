@@ -22,14 +22,14 @@ This spec builds on `feat/ally-input-20261111` (head `95a0992ce5`, companion `om
 
 Hardware facts (read-only dump, 12 Nov 2026, Daniel's RC71L; summary in `docs/handheld/research/ally-hw-dump.md`, raw captures off-repo): kernel `7.2.15-2-omarchy`, BIOS RC71L.339; pad is **xpad** (11 buttons, **no paddle codes**); OEM buttons arrive on **N-KEY if2** (`hid-asus`). `Unmapped Asus vendor usagepage code 0xa2` was logged twice. The kernel printed `The MCU firmware version must be 319 or greater` and `mcu_powersave` was 0, so this unit's MCU firmware is below 319. InputPlumber, HHD and the companion are **not installed**. `asusd` 6.5.0 is running next to `power-profiles-daemon`. The power key is tagged `STEAMOS_POWER_BUTTON`. There is no `omarchy-system-power-button` command on this branch or on `feat/ally-input-20261111`. logind ignores the key (`etc/systemd/logind.conf.d/10-ignore-power-button.conf`, `HandlePowerKey=ignore`). Short-press suspend stays with RELIABILITY (parity plan row R01) and spec 02.
 
-Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`):
+Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`). The RC71L keyboard bind and its virtual-keyboard release option insert seventeen lines after `utilities.lua:6`, so every later `utilities.lua` citation below is seventeen lines past that snapshot:
 
 | Bind | Action | File |
 |---|---|---|
 | `SUPER + SPACE` | Omarchy menu | `utilities.lua:1` |
 | `SUPER + ALT + SPACE` | Apps | `utilities.lua:2` |
-| `SUPER + ESCAPE` | System menu | `utilities.lua:8` |
-| `SUPER + CTRL + P` | Power panel (`omarchy.power`) | `utilities.lua:119` |
+| `SUPER + ESCAPE` | System menu | `utilities.lua:25` |
+| `SUPER + CTRL + P` | Power panel (`omarchy.power`) | `utilities.lua:136` |
 | `SUPER + LEFT/RIGHT/UP/DOWN` | Focus window | `tiling.lua:18-21` |
 | `SUPER + SHIFT + arrows` | Swap window | `tiling.lua:51-54` |
 | `SUPER + mouse:272` / `mouse:273` | Drag move / resize | `tiling.lua:84-85` |
@@ -40,12 +40,12 @@ Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`):
 | `SUPER + F` | Full screen | `tiling.lua:8` |
 | `SUPER + RETURN` | Terminal | `applications.lua:2` |
 | `CTRL + ALT + DELETE` | Close all windows (`omarchy-hyprland-window-close-all`) | `tiling.lua:3` |
-| `PRINT` | Screenshot (`omarchy-capture-screenshot`) | `utilities.lua:40` |
+| `PRINT` | Screenshot (`omarchy-capture-screenshot`) | `utilities.lua:57` |
 | `XF86AudioRaise/LowerVolume`, `XF86MonBrightnessUp/Down` | Volume / brightness (OSD) | `media.lua:2-3`, `media.lua:6-7` |
 
 `SUPER` alone is unbound. No `o.bind`, `o.bind_toggle` or `o.bind_hold` in `default/hypr/bindings/` uses the chord `SUPER` with no other key. A bare Super tap does nothing. `mouse:274` (middle click) is also unbound. Left is `mouse:272`, right is `mouse:273`.
 
-`SUPER + CTRL + X` is taken (`utilities.lua:120`, "Agents", panel `omarchy.agents`). It is not an Ally chord. The face button X does not emit the letter X, so M1+M2+X is not this bind (§8.3). Do not reuse it.
+`SUPER + CTRL + X` is taken (`utilities.lua:137`, "Agents", panel `omarchy.agents`). It is not an Ally chord. The face button X does not emit the letter X, so M1+M2+X is not this bind (§8.3). Do not reuse it.
 
 `hl.dsp.window.close()` is a polite close. The keybindings fixture records its dispatcher as `killactive` (`test/shell.d/keybindings-menu-test.sh`). Hyprland asks the client to close. It does not send SIGKILL. The app may show a save prompt, or it may drop unsaved work. There is no confirmation in the bind.
 
@@ -124,7 +124,7 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 | Y (North) | Y | Enter | Enter (activate highlighted) | Enter | Keep. |
 | LB / RB | LB / RB | Scroll down / up (`LeftBumper` wheel down, `RightBumper` wheel up) | Scroll | Scroll | Keep. |
 | LT / RT | LT / RT | Right / left click (deadzone 0.25) | Same | Same | Keep. |
-| L3 | L3 | Unmapped | Unmapped | Unmapped | Keep. `Super+Ctrl+Z` zoom (`utilities.lua:135`) stays a keyboard chord, not a paddle chord. `Super+Ctrl+X` is the Agents panel (`utilities.lua:120`) and is not a paddle chord either. |
+| L3 | L3 | Unmapped | Unmapped | Unmapped | Keep. `Super+Ctrl+Z` zoom (`utilities.lua:152`) stays a keyboard chord, not a paddle chord. `Super+Ctrl+X` is the Agents panel (`utilities.lua:137`) and is not a paddle chord either. |
 | R3 | R3 | Left click | Left click | Left click | Keep. Same Hyprland event as A (`mouse:272`). |
 | D-pad | D-pad | Arrow keys | Move highlight | Arrow keys | Keep. |
 | View (Select) | View | Tab | Tab | Tab | Keep. |
@@ -160,7 +160,7 @@ DeviceProfile v1 takes **one `source_event` per mapping**, so a context change i
 
 | Context | Mechanism | Changes | Why this mechanism |
 |---|---|---|---|
-| Menu (Δ5) | Hyprland, enabled only while an Omarchy menu layer is open (same pattern as the `selection` binds in `utilities.lua:54-98`, namespace `selection`): `mouse:273` → close menu | B = back/close | No daemon change. Cannot leak: enabled only while the layer exists. Menu namespaces are still TBC (OQ-9). The `selection` namespace is the slurp picker, not the Omarchy menu. |
+| Menu (Δ5) | Hyprland, enabled only while an Omarchy menu layer is open (same pattern as the `selection` binds in `utilities.lua:71-115`, namespace `selection`): `mouse:273` → close menu | B = back/close | No daemon change. Cannot leak: enabled only while the layer exists. Menu namespaces are still TBC (OQ-9). The `selection` namespace is the slurp picker, not the Omarchy menu. |
 | OSK (Δ6) | Bridge loads `osk.yaml` (desktop, plus B→Backspace, X→Space) when wvkbd is shown, and restores the **previous** profile when it hides | B = Backspace, X = Space | wvkbd is pointer/touch only. |
 
 **wvkbd death.** Remember the profile that was current when `osk` was loaded (normally `desktop`). Restore that profile on the helper's hide/stop **and** when the wvkbd process exits for any other reason (crash, kill, Wayland disconnect). Watch the process; do not poll, and do not wait for a hide signal that will not come. A dead keyboard must not leave B as Backspace.
@@ -174,7 +174,7 @@ No CC/AC chords (§4). No system action is reachable only by holding a button or
 | Action | Game | Desktop | Notes |
 |---|---|---|---|
 | Quick-access overlay | AC long (Δ3). Also a QAM entry once spec 04 adds it. Until then, AC tap opens QAM, which is the no-hold route. | CC tap (Δ1). Also an Omarchy menu row. | Spec 04. AC long is a shortcut, not the only way in. |
-| Screenshot | QAM menu, or Steam's screenshot shortcut on the `ds5-edge` target. **Not AC long.** | Omarchy menu → Capture (`omarchy-capture-screenshot`). `PRINT` is `utilities.lua:40` and is not on the pad. | If Steam's shortcut is a hold-chord, it is unreliable here. The QAM entry is the route that does not need a hold. Optional pad shortcut remains OQ-11. |
+| Screenshot | QAM menu, or Steam's screenshot shortcut on the `ds5-edge` target. **Not AC long.** | Omarchy menu → Capture (`omarchy-capture-screenshot`). `PRINT` is `utilities.lua:57` and is not on the pad. | If Steam's shortcut is a hold-chord, it is unreliable here. The QAM entry is the route that does not need a hold. Optional pad shortcut remains OQ-11. |
 | OSK | CC long emits Guide+West. Also Steam menu → keyboard. | CC long toggles wvkbd. Also an Omarchy menu row. | Baseline shortcut, plus a non-hold route. |
 | Volume | Volume rocker | Volume rocker | Hardware. OQ-8. |
 | Brightness | QAM slider, and the overlay once spec 04 exists | Quick-access overlay / Omarchy OSD. `XF86MonBrightness*` is not on the pad (`media.lua:6-7`). | Do not require Steam's Guide+stick hold. |
@@ -225,7 +225,7 @@ A userspace injector such as `wtype` is the wrong tool. `default/hypr/bindings/c
 | Close window | Hold M1 + X | `Super + mouse:274` | **Δ8, new.** Unbound today (no `mouse:274` in `default/hypr/bindings/`). Same dispatcher as `tiling.lua:1-2`: `hl.dsp.window.close()` / `killactive`. Polite close, **no confirmation**. An app may prompt to save, or it may discard the document. Easy to hit: M1 held for a drag, X brushed. Accepted, and called a close, not a force-close or a kill. |
 | Full screen | Omarchy menu, or the quick-access overlay (spec 04) | — | `Super + F` is `tiling.lua:8`. The pad has no F. No new Ally bind (OQ-13). M1+Y stays Terminal and is not reused. Paddles stay free for games. |
 | Terminal | Hold M1 + Y | `Super + Return` | `applications.lua:2` |
-| System menu | Hold M1 + Menu | `Super + Escape` | `utilities.lua:8`. Opens the menu. Does not log out, reboot or shut down by itself. |
+| System menu | Hold M1 + Menu | `Super + Escape` | `utilities.lua:25`. Opens the menu. Does not log out, reboot or shut down by itself. |
 | Launcher (Apps) | AC tap → Omarchy menu → Apps | — | `utilities.lua:2` is `Super+Alt+Space`, which the pad cannot emit (no Alt). Use the menu. |
 | Omarchy menu | AC tap | D-Bus `omarchy_menu` | baseline bridge → `omarchy-menu` |
 
@@ -233,7 +233,7 @@ OEM taps are D-Bus actions. They do not include the paddle modifiers. Super stay
 
 ### 8.3 Paddle × pad matrix
 
-Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). This matrix is the desktop profile **with Δ7 on**, which is only after OQ-17 confirms the grips work. Until then M1 and M2 emit nothing: the M1 and M1+M2 columns do not apply, and the desktop uses the non-paddle bindings in §5.2 plus the OEM buttons. With Δ7 on, M1 = Super and M2 = Left Ctrl on the bridge's uinput keyboard (§8.1), so M1+M2 = Super+Ctrl. The face keys stay on InputPlumber's virtual keyboard. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
+Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:137`). This matrix is the desktop profile **with Δ7 on**, which is only after OQ-17 confirms the grips work. Until then M1 and M2 emit nothing: the M1 and M1+M2 columns do not apply, and the desktop uses the non-paddle bindings in §5.2 plus the OEM buttons. With Δ7 on, M1 = Super and M2 = Left Ctrl on the bridge's uinput keyboard (§8.1), so M1+M2 = Super+Ctrl. The face keys stay on InputPlumber's virtual keyboard. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
 
 A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:273`. "No bind" means no Omarchy bind. The focused app can still see Ctrl+click or Ctrl+Tab.
 
@@ -241,30 +241,30 @@ A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:2
 |---|---|---|---|---|
 | A / RT / R3 | `mouse:272` | **Move window** `tiling.lua:84`. Intended for A. RT and R3 are the same drag. | No bind | No bind |
 | B / LT | `mouse:273` | **Resize** `tiling.lua:85`. Intended. | No bind | No bind |
-| X | `mouse:274` | **No bind today.** Δ8 adds polite close, no confirmation. | No bind | No bind on `Super+Ctrl+mouse:274`. The letter chord `SUPER + CTRL + X` is **taken** (Agents, `utilities.lua:120`). Face X does not emit it. Do not use that chord. |
+| X | `mouse:274` | **No bind today.** Δ8 adds polite close, no confirmation. | No bind | No bind on `Super+Ctrl+mouse:274`. The letter chord `SUPER + CTRL + X` is **taken** (Agents, `utilities.lua:137`). Face X does not emit it. Do not use that chord. |
 | Y | Return | **Terminal** `applications.lua:2`. Intended. | No bind | **Collision: Herdr** `applications.lua:13`. Not a power, logout, close-all or kill bind. Unintended. |
 | View | Tab | **Next workspace** `tiling.lua:37`. Intended. | No bind (`CTRL + ALT + TAB` at `tiling.lua:63` needs Alt) | **Collision: former workspace** `tiling.lua:39`. Unintended. |
-| Menu | Escape | **System menu** `utilities.lua:8`. Intended. Does not log out. | No bind | No bind. There is no `SUPER + CTRL + ESCAPE`. |
+| Menu | Escape | **System menu** `utilities.lua:25`. Intended. Does not log out. | No bind | No bind. There is no `SUPER + CTRL + ESCAPE`. |
 | D-pad left | Left | **Focus left** `tiling.lua:18` | No bind | **Collision: group focus left** `tiling.lua:98` |
 | D-pad right | Right | **Focus right** `tiling.lua:19` | No bind | **Collision: group focus right** `tiling.lua:99` |
 | D-pad up | Up | **Focus up** `tiling.lua:20` | No bind | No bind. Not group focus. |
 | D-pad down | Down | **Focus down** `tiling.lua:21` | No bind | No bind. Not group focus. |
 | RB | `mouse_up` | **Previous workspace** `tiling.lua:82` | No bind | No bind. `SUPER + ALT + mouse_up` (`tiling.lua:102`) needs Alt. |
 | LB | `mouse_down` | **Next workspace** `tiling.lua:81` | No bind | No bind |
-| L3 | nothing | Bare Super, unbound | No bind | No bind. Does not zoom (`utilities.lua:135` needs Z) and does not open Agents (`utilities.lua:120` needs the letter X). |
+| L3 | nothing | Bare Super, unbound | No bind | No bind. Does not zoom (`utilities.lua:152` needs Z) and does not open Agents (`utilities.lua:137` needs the letter X). |
 | Left stick | none, or notched wheel (Δ4) | Not a Super chord | Not a Ctrl chord | Not a Super+Ctrl chord |
 | CC / AC | D-Bus, not a key | The D-Bus action runs; Super stays down if M1 is held | Ctrl stays down if M2 is held | Both stay down |
 
-`SUPER + CTRL` binds that the pad cannot hit, including the dangerous ones and the chord that is now taken: Agents (`utilities.lua:120`, X), tiled full screen (`tiling.lua:9`, F), power (`utilities.lua:119`, P), lock (`utilities.lua:144`, L), emojis (`utilities.lua:3`), capture menu (`utilities.lua:4`), display toggle (`utilities.lua:32`, Delete, not the close-all chord), zoom (`utilities.lua:135`, Z), and the bar-panel number keys (`utilities.lua:127-132`). `CTRL + ALT + DELETE` (`tiling.lua:3`) needs Alt as well as Delete. Paddles cannot produce it. The firmware Command Centre long can, which is Δ9, not a paddle chord. `SUPER + CTRL + X` stays the Agents panel on every machine, including the RC71L. Δ8's close is `SUPER + mouse:274`, not this chord.
+`SUPER + CTRL` binds that the pad cannot hit, including the dangerous ones and the chord that is now taken: Agents (`utilities.lua:137`, X), tiled full screen (`tiling.lua:9`, F), power (`utilities.lua:136`, P), lock (`utilities.lua:161`, L), emojis (`utilities.lua:3`), capture menu (`utilities.lua:4`), display toggle (`utilities.lua:49`, Delete, not the close-all chord), zoom (`utilities.lua:152`, Z), and the bar-panel number keys (`utilities.lua:144-149`). `CTRL + ALT + DELETE` (`tiling.lua:3`) needs Alt as well as Delete. Paddles cannot produce it. The firmware Command Centre long can, which is Δ9, not a paddle chord. `SUPER + CTRL + X` stays the Agents panel on every machine, including the RC71L. Δ8's close is `SUPER + mouse:274`, not this chord.
 
 Close-window letters `SUPER + W` and `SUPER + Q` (`tiling.lua:1-2`) are unreachable. The only pad route to `killactive` is the new Δ8 bind. There is no SIGKILL bind in `default/hypr/bindings/`.
 
-OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above does not apply to those two buttons while `osk` is loaded. M1+M2+X is then `SUPER + CTRL + SPACE` (`utilities.lua:14`), not the taken Agents chord `SUPER + CTRL + X`.
+OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above does not apply to those two buttons while `osk` is loaded. M1+M2+X is then `SUPER + CTRL + SPACE` (`utilities.lua:31`), not the taken Agents chord `SUPER + CTRL + X`.
 
 | Pad control | M1 | M2 | M1+M2 |
 |---|---|---|---|
-| X (Space) | **Omarchy menu** `utilities.lua:1` (`SUPER + SPACE`). Not the Δ8 close. | **Direct input** `input-method.lua:24` (`CTRL + SPACE`), and only in a terminal. `non_consuming`. | **Background switcher** `utilities.lua:14` |
-| B (Backspace) | **Toggle window transparency** `utilities.lua:18` | No bind | **Single-window square aspect** `utilities.lua:20` |
+| X (Space) | **Omarchy menu** `utilities.lua:1` (`SUPER + SPACE`). Not the Δ8 close. | **Direct input** `input-method.lua:24` (`CTRL + SPACE`), and only in a terminal. `non_consuming`. | **Background switcher** `utilities.lua:31` |
+| B (Backspace) | **Toggle window transparency** `utilities.lua:35` | No bind | **Single-window square aspect** `utilities.lua:37` |
 
 ## 9. Controller-as-mouse (desktop)
 

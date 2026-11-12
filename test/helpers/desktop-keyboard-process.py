@@ -72,6 +72,9 @@ def hardware_acceptance():
             ('ally', 'ASUSTeK COMPUTER INC.', 'ROG Ally', 'RC71L', True),
             ('rog-laptop', 'ASUSTeK COMPUTER INC.', 'ROG Zephyrus', 'GU604', False),
             ('generic', 'Dell Inc.', 'XPS 13', '0A1B', False),
+            ('ally-x', 'ASUSTeK COMPUTER INC.', 'ROG Ally X RC72LA_RC72LA', 'RC72LA', False),
+            ('xbox', 'ASUSTeK COMPUTER INC.', 'ROG Xbox Ally RC73YA', 'RC73YA', False),
+            ('xbox-x', 'ASUSTeK COMPUTER INC.', 'ROG Xbox Ally X RC73XA', 'RC73XA', False),
         )
         base = os.environ | {
             'PATH': f'{stub}:{repo / "bin"}:/usr/bin:/bin',
@@ -102,7 +105,20 @@ def hardware_acceptance():
             else:
                 assert detector.returncode != 0, name
                 assert 'This optional setup is for ASUS ROG Ally RC71L.' in setup.stderr, (name, setup.stderr)
-        print('[Haki] PASS DMI override: RC71L setup gate open; ROG laptop and generic laptop closed')
+        missing = root / 'missing-dmi'
+        env = base | {
+            'OMARCHY_DMI_SYS_VENDOR_PATH': str(missing / 'sys_vendor'),
+            'OMARCHY_DMI_PRODUCT_NAME_PATH': str(missing / 'product_name'),
+            'OMARCHY_DMI_BOARD_NAME_PATH': str(missing / 'board_name'),
+        }
+        detector = subprocess.run([str(repo / 'bin/omarchy-hw-rog-ally')], env=env)
+        setup = subprocess.run(
+            [str(repo / 'bin/omarchy-setup-rog-ally-keyboard'), '--configure-reviewed-package'],
+            env=env, capture_output=True, text=True)
+        assert detector.returncode != 0
+        assert 'This optional setup is for ASUS ROG Ally RC71L.' in setup.stderr
+        assert 'Keyboard button' not in setup.stdout + setup.stderr
+        print('[Haki] PASS DMI override: RC71L setup gate open; Ally X, Xbox Ally, laptops and missing DMI closed')
 
 
 def main():
@@ -117,13 +133,19 @@ def main():
         # Only the fixture keyboard and the helper's real system dependencies
         # are visible. Appending the host PATH lets a genuinely installed
         # wvkbd escape the missing-dependency case when ours is renamed.
-        for name in ('cat', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm'):
+        for name in ('cat', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm', 'jq'):
             tool = shutil.which(name)
             assert tool, f'Required system tool missing: {name}'
             (root / name).symlink_to(tool)
-        present = Path(__file__).resolve().parents[2] / 'bin/omarchy-cmd-present'
-        (root / 'omarchy-cmd-present').symlink_to(present)
-        env = os.environ | {'PATH': str(root),
+        repo = Path(__file__).resolve().parents[2]
+        (root / 'omarchy-cmd-present').symlink_to(repo / 'bin/omarchy-cmd-present')
+        (root / 'omarchy-i18n').symlink_to(repo / 'bin/omarchy-i18n')
+        notify = root / 'notify'
+        notifier = root / 'omarchy-notification-send'
+        notifier.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >"$NOTIFY_LOG"\n')
+        notifier.chmod(0o755)
+        env = os.environ | {'PATH': str(root), 'NOTIFY_LOG': str(notify),
+                            'OMARCHY_PATH': str(repo),
                             'XDG_RUNTIME_DIR': str(root), 'WAYLAND_DISPLAY': 'wayland-test',
                             'HYPRLAND_INSTANCE_SIGNATURE': 'hyprland-test',
                             'XDG_CURRENT_DESKTOP': 'Hyprland',
@@ -145,8 +167,8 @@ def main():
         def events():
             return (root / 'signals').read_text()
 
-        def wait_for(predicate):
-            until = time.monotonic() + 2
+        def wait_for(predicate, seconds=5):
+            until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if predicate():
                     return
@@ -237,6 +259,7 @@ def main():
             binary.rename(root / 'disabled')
             result = run('show', ok=False)
             assert 'missing' in result.stderr
+            assert 'wvkbd-mobintl is missing' in notify.read_text()
             (root / 'disabled').rename(binary)
             print('[Haki] PASS obsolete options, failed startup and missing dependency')
 
@@ -249,9 +272,11 @@ def main():
             calls = [subprocess.Popen(['/bin/bash', str(HELPER), 'show'], env=env,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(6)]
             try:
-                time.sleep(.15)
-                assert all(p.poll() is None for p in calls)
-                assert events() == before and not record.exists()
+                until = time.monotonic() + 0.5
+                while time.monotonic() < until:
+                    assert all(p.poll() is None for p in calls)
+                    assert events() == before and not record.exists()
+                    time.sleep(0.01)
                 lock.communicate('release\n', timeout=2)
                 for call in calls:
                     out, err = call.communicate(timeout=5)

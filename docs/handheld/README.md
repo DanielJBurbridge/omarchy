@@ -1,6 +1,6 @@
 # Omarchy Handheld UX specs
 
-Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 2.
+Status: draft, 12 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md).
 
 Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Secondary (design for, verify later): Ally X (RC72LA), Xbox Ally (RC73X/Y), Lenovo Legion Go, Steam Deck, MSI Claw.
 
@@ -9,12 +9,12 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 | # | Spec | Status |
 |---|---|---|
 | 01 | [Controller and button map](01-controller-button-map.md) | Draft, revision 4 |
-| 02 | [Mode switch (gaming ⇄ desktop) and dock / undock](02-mode-switch-and-dock.md) | Draft, revision 2 |
+| 02 | [Mode switch (gaming ⇄ desktop) and dock / undock](02-mode-switch-and-dock.md) | Draft, revision 12 |
 | 03 | First boot and install flow (handheld variant) | TODO |
 | 04 | Quick-access overlay: TDP, fan, RGB, brightness, performance profile | TODO |
-| 05 | Notifications (gaming and desktop) | TODO |
-| 06 | Accessibility: text size, contrast, haptics, one-handed | TODO |
-| 07 | On-screen keyboard (desktop wvkbd and Steam OSK) | TODO |
+| 05 | [Notifications (gaming and desktop)](05-notifications.md) | Draft, revision 3 |
+| 06 | [Accessibility: text size, contrast, haptics, one-handed](06-accessibility.md) | Draft, revision 3 |
+| 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 8 |
 
 Out of scope for now: lock screen, greeter and disk-unlock design (AUTH owns those surfaces).
 
