@@ -1,9 +1,9 @@
 # 01 · Controller and button map
 
-Status: draft for dev-lead review, revision 3, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
-Related: [README](README.md) · 02 mode switch + dock (TODO) · 04 quick-access overlay (TODO) · 07 OSK (TODO). No lock-screen design here.
+Status: draft for dev-lead review, revision 4, 12 Nov 2026. Device: ROG Ally RC71L. Input daemon: **InputPlumber** (lead decision; HHD only as an alternatives note in Appendix B).
+Related: [README](README.md) · [02 mode switch and dock](02-mode-switch-and-dock.md) · 04 quick-access overlay (TODO) · 07 OSK (TODO). No lock-screen design here.
 
-Revision 1 incorporates the dev-red review and the 12 Nov hardware research. The decisions are in §2. They replace the first draft's "Armoury long takes a screenshot" proposal. Revision 3 gates Δ7 on OQ-17, and requires explicit key-ups before InputPlumber grabs the device again after a crash.
+Revision 1 incorporates the dev-red review and the 12 Nov hardware research. The decisions are in §2. They replace the first draft's "Armoury long takes a screenshot" proposal. Revision 3 gates Δ7 on OQ-17. Revision 4 releases held keys when the InputPlumber composite device disappears, and again through the bridge's own keyboard if that device is still gone after 2 s.
 
 ## 1. Baseline: what is already built
 
@@ -20,7 +20,7 @@ This spec builds on `feat/ally-input-20261111` (head `95a0992ce5`, companion `om
 | Docs | `docs/rog-ally-input.md`, `plans/rog-ally-parity.md` on the input branch | Control table, session contract, acceptance list I01–I13. |
 | Gaming session | `feat/ally-session-20261111` | `bin/omarchy-launch-gaming-session` leaves the desktop (it stops wvkbd, writes the switch marker, and logs out). `bin/omarchy-session-start` `run_gaming` calls `omarchy-hw-rog-ally-input gamepad` before Gamescope when `omarchy-pkg-present omarchy-rog-ally-input`, and a non-zero status aborts the session (`return 1`). State lives in `default/gaming/session.sh` (`~/.local/state/omarchy/gaming-session`, choice `desktop` or `gaming`). Docs: `docs/rog-ally-gaming-session.md`. Steam owns Guide+South (QAM on an Xbox target) and Guide+West (OSK). |
 
-Hardware facts (read-only dump, 12 Nov 2026, Daniel's RC71L; the dump is not a file in this repo): kernel `7.2.15-2-omarchy`, BIOS RC71L.339; pad is **xpad** (11 buttons, **no paddle codes**); OEM buttons arrive on **N-KEY if2** (`hid-asus`). `Unmapped Asus vendor usagepage code 0xa2` was logged twice. The kernel printed `The MCU firmware version must be 319 or greater` and `mcu_powersave` was 0, so this unit's MCU firmware is below 319. InputPlumber, HHD and the companion are **not installed**. `asusd` 6.5.0 is running next to `power-profiles-daemon`. The power key is tagged `STEAMOS_POWER_BUTTON`. There is no `omarchy-system-power-button` command on this branch or on `feat/ally-input-20261111`. logind ignores the key (`etc/systemd/logind.conf.d/10-ignore-power-button.conf`, `HandlePowerKey=ignore`). Short-press suspend stays with RELIABILITY (parity plan row R01) and spec 02.
+Hardware facts (read-only dump, 12 Nov 2026, Daniel's RC71L; summary in `docs/handheld/research/ally-hw-dump.md`, raw captures off-repo): kernel `7.2.15-2-omarchy`, BIOS RC71L.339; pad is **xpad** (11 buttons, **no paddle codes**); OEM buttons arrive on **N-KEY if2** (`hid-asus`). `Unmapped Asus vendor usagepage code 0xa2` was logged twice. The kernel printed `The MCU firmware version must be 319 or greater` and `mcu_powersave` was 0, so this unit's MCU firmware is below 319. InputPlumber, HHD and the companion are **not installed**. `asusd` 6.5.0 is running next to `power-profiles-daemon`. The power key is tagged `STEAMOS_POWER_BUTTON`. There is no `omarchy-system-power-button` command on this branch or on `feat/ally-input-20261111`. logind ignores the key (`etc/systemd/logind.conf.d/10-ignore-power-button.conf`, `HandlePowerKey=ignore`). Short-press suspend stays with RELIABILITY (parity plan row R01) and spec 02.
 
 Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`):
 
@@ -141,7 +141,7 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 
 Δ7 rationale: Omarchy is driven by Super. Shift-as-paddle only helps Shift+click (A-drag already selects). Super on the left grip unlocks existing Hyprland binds (§8). Shift remains on the OSK (one-shot). Steam Deck precedent: L5 = Super in desktop. A bare tap is Super down and Super up, and Super alone is unbound, so a tap does nothing.
 
-**Gate (OQ-17).** Grip-Super applies only once paddles are confirmed working. InputPlumber programs Ally paddles through the out-of-tree `hid-asus-ally` driver (`asus_rog_ally` / `asus_ally_hid`). That driver is not in mainline and not in kernel `7.2.15-2-omarchy`. HHD can program paddles over hidraw without it. While OQ-17 is open, or if the press test shows no grip events, the desktop profile maps neither grip: no Super from M1, no Ctrl from M2. The desktop uses only the non-paddle bindings (sticks, face buttons, bumpers, triggers, View, Menu, and the OEM buttons). Δ8 is off with Δ7, because it needs the grip. Close a window from the Omarchy menu or the quick-access overlay (spec 04). Do not install the Super mapping on a kernel that does not deliver the grips.
+**Gate (OQ-17).** Grip-Super applies only once paddles are confirmed working. InputPlumber programs Ally paddles through the out-of-tree `hid-asus-ally` driver (`asus_rog_ally` / `asus_ally_hid`). That driver is not in mainline and not in kernel `7.2.15-2-omarchy`. HHD can program paddles over hidraw without it. While OQ-17 is open, or if the press test shows no grip events, the desktop profile maps neither grip: no Super from M1, no Ctrl from M2. The desktop uses only the non-paddle bindings (sticks, face buttons, bumpers, triggers, View, Menu, and the OEM buttons). Δ8 is off with Δ7, because it needs the grip. Close a window from the Omarchy menu or the quick-access overlay (spec 04). Do not install the Super mapping on a kernel that does not deliver the grips. When the grips are mapped, the bridge's persistent uinput keyboard presses Super and Ctrl (§8.1). InputPlumber's virtual keyboard does not.
 
 ### 5.4 Community comparison
 
@@ -190,17 +190,25 @@ No CC/AC chords (§4). No system action is reachable only by holding a button or
 
 ### 8.1 Releasing held modifiers
 
-Δ7 makes the left grip a held Super. If that grip is down across a profile switch, the virtual keyboard can leave Super latched. The next A or RT is then `Super + mouse:272` (window move), and the next X is the Δ8 close.
+Δ7 makes the left grip a held Super. If that grip is down across a profile switch, or across an InputPlumber crash, Super can stay latched. The next A or RT is then `Super + mouse:272` (window move), and the next X is the Δ8 close. A masked or crash-looping InputPlumber must not leave the desktop in that state.
 
-The bridge emits a synthetic key-up for every modifier and mouse button it has put down and not yet released, including `KeyLeftMeta` and `KeyLeftCtrl`, **before** it loads another profile. InputPlumber's virtual keyboard can send that key-up over D-Bus. Do it on all of these, not only on Armoury long:
+wlroots and Hyprland keep key state **per keyboard**. A key-up clears a key only on the keyboard that pressed it. Removing a keyboard is the other release, and it does not always clear the seat, so this spec does not rely on removal alone. A key-up from a different device does not count.
 
-- every profile load (`desktop`, `gamepad`, `dualsense`, `gaming`, `osk`, and the optional presets)
+**Who presses the grips.** The bridge creates one uinput keyboard at start and keeps it until the bridge process exits. That keyboard is the only device that presses and releases grip Super (`KeyLeftMeta`) and grip Ctrl (`KeyLeftCtrl`). InputPlumber's virtual keyboard does not emit those two keys. The desktop profile has no paddle `target_events` for them. The bridge writes them when it sees the grip, and only after OQ-17. Pointer motion and mouse buttons stay on InputPlumber's virtual mouse. Other pad keys (Tab, Escape, Return, arrows) stay on InputPlumber's virtual keyboard.
+
+**Same device, or removal.** Grip key-ups are written to the bridge keyboard, the same one that sent the press. It is still open when InputPlumber dies, so a dead daemon does not take the modifier keyboard with it. Mouse-button ups are written to InputPlumber's virtual mouse, and other key-ups to InputPlumber's virtual keyboard, while those nodes are still open, including in the moment the composite device disappears. If a node is already gone, that device's removal is its release. The bridge does not send those ups on its own keyboard and call them done.
+
+Do this on all of the following, not only on Armoury long:
+
+- every profile load (`desktop`, `gamepad`, `dualsense`, `gaming`, `osk`, and the optional presets), before the load
 - lock, and unlock
 - suspend (`PrepareForSleep`) and the matching resume
-- bridge SIGTERM / SIGINT, before the process exits
-- InputPlumber restart, including a crash while a grip is held. Removing the virtual device does not always clear the compositor's modifier state. When the composite device comes back, and **before** InputPlumber grabs it again, the bridge emits an explicit key-up for every modifier and every other key or mouse button that might still be down (`KeyLeftMeta`, `KeyLeftCtrl`, and the rest), even if the crash wiped the bridge's own held-set. It does not restore a modifier from before the crash. Only then does it load the profile.
+- bridge SIGTERM / SIGINT, on the bridge keyboard, before the process exits. After exit, that keyboard's removal is the release. A restarted bridge does not key-up a keyboard that no longer exists.
+- **As soon as the composite device disappears** (crash, stop, or mask). Do not wait for it to come back. Grip modifiers go up on the bridge keyboard immediately. If InputPlumber's virtual keyboard or mouse is still open, their keys and buttons go up on those same devices.
+- **Before the new grab**, when the composite device returns. Key-ups again on the bridge keyboard, and on the new InputPlumber virtual keyboard and mouse, before the profile loads. Do not restore a modifier from before the crash.
+- **Fallback, 2 s.** If the composite device has not returned within 2 seconds (crash-loop, systemd start-limit, or the unit masked), the bridge releases the grip modifiers again on its own uinput keyboard. That keyboard is the one that pressed them, so the key-up clears the seat even though InputPlumber is still down. This is the bound: Super is up within 2 s of the disappearance. Repeating the release is not a second device.
 
-A userspace injector such as `wtype` is the wrong tool. `default/hypr/bindings/clipboard.lua` already notes that a physically held Super merges into an injected chord.
+A userspace injector such as `wtype` is the wrong tool. `default/hypr/bindings/clipboard.lua` already notes that a physically held Super merges into an injected chord. Spec 02 D7 uses this same emitter for a session switch. The Ally check is `hyprctl devices`: the bridge keyboard lists no modifiers, and a removed InputPlumber keyboard is gone. A modifier that is still set after that is a failed release, not a pass.
 
 ### 8.2 Intended desktop chords
 
@@ -225,7 +233,7 @@ OEM taps are D-Bus actions. They do not include the paddle modifiers. Super stay
 
 ### 8.3 Paddle × pad matrix
 
-Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). This matrix is the desktop profile **with Δ7 on**, which is only after OQ-17 confirms the grips work. Until then M1 and M2 emit nothing: the M1 and M1+M2 columns do not apply, and the desktop uses the non-paddle bindings in §5.2 plus the OEM buttons. With Δ7 on, M1 = Super, M2 = Left Ctrl, M1+M2 = Super+Ctrl. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
+Checked against every bind in `default/hypr/bindings/` at `9f8b3572f`. The only bind added since `3f800d118` is `SUPER + CTRL + X` (`utilities.lua:120`). This matrix is the desktop profile **with Δ7 on**, which is only after OQ-17 confirms the grips work. Until then M1 and M2 emit nothing: the M1 and M1+M2 columns do not apply, and the desktop uses the non-paddle bindings in §5.2 plus the OEM buttons. With Δ7 on, M1 = Super and M2 = Left Ctrl on the bridge's uinput keyboard (§8.1), so M1+M2 = Super+Ctrl. The face keys stay on InputPlumber's virtual keyboard. Neither paddle emits Alt or Shift, and no pad key emits Alt, Shift or a letter. **Every `SUPER + ALT` and `SUPER + SHIFT` bind is unreachable from the pad**, including swap (`tiling.lua:51-54`) and move-to-monitor (`tiling.lua:46-49`). Swap and full screen are menu-only (OQ-13): no extra Ally bind, so the grips stay free for Steam Input in a game.
 
 A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:273`. "No bind" means no Omarchy bind. The focused app can still see Ctrl+click or Ctrl+Tab.
 
@@ -409,7 +417,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 8. In Desktop, CC tap opens the power panel (later: quick-access overlay, Δ1).
 9. In Desktop, CC long shows and hides wvkbd; with it visible B = Backspace and X = Space (Δ6). Killing wvkbd, and `omarchy-toggle-desktop-keyboard stop`, both restore the profile from before OSK without a further button press. B right-clicks again.
 10. Δ7 and Δ8 apply only after OQ-17 confirms the grips work. Then M1 + D-pad focuses windows; M1 + LB/RB changes workspace in the §8.2 direction; M1 + A drags; M1 + X polite-closes the focused window (Δ8) with no Omarchy confirmation; M1 + Y opens a terminal. A bare M1 tap does nothing. Without confirmed paddles there is no grip-Super: those chords do nothing, and closing a window uses the Omarchy menu or the quick-access overlay, not M1+X.
-11. Releasing a held grip, trigger or mouse button across a transition leaves no stuck Super, Ctrl or click. Cover: AC long, lock, unlock, suspend, resume, OSK show, OSK hide, wvkbd killed, bridge restarted. After each, A is left click, not a window move, and X is not a close. Separately: kill InputPlumber while Super is held (M1 down, Δ7 on). When the device returns, explicit key-ups have been sent before the new grab. The next A is left click, not a window move.
+11. Releasing a held grip, trigger or mouse button across a transition leaves no stuck Super, Ctrl or click. Cover: AC long, lock, unlock, suspend, resume, OSK show, OSK hide, wvkbd killed, bridge restarted. After each, A is left click, not a window move, and X is not a close. Separately: with Δ7 on, hold M1 so Super is down, then kill InputPlumber and mask the unit so it does not return. Within 2 s Super is up on the bridge's uinput keyboard (`hyprctl devices` shows that keyboard with no modifiers). Touch, or a USB mouse, then produces a normal key or click: A is left click, not a window move. If InputPlumber is allowed to restart instead, the same key-ups are sent again before the new grab.
 12. `omarchy-hw-rog-ally-input status` shows exactly one virtual gamepad in `gaming` / `gamepad` and none in `desktop`. The gaming target is `ds5-edge` (or `deck-uhid` if D1 was switched).
 13. Locking a Hyprland session moves the profile to `gamepad` within 1 s after the key-ups; no Omarchy action fires from AC/CC while locked; unlock restores the previous profile. Locking during a gaming session does **not** replace `gaming` with `gamepad`.
 14. On RC71L a Command Centre long that arrives as Ctrl+Alt+Delete does not close windows unless the confirmation is accepted. Cover all of: InputPlumber never enabled; `omarchy-setup-rog-ally-input disable` then the chord; InputPlumber killed mid-session; boot race (Hyprland up, N-KEY not yet grabbed). Dismissing the prompt closes nothing. This holds whether or not the companion is installed.
@@ -444,13 +452,10 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 
 ## Appendix A · Profile sketch
 
-Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop Δ7 is installed only after OQ-17 confirms the grips arrive, and only on the capability the press test shows is the left grip. Until then this mapping is omitted.
+Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop grips are not an InputPlumber keyboard target. Omit the shipped paddle mappings (`LeftPaddle1` → Left Shift, `RightPaddle1` → Left Ctrl) as well as any `KeyLeftMeta` target. After OQ-17, the bridge writes Super and Ctrl on its persistent uinput keyboard (§8.1) for whichever capabilities the press test shows are the two grips. Until then it writes nothing for them.
 
 ```yaml
-# desktop.yaml — Δ7, gated on OQ-17. Omit the whole mapping until the grips arrive.
-  - name: Left grip Super
-    source_event: { gamepad: { button: LeftPaddle1 } }   # replace LeftPaddle1 if OQ-1 says the left grip is the other name
-    target_events: [ { keyboard: KeyLeftMeta } ]          # was KeyLeftShift on LeftPaddle1
+# desktop.yaml — no grip keyboard target. The bridge owns KeyLeftMeta and KeyLeftCtrl.
 # Δ4 notched scroll — one mapping per direction, WheelUp/WheelDown, not an analogue axis
 ```
 
@@ -467,7 +472,7 @@ Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop 
 | Bridge change | Detail |
 |---|---|
 | `MODES` | Add `gaming` and `osk`. Optional presets stay out of `MODES` until a menu row selects one. Unknown `gaming` on an old binary is §12.3, not a hard dependency on a new package. |
-| Key-ups | §8.1, before every load, lock, suspend and restart. After an InputPlumber crash, explicit key-ups for every held modifier and key before the new grab. |
+| Key-ups | §8.1. Grip Super and Ctrl on the bridge's persistent uinput keyboard: on disappearance, before every load, and again at 2 s if the composite device is still gone. Other keys and mouse buttons on the InputPlumber device that pressed them, or by that device's removal. Before the new grab as well. |
 | Gaming entry | `run_gaming` calls `omarchy-hw-rog-ally-input gaming` instead of `gamepad`, with the 1.0.3-1 fallback. |
 | Overlay | `omarchy_overlay`: spec 04 entry point, else the target QAM event. |
 | OSK | On show, remember the current profile and load `osk` only from `desktop`. On hide, stop, or process death, restore the remembered profile. |
