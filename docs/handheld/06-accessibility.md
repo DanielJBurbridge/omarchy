@@ -1,13 +1,13 @@
 # 06 · Accessibility
 
-Status: draft, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [`docs/handheld/research/accessibility.md`](research/accessibility.md). Depends on: [01](01-controller-button-map.md) (profiles), [03](03-first-boot-and-install.md) (first boot), [04](04-quick-access-overlay.md) §4.1 (quick toggles), [07](07-on-screen-keyboard.md) (OSK). Rulings applied: no extra Ally binds (swap/fullscreen are menu/overlay only); `SUPER + CTRL + X` is taken (Agents); Steam accessibility via steamos-manager stays an unverified OQ.
+Status: draft, revision 2, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [`docs/handheld/research/accessibility.md`](research/accessibility.md). Depends on: [01](01-controller-button-map.md) (profiles), [03](03-first-boot-and-install.md) (first boot), [04](04-quick-access-overlay.md) §4.1 (quick toggles), [07](07-on-screen-keyboard.md) (OSK). Rulings applied: no extra Ally binds (swap/fullscreen are menu/overlay only); `SUPER + CTRL + X` is taken (Agents); Steam accessibility via steamos-manager stays an unverified OQ. Revision 2 takes the dev-red review of PR #30. While `desktop-lock` is off, the quick overlay hides “Switch to Desktop”; that switch is only Steam’s own menu, which honours Steam’s PIN. While `desktop-lock` is on, our switch runs the lock first (spec 02 §7.4). This spec does not add a switch of its own.
 
 ## 0. Decisions in one table
 
 | # | Decision | Source |
 |---|---|---|
 | D1 | **No hold-only system action** anywhere; every hold has a menu or overlay route. | Research rec. 2, red team |
-| D2 | One **Accessibility** page in the Omarchy menu (desktop) and an Accessibility section in the overlay (both sessions); each toggle persists and is reversible from the same place. | P2 |
+| D2 | One **Accessibility** page in the Omarchy menu (desktop) and an Accessibility section in the overlay (both sessions); each toggle is reversible from the same place. Colour, text size and contrast persist only after Keep (§3). One-handed presets follow spec 01 AC 20: they are not the loaded profile after boot, unlock or gaming start. | P2, spec 01 AC 20 |
 | D3 | Desktop pack: magnifier (existing zoom), colour filters (Hyprland `screen_shader`), reduce motion, sticky keys (`keyd`), mono audio (PipeWire), OSK (wvkbd), haptics slider (when the driver exists). | Research |
 | D4 | Default text size on the 7" 1080p panel = **scale 1.5** (1280×720 logical, existing touch preset); “Larger” = 1.75, “Largest” = 2.0. | `docs/rog-ally-display.md`, research |
 | D5 | Contrast is a **theme**, not a shader: ship “High Contrast Dark/Light” Omarchy themes that meet WCAG 7:1 for text. | Research rec. 6 |
@@ -48,7 +48,7 @@ Status: draft, 12 Nov 2026 (AWST). Owner: dev-ux. Source research: [`docs/handhe
 | Magnifier | Off · 2× · 3× · 4×; follows pointer | Hyprland `cursor:zoom_factor` (existing binds) | Overlay → Accessibility → Zoom; while zoomed, right stick moves the pointer (desktop profile) | No (session) |
 | Colour filter | Off · Greyscale · Invert · Deuteranopia · Protanopia · Tritanopia | `decoration:screen_shader` with proposed GLSL in `default/hypr/shaders/` (Δ-A1). That directory is absent on the integration tip, `feat/ally-input-20261111`, `feat/ally-session-20261111` and `feat/ally-parity-release-20261111`. | Overlay | Yes |
 | Reduce motion | On/off | `animations:enabled` + shell animation scale 0 | Overlay | Yes |
-| Sticky keys | On/off | `keyd` (`extra`) config with `oneshot` modifiers for physical keyboards; wvkbd modifiers are already one-shot | Menu | Yes |
+| Sticky keys | On/off | `keyd` (`extra`) `oneshot` modifiers for physical keyboards. The toggle is an interactive password prompt (sudo or polkit that asks). No passwordless polkit rule, and no grant of the `input` group. keyd must not grab InputPlumber’s virtual devices or the bridge’s uinput keyboard (spec 01 §8.1). It is not installed or enabled until the user turns it on, including on a laptop. wvkbd modifiers are already one-shot | Menu | Yes |
 | Mono audio | On/off | `~/.config/pipewire/pipewire.conf.d/omarchy-mono.conf` (`filter.smart` loopback, `audio.position=[MONO]`), PipeWire restart | Overlay (both sessions) | Yes |
 | On-screen keyboard | Show/hide, size | wvkbd (spec 07) | CC long / menu / bar | — |
 | Haptics strength | 0–100 % | `gamepad_vibration_intensity` (`hid-asus-ally`, out of tree) or InputPlumber force-feedback D-Bus | Overlay | Yes; **hidden on stock kernel** |
@@ -61,7 +61,7 @@ Red-team rules for toggles:
 
 | Rule | Spec |
 |---|---|
-| Revert | Colour filter, text size and contrast changes show a 15 s “Keep this?” card; **Revert** is focused; no answer ⇒ revert. Input ignored for 500 ms. |
+| Revert | Colour filter, text size and contrast are a trial until Keep. The 15 s deadline is stored outside the UI process. No answer, a shell crash, or a reboot inside the window reverts. **Revert** is focused. Only a press that starts after 500 ms counts; a button held when the card appears does not act on release. |
 | Unknown value | Unreadable setting ⇒ default (off / scale 1.5), never a partial state. |
 | Daemon death | PipeWire restart failure ⇒ remove the mono file and restart again (stereo). keyd crash ⇒ keyboard works unmodified. |
 
@@ -78,20 +78,21 @@ Gaming: Steam's UI scale only; Omarchy overlay text follows the desktop choice.
 
 ## 5. One-handed and motor presets
 
-Spec 01 has no §11.2; presets live in spec 04 row 12 and Appendix A profiles. Defined here:
+Spec 01 §11.2 already defines `hand-left` and `hand-right` as desktop-only, off unless a menu row selects one. Spec 01 AC 20: `hand-left` and `hand-right` are not the loaded profile after boot, after unlock, or at gaming-session start. This section fills those profiles in. It does not override AC 20. One-handed play in a game stays a Steam Input layout (spec 01 §11.2). An Omarchy profile used in gaming must keep Δ3 (`QuickAccess2` → `omarchy_overlay`) and `Keyboard` → Guide+West, or the overlay and the OSK are lost. Lock and unlock reload `desktop` or `gamepad` and drop the preset until the user selects it again.
 
-| Preset | Gaming (same target, profile only) | Desktop |
+| Preset | Gaming | Desktop |
 |---|---|---|
 | Standard | Baseline `gaming` | Baseline `desktop` |
-| One-handed left | M1 = A, View = B, LB = Menu; d-pad + left stick unchanged | Left stick = pointer, LB/LT = clicks, M1 = Enter |
-| One-handed right | M2 = d-pad up/down toggle layer (TBC), right stick unchanged, RB = View | Right stick = pointer (baseline), RB/RT = clicks |
-| Paddles = A/B | M1 = A, M2 = B | M1 = left click, M2 = right click |
+| One-handed left | Steam Input layout, not an Omarchy profile | Spec 01 `hand-left`: left stick = pointer, View = left click, LT = right click, CC tap = menu. M1 stays unmapped until OQ-17 |
+| One-handed right | Steam Input layout | Spec 01 `hand-right`: right stick = pointer, A and RT = left click, B = right click, AC tap = menu. M2 stays unmapped until OQ-17 |
+| Paddles = A/B | Hidden until OQ-17. If present, keep Δ3 and Guide+West | M1 = left click, M2 = right click, only after OQ-17 |
 | Sticky triggers | Not in gaming (Steam Input owns per-game toggles) | LT/RT click latches drag |
 
 | Rule | Spec |
 |---|---|
 | Switch | Key-ups first, load, wait ready; failure ⇒ atomic fallback to Standard (spec 04 §7). |
-| Paddles | Need `hid-asus-ally`; presets that use paddles are hidden without it. |
+| M1 / M2 | Every preset that uses a grip is hidden while OQ-17 is open, not only “Paddles = A/B”. |
+| Persistence | Choosing a preset loads it for this desktop session. It is not reloaded at boot, unlock or gaming start (spec 01 AC 20). |
 | Per-game | Steam Input per-game layouts stay Steam's (P4). |
 
 ## 6. Screen reader: what works, honestly
@@ -130,20 +131,20 @@ Spec 01 has no §11.2; presets live in spec 04 row 12 and Appendix A profiles. D
 |---|---|---|
 | F1 | Low vision first boot | ISO Accessibility → Larger text + High contrast → install → first boot form in large font → desktop/overlay at scale 1.75 with High Contrast Dark. |
 | F2 | Colour filter | CC tap → Accessibility → Colour filter → Deuteranopia → A → “Keep this?” (Revert focused) → → Keep → A. |
-| F3 | One-handed play | AC long → Controller → One-handed left → A. |
+| F3 | One-handed play | AC long → Controller → One-handed left → A. After unlock the loaded profile is `desktop` again until the row is chosen once more (spec 01 AC 20). |
 | F4 | Mono audio in game | AC long → Accessibility → Mono → A (PipeWire restarts; brief audio gap). |
 | F5 | Magnify | CC tap → Accessibility → Zoom 2× → right stick pans → Zoom off. |
 
 ## 10. Acceptance criteria
 
 1. Every accessibility toggle is reachable by controller without a long press, from the overlay or Omarchy menu.
-2. Colour filter, text size and contrast changes revert after 15 s without confirmation; Revert is focused and input is ignored for the first 500 ms.
+2. Colour filter, text size and contrast stay a trial until Keep. Revert is focused. Holding A across the first 500 ms and releasing does not confirm. Killing the shell within 15 s, and rebooting within 15 s, both come back reverted. The deadline survives the UI process.
 3. Each colour filter applies on the internal and an external monitor on desktop; in gaming the row is disabled with its reason.
 4. Mono toggle produces identical L/R output (loopback measurement) in both sessions and restores stereo when off; a failed PipeWire restart ends in stereo.
-5. Sticky keys via keyd: Ctrl tap then C copies in a GTK app; disabling restores normal modifiers.
+5. Sticky keys via keyd: Ctrl tap then C copies in a GTK app; disabling restores normal modifiers. Turning it on asks for a password. A passwordless polkit rule cannot write the keyd config or restart the unit. keyd does not grab InputPlumber’s virtual devices or the bridge keyboard.
 6. At scale 1.75 and 2.0 the bar, overlay, Omarchy menu and wvkbd are fully usable (no clipped controls) on the 1080p panel.
 7. High Contrast themes meet 7:1 for body text (automated contrast check of theme colours).
-8. One-handed presets load with key-ups first and fall back to Standard on failure; paddle presets are hidden without `hid-asus-ally`.
+8. One-handed presets load with key-ups first and fall back to Standard on failure. They are not the profile after boot, unlock or gaming start until a menu row selects one. Every preset that uses M1 or M2 is hidden while OQ-17 is open. A gaming profile that this spec adds still has `QuickAccess2` → `omarchy_overlay` and `Keyboard` → Guide+West.
 9. Haptics row is hidden on the stock Omarchy kernel and present when the attribute exists.
 10. Orca starts from the menu and reads a GTK app's focused button; the docs state the key-command limit.
 11. ISO/first-boot accessibility choices carry into the installed user's desktop.
@@ -156,7 +157,7 @@ Spec 01 has no §11.2; presets live in spec 04 row 12 and Appendix A profiles. D
 | OQ-1 | Does Steam expose its screen reader and colour filters on Omarchy's Gamescope session, and do they require steamos-manager interfaces that backlog #10 (power writer) and backlog #11 (Steam TDP shim) do not provide (`tdp-decision-review.md`)? | dev-research / hardware test |
 | OQ-2 | Gamescope-level colour filter (e.g. `--lut` / colour management options) for gaming CVD support? | dev-research |
 | OQ-3 | Quickshell/QML accessibility audit of Omarchy shell surfaces (menu, overlay, notifications). | dev-lead |
-| OQ-4 | `espeakup` (TTY speech) on the ISO and first boot: package availability and buffyboard interplay. | dev-research |
+| OQ-4 | `espeakup` (TTY speech) on the ISO and first boot: package availability, and interplay with buffyboard on first boot only (spec 03 §3.1: buffyboard is not on the ISO). | dev-research |
 | OQ-5 | Licence and adoption of the community “Beacon” accessibility plugin mentioned in research. | dev-lead |
 | OQ-6 | One-handed right layout: which button carries the missing d-pad (layer toggle vs paddle)? | Daniel (press test) |
 | OQ-7 | Hyprland KeyboardMonitor-equivalent upstream (permission-gated) for Orca. | upstream |
