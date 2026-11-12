@@ -66,6 +66,7 @@
   "agent.instructions": {"icon":"󰈙","label":"Instructions","action":"omarchy-agent-instructions --edit"},
 
   // System
+  "system.switch-gaming": {"icon":"","label":"Switch to Gaming","when":"omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session","action":"omarchy-launch-gaming-session"},
   "system.screensaver": {"icon":"󱄄","label":"Screensaver","action":"omarchy-launch-screensaver force"},
   "system.lock": {"icon":"","label":"Lock","action":"omarchy-system-lock"},
   "system.suspend": {"icon":"󰒲","label":"Suspend","when":"! omarchy-toggle-enabled suspend-off && ! omarchy-sleep-disabled","action":"systemctl suspend"},
