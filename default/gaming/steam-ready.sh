@@ -8,8 +8,9 @@
 # the display.
 # gamescopereaper is a subreaper, and Steam's runtime double-forks. The
 # steamwebhelper that owns the UI can sit outside the launcher's children.
-# It stays in the launcher's cgroup. A process named steam or steamwebhelper,
-# with the launcher's uid, in that cgroup, counts.
+# It stays in the launcher's cgroup. Only steamwebhelper counts. The steam
+# client's own window (bootstrap, updater, the offline error dialog) is up
+# before the gamepad UI, and treating it as ready clears the crash counter.
 # gamescope-session-plus (ChimeraOS, MIT) waits on gamescope's startup socket
 # and does not probe Steam's window, so there is no UI check there to copy.
 # Handheld Daemon names the same steamwebhelper process by its X window. That
@@ -37,15 +38,18 @@ steam_collect_ui_inodes() {
   steam_ui_inodes+="$found"
 }
 
-# ss -Hxnp columns, after the queues: local path, local inode, peer path, peer
-# inode. The peer path is "*" ; the peer inode is the other end. A test proc
-# root carries the transcript at $root/ss. The kernel's /proc has no such file.
+# ss -Hxn columns, after the queues: local path, local inode, peer path, peer
+# inode. The peer path is "*" ; the peer inode is the other end. -p is left
+# off: the users column is not read, and it walks every process fd.
+# A test proc root carries the transcript at $root/ss. The kernel's /proc
+# has no such file. Called only once a steamwebhelper holds an inode the
+# unix table did not already name.
 steam_collect_peer_inodes() {
   local root=$1 found=''
   if [[ -f $root/ss ]]; then
     found=$(steam_peer_inodes_from "$root/ss") || true
   elif [[ $root == "/proc" ]]; then
-    found=$(ss -Hxnp 2>/dev/null | steam_peer_inodes_from) || true
+    found=$(ss -Hxn 2>/dev/null | steam_peer_inodes_from) || true
   else
     return 0
   fi
@@ -112,11 +116,16 @@ steam_read_status() {
   steam_status_ppid=''
   steam_status_uid=''
   [[ -r $file ]] || return 1
+  # Uid is the last field this needs. /proc/status keeps Name, then PPid,
+  # then Uid, and the rest of the file is not the scan.
   while IFS=$' \t' read -r key value _; do
     case $key in
       Name:) steam_status_name=$value ;;
       PPid:) steam_status_ppid=$value ;;
-      Uid:) steam_status_uid=$value ;;
+      Uid:)
+        steam_status_uid=$value
+        break
+        ;;
     esac
   done < "$file" || true
 }
@@ -153,7 +162,7 @@ steam_scope_has_ui() {
     steam_read_status "$root/$cand/status" || continue
     cand_name=$steam_status_name
     cand_uid=$steam_status_uid
-    [[ $cand_name == "steam" || $cand_name == "steamwebhelper" ]] || continue
+    [[ $cand_name == "steamwebhelper" ]] || continue
     [[ $cand_uid == "$anchor_uid" ]] || continue
     steam_pid_has_ui "$root" "$cand" && return 0
   done
@@ -162,7 +171,9 @@ steam_scope_has_ui() {
 
 steam_tree_has_ui_from() {
   local root=$1 pid=$2 child
-  steam_pid_has_ui "$root" "$pid" && return 0
+  if [[ ${steam_name_of[$pid]:-} == steamwebhelper ]] && steam_pid_has_ui "$root" "$pid"; then
+    return 0
+  fi
   for child in "${!steam_ppid_of[@]}"; do
     [[ ${steam_ppid_of[$child]} == "$pid" ]] || continue
     steam_tree_has_ui_from "$root" "$child" && return 0
@@ -170,16 +181,55 @@ steam_tree_has_ui_from() {
   return 1
 }
 
+# A socket:[inode] whose inode is not already one of the display servers.
+# The peer table is the only way to name that inode.
+steam_has_unresolved_socket() {
+  local root=$1 pid=$2 fd target inode
+  local dir=$root/$pid/fd
+  [[ -d $dir ]] || return 1
+  for fd in "$dir"/*; do
+    [[ -e $fd || -L $fd ]] || continue
+    target=$(readlink "$fd" 2>/dev/null) || continue
+    if [[ $target =~ ^socket:\[([0-9]+)\]$ ]]; then
+      inode=${BASH_REMATCH[1]}
+      [[ ${steam_ui_inodes:- } == *" $inode "* ]] && continue
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Descendant of the launcher, or the same uid and cgroup after reparenting.
+steam_webhelper_in_session() {
+  local root=$1 launcher=$2 anchor_uid=$3 cand=$4
+  local cursor=$cand guard=0 scope cand_cg
+  if [[ $cand == "$launcher" ]]; then
+    return 0
+  fi
+  while [[ -n ${steam_ppid_of[$cursor]:-} ]] && (( guard < 64 )); do
+    cursor=${steam_ppid_of[$cursor]}
+    if [[ $cursor == "$launcher" ]]; then
+      return 0
+    fi
+    guard=$((guard + 1))
+  done
+  [[ $anchor_uid =~ ^[0-9]+$ ]] || return 1
+  steam_read_status "$root/$cand/status" || return 1
+  [[ $steam_status_uid == "$anchor_uid" ]] || return 1
+  scope=$(steam_cgroup_path "$root/$launcher/cgroup") || return 1
+  cand_cg=$(steam_cgroup_path "$root/$cand/cgroup") || return 1
+  [[ $cand_cg == "$scope" ]]
+}
+
 # root is a /proc-shaped directory. pid is the Steam parent.
 # A helper can exit between the glob and the open. One awk over every status
 # aborts on that file and drops every PPid after it, so the display held by
 # steamwebhelper is never seen. Read each status and skip a miss.
 steam_tree_has_ui() {
-  local root=$1 pid=$2 entry name proc_name parent uid anchor_uid=''
+  local root=$1 pid=$2 entry name proc_name parent uid anchor_uid='' cand
   local -A steam_ppid_of=()
+  local -A steam_name_of=()
   local -a steam_clients=()
-  steam_collect_ui_inodes "$root"
-  steam_collect_peer_inodes "$root"
   for entry in "$root"/[0-9]*; do
     [[ -d $entry ]] || continue
     name=${entry##*/}
@@ -187,20 +237,30 @@ steam_tree_has_ui() {
     proc_name=$steam_status_name
     parent=$steam_status_ppid
     uid=$steam_status_uid
+    [[ -n $proc_name ]] && steam_name_of[$name]=$proc_name
     [[ $parent =~ ^[0-9]+$ ]] || continue
     steam_ppid_of[$name]=$parent
     if [[ $name == "$pid" ]]; then
       anchor_uid=$uid
     fi
-    if [[ $proc_name == "steam" || $proc_name == "steamwebhelper" ]]; then
+    if [[ $proc_name == "steamwebhelper" ]]; then
       steam_clients+=("$name")
     fi
   done
+  # No steamwebhelper means the steam client's own window is not the UI.
+  # Skip the peer table entirely.
+  (( ${#steam_clients[@]} > 0 )) || return 1
+  steam_collect_ui_inodes "$root"
   steam_tree_has_ui_from "$root" "$pid" && return 0
-  if (( ${#steam_clients[@]} > 0 )); then
+  steam_scope_has_ui "$root" "$pid" "$anchor_uid" "${steam_clients[@]}" && return 0
+  for cand in "${steam_clients[@]}"; do
+    steam_webhelper_in_session "$root" "$pid" "$anchor_uid" "$cand" || continue
+    steam_has_unresolved_socket "$root" "$cand" || continue
+    steam_collect_peer_inodes "$root"
+    steam_tree_has_ui_from "$root" "$pid" && return 0
     steam_scope_has_ui "$root" "$pid" "$anchor_uid" "${steam_clients[@]}"
     return $?
-  fi
+  done
   return 1
 }
 

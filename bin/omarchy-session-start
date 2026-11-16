@@ -104,20 +104,194 @@ desktop() {
   start_hyprland
 }
 
+handheld_autologin_stopped() {
+  local dir=${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-/run/omarchy/handheld-autologin}
+  [[ -f $dir/stop && ! -L $dir/stop ]]
+}
+
+note_root_failure() {
+  if omarchy-cmd-present omarchy-handheld-autologin; then
+    omarchy-handheld-autologin fail || true
+  fi
+}
+
+# Hyprland's own socket appears under $XDG_RUNTIME_DIR/hypr/<signature>/.
+# The Wayland display is the sibling wayland-N socket. Both are what the
+# on-screen keyboard helper requires, and neither exists until uwsm has
+# started the compositor.
+gaming_wayland_display() {
+  local entry name
+  [[ -n ${XDG_RUNTIME_DIR:-} ]] || return 1
+  for entry in "$XDG_RUNTIME_DIR"/wayland-*; do
+    [[ -S $entry ]] || continue
+    name=$(basename -- "$entry")
+    [[ $name == wayland-* ]] || continue
+    printf '%s\n' "$name"
+    return 0
+  done
+  return 1
+}
+
+gaming_start_osk() {
+  local before=${1-} signature_root waited=0 entry prior found signature display
+  signature_root=${XDG_RUNTIME_DIR:-}/hypr
+  [[ -n ${XDG_RUNTIME_DIR:-} && -n ${gaming_state:-} ]] || return 0
+  while (( waited < 600 )); do
+    if [[ -d $signature_root ]]; then
+      for entry in "$signature_root"/*/.socket.sock "$signature_root"/*/.socket2.sock; do
+        [[ -S $entry ]] || continue
+        found=0
+        while IFS= read -r prior; do
+          if [[ $prior == "$entry" ]]; then
+            found=1
+          fi
+        done <<< "$before"
+        if (( found == 0 )); then
+          signature=$(basename -- "$(dirname -- "$entry")")
+          display=$(gaming_wayland_display || true)
+          export HYPRLAND_INSTANCE_SIGNATURE=$signature
+          export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
+          if [[ -n $display ]]; then
+            export WAYLAND_DISPLAY=$display
+          fi
+          if omarchy-cmd-present omarchy-inputplumber-profile; then
+            omarchy-inputplumber-profile load osk ||
+              printf '%s\n' 'osk profile did not load' >> "$gaming_state/fallback.log"
+          fi
+          if omarchy-cmd-present omarchy-toggle-desktop-keyboard; then
+            if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+              omarchy-toggle-desktop-keyboard show ||
+                printf '%s\n' 'on-screen keyboard did not start' >> "$gaming_state/fallback.log"
+            else
+              printf '%s\n' 'on-screen keyboard waited for a Wayland display' >> "$gaming_state/fallback.log"
+            fi
+          else
+            printf '%s\n' 'on-screen keyboard helper is missing' >> "$gaming_state/fallback.log"
+          fi
+          return 0
+        fi
+      done
+    fi
+    read -r -t 0.1 _ </dev/zero || true
+    waited=$((waited + 1))
+  done
+  printf '%s\n' 'on-screen keyboard gave up waiting for Hyprland' >> "$gaming_state/fallback.log"
+}
+
+# One desktop, with the keyboard. Does not return to gaming, and does not
+# count this start as another failure. Relogin is pinned off when the root
+# helper can act, so a desktop that exits is not started again.
+# desktop() is the only way in. A required lock with no physical keyboard
+# stays at the greeter instead of opening an unlocked session.
+gaming_fail_limit_fallback() {
+  local status=0 osk_pid='' spins=0 decision
+  gaming_fallback=1
+  if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
+    gaming_save recovery "$gaming_fail_limit_latch" || true
+  fi
+  if ! handheld_autologin_stopped; then
+    note_root_failure
+  fi
+  decision=$(gaming_lock_decision 2>/dev/null || true)
+  if [[ $decision == return ]]; then
+    if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
+      printf '%s\n' 'Desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >> "$gaming_state/session.log"
+    else
+      printf '%s\n' 'Omarchy Gaming: desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >&2
+    fi
+    exit 1
+  fi
+  if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
+    printf '%s\n' 'Gaming failed repeatedly; starting the Hyprland desktop with the on-screen keyboard.' >> "$gaming_state/fallback.log"
+  else
+    printf '%s\n' 'Omarchy Gaming: fail limit tripped and the state directory is not writable; starting the desktop.' >&2
+  fi
+  if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+    # Snapshot the sockets before this compositor starts. The waiter can be
+    # scheduled after uwsm has created the new one.
+    gaming_start_osk "$(existing_hypr_sockets)" &
+    osk_pid=$!
+  fi
+  desktop || status=$?
+  if [[ -n $osk_pid ]]; then
+    while kill -0 "$osk_pid" 2>/dev/null && (( spins < 20 )); do
+      read -r -t 0.1 _ </dev/zero || true
+      spins=$((spins + 1))
+    done
+    kill "$osk_pid" 2>/dev/null || true
+    wait "$osk_pid" 2>/dev/null || true
+  fi
+  # status 10 is "go back to gaming". The fail limit must not.
+  if (( status == 10 )); then
+    exit 1
+  fi
+  exit "$status"
+}
+
+gaming_state_unusable_exit() {
+  printf '%s\n' 'Omarchy Gaming: the gaming state directory is not usable.' >&2
+  if ! omarchy-cmd-present omarchy-handheld-autologin; then
+    printf '%s\n' 'omarchy-handheld-autologin is missing; starting the desktop.' >&2
+    gaming_fail_limit_fallback
+  fi
+  if ! omarchy-handheld-autologin fail; then
+    printf '%s\n' 'omarchy-handheld-autologin could not record the failed start; starting the desktop.' >&2
+    gaming_fail_limit_fallback
+  fi
+  if omarchy-handheld-autologin tripped; then
+    printf '%s\n' 'the autologin fail limit tripped; starting the desktop.' >&2
+    gaming_fail_limit_fallback
+  fi
+  exit 1
+}
+
 if ! omarchy-hw-rog-ally; then
   start_hyprland
   exit $?
 fi
-gaming_state_init && gaming_runtime_init || exit 1
+if ! gaming_state_init; then
+  gaming_state_unusable_exit
+fi
+if ! gaming_runtime_init; then
+  gaming_failure_record || true
+  note_root_failure
+  if gaming_fail_limit_reached; then
+    gaming_fail_limit_fallback
+  fi
+  exit 1
+fi
 gaming_clear_waiter_latch
+if [[ $1 == gaming ]]; then
+  gaming_failure_reset
+  rm -f -- "$gaming_state/recovery"
+  selection=gaming
+else
+  selection=$(gaming_entry_selection "$1")
+fi
+if [[ $1 != gaming ]] && { gaming_fail_limit_blocked || handheld_autologin_stopped; }; then
+  gaming_fail_limit_fallback
+fi
 exec 9>"$gaming_runtime/lock"
-flock -n 9 || { gaming_fail 'a managed session is already running.'; exit 1; }
+flock -n 9 || {
+  gaming_fail 'a managed session is already running.'
+  if [[ $selection == gaming ]]; then
+    gaming_failure_record || true
+    note_root_failure
+    if gaming_fail_limit_reached; then
+      gaming_fail_limit_fallback
+    fi
+  fi
+  exit 1
+}
 scope=omarchy-gamescope-$XDG_SESSION_ID.scope
 gaming_session_target=omarchy-gaming-session.target
 scope_pid='' ready_pid='' return_pid=''
 started_power_units=()
 gaming_target_started=0
 gaming_autologin_ready=0
+gaming_explicit_desktop=0
+gaming_fallback=0
+gaming_attempt_recorded=0
 autologin_watch=0
 
 stop_gaming() {
@@ -153,9 +327,10 @@ stop_gaming() {
 cleanup() {
   stop_gaming
   rm -f "$gaming_runtime/active" "$gaming_runtime/switch"
-  # A session that exits without the ready FIFO reading started is a failed
-  # gaming start. The ready read is the only reset.
-  if (( autologin_watch && ! gaming_autologin_ready )); then
+  # A session that exits without Steam becoming ready is a failed gaming
+  # start. Ready, an explicit Switch to Desktop, and the fail-limit fallback
+  # are not another one.
+  if (( autologin_watch && ! gaming_autologin_ready && ! gaming_explicit_desktop && ! gaming_fallback )); then
     if omarchy-cmd-present omarchy-handheld-autologin; then
       omarchy-handheld-autologin fail || true
     fi
@@ -249,6 +424,7 @@ run_gaming() {
     if omarchy-cmd-present omarchy-handheld-autologin; then
       omarchy-handheld-autologin reset || true
     fi
+    gaming_failure_reset
     steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
@@ -288,6 +464,15 @@ run_gaming() {
   if $returned && gaming_save next desktop; then
     gaming_desktop_next=1
   fi
+  # Explicit Switch to Desktop is a success, even when Steam never reached
+  # ready. It clears the crash counter instead of adding a failure.
+  if $returned; then
+    gaming_explicit_desktop=1
+    gaming_failure_reset
+    if omarchy-cmd-present omarchy-handheld-autologin; then
+      omarchy-handheld-autologin reset || true
+    fi
+  fi
   stop_gaming
   # Append after Gamescope's log redirection has closed, so its exit text
   # cannot overwrite the return line the desktop switch is recognised by.
@@ -316,19 +501,30 @@ run_gaming() {
   return "$status"
 }
 
-if [[ $1 == "gaming" ]]; then
-  selection=gaming
-  rm -f "$gaming_state/recovery"
-else
-  selection=$(gaming_entry_selection "$1")
-fi
 retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
 [[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
 retries=0
 autologin_watch=1
+if [[ $selection == gaming ]]; then
+  # Record before Gamescope starts. A SIGKILL cannot run the exit trap,
+  # and an early exit already has the count on disk for the next relogin.
+  gaming_failure_record || true
+  gaming_attempt_recorded=1
+  if gaming_fail_limit_reached; then
+    gaming_fail_limit_fallback
+  fi
+fi
 while true; do
   printf '%s\n' "$selection" > "$gaming_runtime/active"
   if [[ $selection == "gaming" ]]; then
+    if (( gaming_attempt_recorded == 1 )); then
+      gaming_attempt_recorded=0
+    else
+      gaming_failure_record || true
+      if gaming_fail_limit_reached; then
+        gaming_fail_limit_fallback
+      fi
+    fi
     run_gaming
     status=$?
     stop_gaming

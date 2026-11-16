@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# omarchy:summary=Install the RC71L gaming power-button companion
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Builds packaging/rog-ally-powerbutton unchanged. The recipe compiles Valve's
+# powerbuttond v4.2 (9392e688, BSD-2-Clause, copyright 2023 Valve Software) and
+# installs that LICENSE with the binary. The C source stays out of this tree.
+# AUR and CachyOS steamos-powerbuttond use make install, which this recipe
+# refuses: wrong binary path, a user unit, and a gamescope-session wants link.
+# The daemon itself starts only inside the gamescope session.
+
+set -euo pipefail
+
+if ! omarchy-hw-rog-ally; then
+  exit 0
+fi
+
+# The daemon is gaming-session-only. A desktop Ally does not build it, and a
+# first boot that has not installed the opt-in package does not fetch source.
+if ! omarchy-pkg-present omarchy-gaming-session; then
+  exit 0
+fi
+
+run_privileged() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+refresh_input_devices() {
+  run_privileged systemd-hwdb update
+  run_privileged udevadm control --reload
+  run_privileged udevadm trigger --subsystem-match=input
+}
+
+if omarchy-pkg-present omarchy-rog-ally-powerbutton; then
+  refresh_input_devices
+  exit 0
+fi
+
+for conflict in steamos-powerbuttond steam-powerbuttond steam-powerbuttond-git; do
+  if omarchy-pkg-present "$conflict"; then
+    echo "Remove $conflict before installing omarchy-rog-ally-powerbutton. The two power-button handlers must not both be installed." >&2
+    exit 1
+  fi
+done
+
+recipe=$OMARCHY_PATH/packaging/rog-ally-powerbutton
+if [[ ! -f $recipe/PKGBUILD ]]; then
+  echo "Missing the RC71L power-button recipe at $recipe." >&2
+  exit 1
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+cp "$recipe/PKGBUILD" "$recipe/70-omarchy-rog-ally-power-button.hwdb" "$recipe/70-omarchy-rog-ally-power-button.rules" "$work/"
+mkdir -p "$work/cache"
+
+build_env=(
+  HOME="$work"
+  PKGDEST="$work"
+  SRCDEST="$work"
+  SRCPKGDEST="$work"
+  LOGDEST="$work"
+  BUILDDIR="$work"
+  XDG_CACHE_HOME="$work/cache"
+  PKGEXT=".pkg.tar.zst"
+  GIT_TERMINAL_PROMPT=0
+  GIT_HTTP_LOW_SPEED_LIMIT=1000
+  GIT_HTTP_LOW_SPEED_TIME=30
+)
+
+# First boot can reach this before the display manager, whose start has no
+# timeout of its own. Abort a stalled clone, and cap the whole build.
+build_timeout=90
+
+if (( EUID == 0 )); then
+  chown -R "nobody:$(id -gn nobody)" "$work"
+  printf -v build_script 'cd %q && exec makepkg --noconfirm --noprogressbar' "$work"
+  runuser -u nobody -- timeout "$build_timeout" env "${build_env[@]}" bash -c "$build_script"
+else
+  (
+    cd "$work"
+    timeout "$build_timeout" env "${build_env[@]}" makepkg --noconfirm --noprogressbar
+  )
+fi
+
+built=()
+for file in "$work"/omarchy-rog-ally-powerbutton-*.pkg.tar.zst; do
+  if [[ -f $file ]]; then
+    built+=("$file")
+  fi
+done
+if (( ${#built[@]} != 1 )); then
+  echo "The power-button recipe did not produce one omarchy-rog-ally-powerbutton package." >&2
+  exit 1
+fi
+
+run_privileged pacman -U --noconfirm -- "${built[0]}"
+refresh_input_devices

@@ -8,7 +8,7 @@ Goal 1 is that it works on this Ally. Goal 2 is a shape upstream Omarchy can tak
 
 ## Already in the tree
 
-These are not rows. [ALPHA.md](../ALPHA.md) (tip `d3747faff`) and [HANDOVER.md](../HANDOVER.md) (integ `00daf17f`) still say `gaming.yaml` does not ship. The file is in this tree.
+These are not rows. `gaming.yaml` is in this tree, and [ALPHA.md](../ALPHA.md) and [HANDOVER.md](../HANDOVER.md) name that file.
 
 - Gamescope plus Steam: [`bin/omarchy-session-start`](../../../bin/omarchy-session-start), [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam). The four client flags are set. Fake Deck TDP, fan, HDR, format and OS-update flags are refused in the comment above that line.
 - Autologin: [`bin/omarchy-handheld-autologin`](../../../bin/omarchy-handheld-autologin) writes `Session=` and `Relogin=` only. `User=` is `omarchy-handheld-user.conf`, written by `install-user` in [`bin/omarchy-provision-owner`](../../../bin/omarchy-provision-owner). The only recorded RC71L boot of this line came up on the desktop, at integ `d3747faf` ([HANDOVER.md](../HANDOVER.md), cited by the audit). Whether the current files reach Steam is **unverified**.
@@ -45,7 +45,7 @@ The opt-in package matches `omarchy-hw-rog-ally` and the `cs35l41` firmware name
 
 ### 3. Gaming power button
 
-[`packaging/rog-ally-powerbutton/`](../../../packaging/rog-ally-powerbutton/) builds unmodified `9392e688`, and [`bin/omarchy-launch-gaming-powerbutton`](../../../bin/omarchy-launch-gaming-powerbutton) execs it only when the package is installed. [`install/hardware/asus/rog-ally.sh`](../../../install/hardware/asus/rog-ally.sh) does not install that package.
+[`packaging/rog-ally-powerbutton/`](../../../packaging/rog-ally-powerbutton/) builds unmodified `9392e688`, and [`bin/omarchy-launch-gaming-powerbutton`](../../../bin/omarchy-launch-gaming-powerbutton) execs it only when the package is installed. [`bin/omarchy-setup-gaming-session`](../../../bin/omarchy-setup-gaming-session) installs that package through [`bin/omarchy-install-rog-ally-powerbutton`](../../../bin/omarchy-install-rog-ally-powerbutton) when `omarchy-gaming-session` is installed. The hardware leaf and its migration use the same gate. A fresh install marks the migration before the build can run, so that marker is not a successful install, and setup retries a missing companion. An offline or failed build warns and is not recorded as done.
 A short press sends `steam://shortpowerpress`. A one-second hold sends `steam://longpowerpress`. What this Ally's client does with each URL is **unverified**, and the brief's wrapper fallback is not built.
 Keep v4.2 unmodified. Bazzite's 4.2-2 debounce patch is the build that stops forwarding presses ([bazzite#6180](https://github.com/ublue-os/bazzite/issues/6180)). The desktop button stays lock-then-suspend, and it skips the lock until the K07 marker exists. The firmware force-off time on this unit is **unverified**.
 
@@ -75,7 +75,7 @@ If Steam cannot see NetworkManager or BlueZ, the shortcut calls the existing pan
 
 ## Next 5 for the implementer
 
-1. **Power button.** Build `omarchy-rog-ally-powerbutton` from the PKGBUILD already in the tree and run the brief's on-device test. S. The daemon is the upstream binary. This tree keeps the RC71L hwdb and the session-scoped launcher.
+1. **Power button.** `omarchy-setup-gaming-session` builds `omarchy-rog-ally-powerbutton` from the PKGBUILD already in the tree, and only when `omarchy-gaming-session` is installed. The leaf and the migration use the same gate. The remaining step is the brief's on-device test. S. The daemon is the upstream binary. This tree keeps the RC71L hwdb and the session-scoped launcher.
 2. **Speakers.** On the RC71L, record the Ryzen analog sink name, then add the opt-in tuning under `default/audio/tunings/asus-rog-ally-rc71l/` using the P14 host shape and a new measurement. M. `sink_pattern` stays empty until that name is known.
 3. **TDP.** Add `omarchy-ally-tdp-apply` and `omarchy-ally-tdp-shim.service` to the brief: polkit, the MIT write order, the bus name claimed before Steam starts. L. Resume and AC are `--reassert`. Ask for MCU firmware at least 319 before debugging a stuck wattage.
 4. **Paddles.** Run [`tools/ally-press-test.sh`](tools/ally-press-test.sh) first. Then pick a path in §5's order: B `linux-cachyos-deckify` (or the OGC kernel), A a DKMS package of `hid-asus-ally`, C a hidraw oneshot. L, and the test is the gate. Map no grip until the codes are known. Keep the GPL driver out of the MIT tree.

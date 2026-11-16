@@ -1,20 +1,12 @@
-echo "Install the ROG Ally TDP limit"
+echo "Install the RC71L gaming power-button companion"
 
-# Hardware units are every Ally. The shim and the power-profiles-daemon mask
-# are the gaming session. A failed install exits non-zero so this migration
-# stays pending, including when systemd is not ready on an offline first boot.
-if ! omarchy-hw-rog-ally; then
-  exit 0
-fi
-
-if ! sudo "$OMARCHY_PATH/bin/omarchy-ally-tdp-install" hardware; then
-  echo "Ally TDP hardware install failed. It will be retried." >&2
-  exit 1
-fi
-
-if omarchy-pkg-present omarchy-gaming-session; then
-  if ! sudo "$OMARCHY_PATH/bin/omarchy-ally-tdp-install" session; then
-    echo "Ally TDP session install failed. It will be retried." >&2
-    exit 1
+# Off the original Ally, or without the opt-in gaming session, there is
+# nothing to migrate. A conflicting handler or a failed build warns and
+# returns 0 so later migrations still run. This script does not write the
+# migration marker. A fresh install marks every migration before this script
+# can run, so a missing companion is retried by omarchy-setup-gaming-session.
+if omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session; then
+  if ! omarchy-install-rog-ally-powerbutton; then
+    echo "warning: RC71L power-button companion was not installed. It will be tried again from omarchy-setup-gaming-session." >&2
   fi
 fi
