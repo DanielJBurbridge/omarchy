@@ -57,7 +57,7 @@ Steam's keyboard inside gamescope is drawn by Steam, not by gamescope. The games
 
 ## 4. Login, autologin and the lock
 
-Spec 02 §7.1: the handheld installer writes the autologin user once. `User=` is its own file, `omarchy-handheld-user.conf`, because apply rewrites `zz-omarchy-handheld.conf` and an unencrypted install deletes `autologin.conf` after the first boot. The handheld drop-in sets `Session=omarchy-handheld.desktop` and `Relogin=true`. Three failed gaming starts inside 60 seconds write the stop file and the next session opens the desktop. `Relogin` stays `true`. Getty is not autologin. OQ-4 is resolved there: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
+Spec 02 §7.1: the handheld installer writes the autologin user once. `User=` is its own file, `omarchy-handheld-user.conf`, because apply rewrites `zz-omarchy-handheld.conf` and an unencrypted install deletes `autologin.conf` after the first boot. The handheld drop-in sets `Session=omarchy-handheld.desktop` and `Relogin=true`. Three failed gaming starts inside 60 seconds set `Relogin=false`, restart SDDM, and the greeter shows. The session verb exits without starting the desktop. Getty is not autologin. OQ-4 is resolved there: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
 
 Until auth item K07 (a keyboard inside the trusted lock surface), the handheld variant ships `desktop-lock` `default-off`. With that value, Switch to Desktop, Exit Steam, the dock prompt and the gaming-failure fallback all show the Hyprland desktop with no lock. Spec 02 §7.5 states the trade-off in plain terms: anyone holding the Ally then has the desktop UI, autostart and the user's files. The gaming session is already the desktop user's UID, with Steam, games and anything that session starts. The lock, once on, protects the desktop UI only. It does not protect user files, Steam data or a shell started inside gamescope. A TTY still asks for a password. This gap is accepted because there is no lock-screen touch keyboard yet. It is not a user opt-out. After `/var/lib/omarchy/handheld/k07-landed` exists, a missing value fails closed to `on`.
 
@@ -116,7 +116,7 @@ On Omarchy, turning `desktop-lock` off needs an interactive password, and a pass
 | Bazzite | `Relogin=true` sends the autologin session back to `gamescope-session-ogui-steam.desktop`. A counted "give up and show the greeter" path was not found | [holo.conf](https://github.com/ublue-os/bazzite/blob/main/system_files/deck/shared/usr/lib/sddm/sddm.conf.d/holo.conf) |
 | CachyOS | `Relogin=true` on first boot. `oneshot` makes every fresh boot Gamescope. `plasma` logs the desktop in. No crash counter in `steamos-session-select` | [conf](https://raw.githubusercontent.com/CachyOS/CachyOS-Handheld/main/etc/plasmalogin.conf.d/steam-deckify.conf), [script](https://raw.githubusercontent.com/CachyOS/gamescope-session/cachyos/usr/bin/steamos-session-select) |
 | ChimeraOS | Repeated init failure drops to the Gnome desktop | [Getting Started](https://github.com/ChimeraOS/chimeraos/wiki/Getting-Started) |
-| Omarchy | One retry, then the desktop through `desktop()`. Three starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`. `Relogin` stays `true` and the next session is the desktop. A reboot clears `/run` and the next boot tries gaming again | [ALPHA.md](../ALPHA.md), [02 §7.2](../02-mode-switch-and-dock.md) |
+| Omarchy | One retry, then the desktop through `desktop()`. Three starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and show the greeter. A reboot clears `/run` and the next boot writes `Relogin=true` again | [ALPHA.md](../ALPHA.md), [02 §7.2](../02-mode-switch-and-dock.md) |
 
 The greeter is the recovery screen, and on this branch it cannot submit the password by touch. SSH works only when sshd was already enabled ([ALPHA.md](../ALPHA.md)). That is the hole this note is trying to close.
 
@@ -188,7 +188,7 @@ Session=omarchy-handheld.desktop
 Relogin=true
 ```
 
-Do not put `User=` in the file apply rewrites. Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`. Three failed starts still record a stop, and the next session opens the desktop instead of the greeter ([ALPHA.md](../ALPHA.md)).
+Do not put `User=` in the file apply rewrites. Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`. Three failures set `Relogin=false` and show the greeter ([ALPHA.md](../ALPHA.md)).
 
 Session command, already in `bin/omarchy-session-start`:
 

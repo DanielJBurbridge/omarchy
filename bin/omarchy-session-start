@@ -12,7 +12,7 @@ source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
-(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" || $1 == "stopped" ]] || exit 2
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
 
 # Hyprland instance sockets already on disk belong to an earlier compositor.
 existing_hypr_sockets() {
@@ -323,11 +323,6 @@ else
 fi
 retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
 [[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
-if [[ $1 == "stopped" ]] || { omarchy-cmd-present omarchy-handheld-autologin && omarchy-handheld-autologin tripped; }; then
-  printf '%s\n' "autologin stop is set; starting the desktop instead of the greeter." >> "$gaming_state/fallback.log"
-  desktop
-  exit $?
-fi
 retries=0
 autologin_watch=1
 while true; do

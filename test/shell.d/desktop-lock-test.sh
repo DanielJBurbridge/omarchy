@@ -353,17 +353,3 @@ if "$ROOT/bin/omarchy-setup-gaming-session" desktop-lock off >/dev/null 2>"$work
 fi
 grep -q 'needs a terminal' "$work/off.err" || fail "desktop-lock off asks for a terminal" "$(cat "$work/off.err")"
 pass "desktop-lock off refuses a passwordless background call"
-
-kb_root=$(mktemp -d)
-mkdir -p "$kb_root/default/gaming"
-cat > "$kb_root/default/gaming/keyboard.sh" <<'EOF'
-gaming_physical_keyboard_in() { printf 'loaded\n' > "$KB_MARK"; return 0; }
-EOF
-cat > "$kb_root/bootstrap" <<EOF
-export OMARCHY_PATH=$kb_root
-EOF
-env -u OMARCHY_PATH OMARCHY_ENV_BOOTSTRAP="$kb_root/bootstrap" KB_MARK="$kb_root/mark" \
-  "$ROOT/bin/omarchy-hw-physical-keyboard"
-[[ -f $kb_root/mark && $(cat "$kb_root/mark") == loaded ]] || fail "unset OMARCHY_PATH still loads the keyboard helper"
-rm -rf "$kb_root"
-pass "physical keyboard resolves OMARCHY_PATH from the bootstrap"

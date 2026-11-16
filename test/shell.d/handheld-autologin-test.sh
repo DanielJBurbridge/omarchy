@@ -135,9 +135,29 @@ OMARCHY_AUTOLOGIN_NOW=2040 run_guard fail
   fail "three timestamps inside 60s are stored" "$(cat "$work/run/failures")"
 [[ -f $work/run/stop ]] || fail "the third failure within 60s writes the stop file"
 assert_root_file "$work/run/stop"
-grep -q '^Relogin=true$' "$dropin" || fail "the stop file keeps Relogin=true" "$(cat "$dropin")"
-[[ ! -f $work/run/actions ]] || fail "tripping does not restart the greeter" "$(cat "$work/run/actions")"
-pass "three failure timestamps within 60s stop autologin and stay logged in"
+grep -q '^Relogin=false$' "$dropin" || fail "a crash-loop stop sets Relogin=false" "$(cat "$dropin")"
+grep -qx 'sddm-restart' "$work/run/actions" || fail "a crash-loop stop restarts the greeter" "$(cat "$work/run/actions")"
+run_guard apply
+grep -q '^Relogin=false$' "$dropin" || fail "apply keeps Relogin=false while the stop file exists" "$(cat "$dropin")"
+cat > "$work/bin/omarchy-session-start" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$work/run/session-args"
+exit 10
+EOF
+chmod +x "$work/bin/omarchy-session-start"
+if run_guard session; then
+  :
+else
+  fail "a stopped session exits 0 and leaves SDDM on the greeter"
+fi
+if run_guard session; then
+  :
+else
+  fail "a second stopped session still exits 0"
+fi
+[[ ! -s $work/run/session-args ]] || fail "a crash-loop stop does not start the desktop session" "$(cat "$work/run/session-args")"
+grep -q '^Relogin=false$' "$dropin" || fail "the greeter restart leaves Relogin=false" "$(cat "$dropin")"
+pass "three failure timestamps within 60s stop at the greeter and do not relog"
 
 user_conf=$work/sddm/omarchy-handheld-user.conf
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"

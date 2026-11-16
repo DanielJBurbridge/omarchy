@@ -48,7 +48,7 @@ sudo systemctl enable omarchy-handheld-autologin.service
 sudo omarchy-handheld-autologin apply
 ```
 
-Check: `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` succeed, `systemctl is-enabled omarchy-handheld-autologin.service` prints `enabled`, and the drop-in says `Relogin=true`. `omarchy-handheld-user.conf` has `User=` and nothing else. Reboot. The greeter stays down and Steam's gaming UI comes up. `systemctl is-active omarchy-handheld-autologin.service` is `active`. A stop file means the next handheld session opens the desktop. `Relogin` stays `true`.
+Check: `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` succeed, `systemctl is-enabled omarchy-handheld-autologin.service` prints `enabled`, and the drop-in says `Relogin=true`. `omarchy-handheld-user.conf` has `User=` and nothing else. Reboot. The greeter stays down and Steam's gaming UI comes up. `systemctl is-active omarchy-handheld-autologin.service` is `active`. `Relogin=false` means `/run/omarchy/handheld-autologin/stop` exists and SDDM is on the greeter.
 
 ## What you get
 
@@ -60,13 +60,13 @@ On the RC71L the desktop power button runs `omarchy-system-sleep-lock`, then `sy
 
 ## Escape and recovery
 
-Recovery is `ssh rog-ally`, and only if sshd was already enabled and that check worked. The other way in is a USB keyboard: Enter submits the password. The greeter grid cannot submit by touch, and there is no session picker. This tree has no TTY switch.
+Recovery is `ssh rog-ally`, and only if sshd was already enabled and that check worked. The other way in is a USB keyboard: Enter submits the password. The greeter grid has backspace, space and enter, so the same password can be submitted by touch. There is no session picker. This tree has no TTY switch.
 
 The F17 escape and the watchdog aren't in this alpha because no InputPlumber intercept ships in the tree, so there's no stuck intercept to escape. They become required when the intercept lands. `omarchy-ally-pointer.service` loads Omarchy's stick-to-pointer profile before the greeter. Whether the pointer moves there is unverified.
 
 The greeter keypad has backspace, space and enter. Qt Virtual Keyboard is `GreeterEnvironment=QT_IM_MODULE=qtvirtualkeyboard` in `etc/sddm.conf.d/10-wayland.conf`. There is no `InputMethod=` line and no kwin `--inputmethod`.
 
-Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`. `Relogin` stays `true`. The next session opens the desktop instead of the greeter. A reboot clears `/run` and the next boot tries gaming again. From SSH, drop autologin for this boot with:
+Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
 
 ```bash
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf

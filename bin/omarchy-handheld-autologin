@@ -96,14 +96,29 @@ apply_dropin() {
     rm -f -- "$dropin"
     return 0
   fi
-  write_dropin true
+  # A crash-loop stop shows the greeter. A boot with no stop file autologins.
+  if [[ -f $stop ]]; then
+    write_dropin false
+  else
+    write_dropin true
+  fi
+}
+
+restart_greeter() {
+  if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+    printf 'sddm-restart\n' >> "$OMARCHY_HANDHELD_AUTOLOGIN_DIR/actions"
+  else
+    systemctl restart sddm.service || true
+  fi
 }
 
 case $action in
   session)
     refuse_symlink
+    # Stop means the greeter. Exiting 0 does not start the desktop, so a
+    # Relogin=false restart cannot come back as desktop() and loop.
     if [[ -f $stop ]]; then
-      exec omarchy-session-start stopped
+      exit 0
     fi
     exec omarchy-session-start relogin
     ;;
@@ -140,7 +155,8 @@ EOF
       write_file "$stop" <<'EOF'
 stop
 EOF
-      # Relogin stays true. The next session sees stop and opens the desktop.
+      apply_dropin
+      restart_greeter
     fi
     ;;
   tripped)

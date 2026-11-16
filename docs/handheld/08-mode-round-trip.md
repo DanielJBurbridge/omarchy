@@ -33,7 +33,7 @@ Change, on the explicit return only: before the gamescope scope stops, write the
 
 Do not write `next` on a crash, a timeout, a missing `gamescope` or `steam`, or a non-zero Steam exit. Those stay on today's failure path.
 
-Crash-loop: `omarchy-handheld-autologin fail` runs only when the process exits without the ready FIFO reading `started`. A switch after `started` has already called `reset`, so it adds no timestamp. Three failures inside 60 seconds still write `stop`. `Relogin` stays `true`, and the next session opens the desktop instead of the greeter. The one-shot must not delete `stop`. Do not set `Relogin=false` for a normal switch. That would be the greeter.
+Crash-loop, unchanged: `omarchy-handheld-autologin fail` runs only when the process exits without the ready FIFO reading `started`. A switch after `started` has already called `reset`, so it adds no timestamp. Three failures inside 60 seconds still write `stop`, set `Relogin=false`, and show the greeter. The one-shot must not delete `stop` and must not set `Relogin` back to true. Do not set `Relogin=false` for a normal switch. That would be the greeter.
 
 ## 3. Desktop → gaming with no keyboard
 
@@ -46,7 +46,7 @@ No cheap path. The new row and `Super + Ctrl + G` need a keyboard, and the pad d
 3. With Steam still running, the command exits and does not log out. With Steam exited, from the preference session, it reaches Gaming Mode. There is no new confirm dialog.
 4. Steam Power → Switch to Desktop shows the Hyprland session. The greeter does not appear, and that return does not start gaming again.
 5. If that process exits before Hyprland is up, the next autologin starts Hyprland once and then the one-shot is gone. A later logout with no one-shot returns to gaming.
-6. A gaming start that never reads `started` does not write `next=desktop`. Three such starts in 60 seconds still write `/run/omarchy/handheld-autologin/stop`. `Relogin` stays `true` and the next session is the desktop.
+6. A gaming start that never reads `started` does not write `next=desktop`. Three such starts in 60 seconds still write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and show the greeter.
 
 ## Out of scope
 
