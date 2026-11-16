@@ -1,7 +1,7 @@
 # Optional fixed-path registration. Runtime commands ship in omarchy.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'

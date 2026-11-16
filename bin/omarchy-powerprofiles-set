@@ -55,7 +55,14 @@ if [[ -z ${profile:-} ]] || ! profile_available "$profile"; then
   fi
 fi
 
-powerprofilesctl set "$profile" || exit
+# While the Ally TDP package has masked power-profiles-daemon, the capped
+# writer is the profile switch. Laptops have no marker and keep powerprofilesctl.
+ppd_record=${OMARCHY_ALLY_TDP_PPD_RECORD:-/var/lib/omarchy/handheld/power-profiles-daemon.state}
+if [[ -f $ppd_record ]]; then
+  omarchy-ally-tdp-apply --reassert || exit
+else
+  powerprofilesctl set "$profile" || exit
+fi
 omarchy-shell -q battery refreshPowerProfile >/dev/null 2>&1 || true
 
 if [[ -n $requested_profile ]]; then

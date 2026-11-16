@@ -1,0 +1,501 @@
+#!/bin/bash
+
+# omarchy:hidden=true
+# omarchy:summary=Apply the ROG Ally sustained power limit
+# omarchy:args=--show | --snapshot | --set <watts> | --reassert
+
+# RC71L sustained limit. SPPT and FPPT are derived here. The caller never
+# passes them. --show is unprivileged. --snapshot, --set and --reassert
+# re-exec through pkexec unless this process is already root.
+#
+# The three current_value stores follow FirmwareAttributeLimitManager::set_tdp_limit
+# in evlaV/steamos-manager 85fbd8f (SPDX-License-Identifier: MIT, Collabora,
+# Valve, Igalia): SPL, then SPPT, then FPPT. The notice is
+# $OMARCHY_PATH/default/ally-tdp/NOTICE.steamos-manager. The watts are the
+# overlay ratio, not that function's max(limit, min) alone.
+#
+# A root process ignores OMARCHY_ALLY_TDP_* so a caller cannot point pkexec
+# at a stand-in sysfs. Fixture mode is non-root only.
+
+set -euo pipefail
+
+ATTRS=(ppt_pl1_spl ppt_pl2_sppt ppt_pl3_fppt)
+LOCK_WAIT_DEFAULT=5
+AC_SPL_POLICY=30
+BATTERY_SPL_POLICY=20
+BATTERY_SPPT_POLICY=20
+BATTERY_FPPT_POLICY=25
+
+log() {
+  printf 'omarchy-ally-tdp-apply: %s\n' "$*" >&2
+  logger -t omarchy-ally-tdp-apply -- "$*" 2>/dev/null || true
+}
+
+usage() {
+  echo "Usage: omarchy-ally-tdp-apply --show | --snapshot | --set <watts> | --reassert" >&2
+  exit 1
+}
+
+canonical_watts() {
+  [[ $1 =~ ^[0-9]+$ ]] || return 1
+  [[ $1 == 0 || $1 =~ ^[1-9][0-9]*$ ]]
+}
+
+read_int() {
+  local file=$1 value
+  [[ -f $file ]] || return 1
+  IFS= read -r value <"$file" || return 1
+  value=${value//$'\r'/}
+  [[ $value =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$value"
+}
+
+write_int() {
+  local file=$1 value=$2 got
+  printf '%s\n' "$value" >"$file" || return 1
+  got=$(read_int "$file") || return 1
+  [[ $got == "$value" ]]
+}
+
+anchor_of() {
+  local default=$1 max=$2
+  if (( default > 0 )); then
+    printf '%s\n' "$default"
+  else
+    printf '%s\n' "$max"
+  fi
+}
+
+# Half-up integer division. numer and denom are non-negative.
+round_div() {
+  local numer=$1 denom=$2
+  (( denom > 0 )) || return 1
+  printf '%s\n' "$(( (numer + denom / 2) / denom ))"
+}
+
+clamp_to() {
+  local value=$1 floor=$2 ceil=$3
+  if (( value < floor )); then
+    value=$floor
+  fi
+  if (( value > ceil )); then
+    value=$ceil
+  fi
+  printf '%s\n' "$value"
+}
+
+lowest() {
+  local best=$1 next
+  shift
+  for next in "$@"; do
+    if (( next < best )); then
+      best=$next
+    fi
+  done
+  printf '%s\n' "$best"
+}
+
+fixture=0
+if [[ $EUID -ne 0 && ${OMARCHY_ALLY_TDP_FIXTURE:-} == 1 ]]; then
+  fixture=1
+fi
+
+if (( fixture )); then
+  armoury=${OMARCHY_ALLY_TDP_ARMOURY:?}
+  power_root=${OMARCHY_ALLY_TDP_POWER:?}
+  state_dir=${OMARCHY_ALLY_TDP_STATE:?}
+  run_dir=${OMARCHY_ALLY_TDP_RUN:-$state_dir/run}
+  lock_file=${OMARCHY_ALLY_TDP_LOCK:?}
+  boot_id=${OMARCHY_ALLY_TDP_BOOT_ID:-fixture}
+  lock_wait=${OMARCHY_ALLY_TDP_LOCK_WAIT:-$LOCK_WAIT_DEFAULT}
+else
+  armoury=/sys/class/firmware-attributes/asus-armoury/attributes
+  power_root=/sys/class/power_supply
+  state_dir=/var/lib/omarchy/handheld/ally-tdp
+  run_dir=/run/omarchy-ally-tdp
+  lock_file=/run/omarchy-ally-tdp.lock
+  boot_id=$(IFS= read -r boot_id </proc/sys/kernel/random/boot_id || true)
+  [[ -n ${boot_id:-} ]] || boot_id=unknown
+  lock_wait=$LOCK_WAIT_DEFAULT
+fi
+
+[[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=$LOCK_WAIT_DEFAULT
+
+verb=
+watts=
+case ${1:-} in
+  --show)
+    [[ $# -eq 1 ]] || usage
+    verb="show"
+    ;;
+  --snapshot)
+    [[ $# -eq 1 ]] || usage
+    verb="snapshot"
+    ;;
+  --set)
+    [[ $# -eq 2 ]] || usage
+    verb="set"
+    watts=$2
+    ;;
+  --reassert)
+    [[ $# -eq 1 ]] || usage
+    verb="reassert"
+    ;;
+  *)
+    usage
+    ;;
+esac
+
+if [[ $verb == set || $verb == reassert || $verb == snapshot ]]; then
+  if [[ $EUID -ne 0 && $fixture -eq 0 ]]; then
+    exec pkexec /usr/bin/omarchy-ally-tdp-apply "$@"
+  fi
+fi
+
+if ! omarchy-hw-rog-ally; then
+  log "not a ROG Ally RC71L"
+  exit 1
+fi
+
+for attr in "${ATTRS[@]}"; do
+  if [[ ! -f $armoury/$attr/current_value || ! -f $armoury/$attr/min_value || ! -f $armoury/$attr/max_value || ! -f $armoury/$attr/default_value ]]; then
+    log "asus-armoury attribute $attr is missing"
+    exit 1
+  fi
+done
+
+read_text() {
+  local file=$1 value
+  [[ -f $file ]] || return 1
+  IFS= read -r value <"$file" || return 1
+  value=${value//$'\r'/}
+  printf '%s\n' "$value"
+}
+
+power_source() {
+  local dir type online found=0
+  [[ -d $power_root ]] || {
+    printf '%s\n' battery
+    return
+  }
+  for dir in "$power_root"/*; do
+    [[ -d $dir ]] || continue
+    type=$(read_text "$dir/type" 2>/dev/null || true)
+    online=0
+    if [[ -f $dir/online ]]; then
+      online=$(read_int "$dir/online" 2>/dev/null || true)
+      [[ -n $online ]] || online=0
+    fi
+    if [[ $type == Mains || $type == USB ]] && [[ $online == 1 ]]; then
+      found=1
+    fi
+  done
+  if (( found )); then
+    printf '%s\n' ac
+  else
+    printf '%s\n' battery
+  fi
+}
+
+unit_active() {
+  local unit=$1
+  if (( fixture )); then
+    [[ -n ${OMARCHY_ALLY_TDP_CONFLICT:-} && ${OMARCHY_ALLY_TDP_CONFLICT} == "$unit" ]]
+    return
+  fi
+  systemctl is-active --quiet "$unit"
+}
+
+conflict_owner() {
+  local unit
+  local units=(
+    power-profiles-daemon.service
+    powerstation.service
+    hhd.service
+    adjustor.service
+    asusd.service
+    tlp.service
+    auto-cpufreq.service
+    tuned.service
+    gamemoded.service
+  )
+  for unit in "${units[@]}"; do
+    if unit_active "$unit"; then
+      printf '%s\n' "$unit"
+      return
+    fi
+  done
+  return 1
+}
+
+snap_path() {
+  local source=$1 attr=$2 field=$3
+  printf '%s\n' "$run_dir/boot/$boot_id/$source/$attr.$field"
+}
+
+ensure_snapshot() {
+  local source=$1 attr field value path
+  for attr in "${ATTRS[@]}"; do
+    for field in default_value min_value max_value; do
+      path=$(snap_path "$source" "$attr" "$field")
+      if [[ ! -f $path ]]; then
+        value=$(read_int "$armoury/$attr/$field") || return 1
+        mkdir -p -- "$(dirname -- "$path")"
+        printf '%s\n' "$value" >"$path"
+      fi
+    done
+  done
+}
+
+load_snap() {
+  local source=$1 attr=$2 field=$3
+  read_int "$(snap_path "$source" "$attr" "$field")"
+}
+
+request_file=$state_dir/request
+
+read_stored() {
+  local value
+  [[ -f $request_file ]] || return 1
+  value=$(read_int "$request_file") || return 1
+  printf '%s\n' "$value"
+}
+
+# Plan applied SPL/SPPT/FPPT for a stored request on this source.
+# Prints three lines. Returns 1 when the tuple cannot keep order.
+plan_tuple() {
+  local requested=$1 source=$2
+  local live_spl_min live_spl_max live_sppt_min live_sppt_max live_fppt_min live_fppt_max
+  local boot_spl_default boot_spl_max boot_sppt_default boot_sppt_max boot_fppt_default boot_fppt_max
+  local spl_policy sppt_policy fppt_policy spl_ceil applied
+  local spl_anchor sppt_anchor fppt_anchor sppt_derived fppt_derived
+  local sppt_floor sppt_ceil fppt_floor fppt_ceil sppt fppt
+
+  live_spl_min=$(read_int "$armoury/ppt_pl1_spl/min_value") || return 1
+  live_spl_max=$(read_int "$armoury/ppt_pl1_spl/max_value") || return 1
+  live_sppt_min=$(read_int "$armoury/ppt_pl2_sppt/min_value") || return 1
+  live_sppt_max=$(read_int "$armoury/ppt_pl2_sppt/max_value") || return 1
+  live_fppt_min=$(read_int "$armoury/ppt_pl3_fppt/min_value") || return 1
+  live_fppt_max=$(read_int "$armoury/ppt_pl3_fppt/max_value") || return 1
+  boot_spl_default=$(load_snap "$source" ppt_pl1_spl default_value) || return 1
+  boot_spl_max=$(load_snap "$source" ppt_pl1_spl max_value) || return 1
+  boot_sppt_default=$(load_snap "$source" ppt_pl2_sppt default_value) || return 1
+  boot_sppt_max=$(load_snap "$source" ppt_pl2_sppt max_value) || return 1
+  boot_fppt_default=$(load_snap "$source" ppt_pl3_fppt default_value) || return 1
+  boot_fppt_max=$(load_snap "$source" ppt_pl3_fppt max_value) || return 1
+
+  if [[ $source == battery ]]; then
+    spl_policy=$BATTERY_SPL_POLICY
+    sppt_policy=$BATTERY_SPPT_POLICY
+    fppt_policy=$BATTERY_FPPT_POLICY
+  else
+    spl_policy=$AC_SPL_POLICY
+    sppt_policy=$boot_sppt_max
+    fppt_policy=$boot_fppt_max
+  fi
+
+  spl_ceil=$(lowest "$spl_policy" "$live_spl_max" "$boot_spl_max")
+  if (( live_spl_min > spl_ceil )); then
+    log "SPL floor $live_spl_min is above ceiling $spl_ceil"
+    return 1
+  fi
+  applied=$(clamp_to "$requested" "$live_spl_min" "$spl_ceil")
+
+  spl_anchor=$(anchor_of "$boot_spl_default" "$boot_spl_max")
+  sppt_anchor=$(anchor_of "$boot_sppt_default" "$boot_sppt_max")
+  fppt_anchor=$(anchor_of "$boot_fppt_default" "$boot_fppt_max")
+  if (( spl_anchor <= 0 )); then
+    log "SPL ratio anchor is zero"
+    return 1
+  fi
+  sppt_derived=$(round_div $(( applied * sppt_anchor )) "$spl_anchor") || return 1
+  fppt_derived=$(round_div $(( applied * fppt_anchor )) "$spl_anchor") || return 1
+
+  if (( applied > live_sppt_min )); then
+    sppt_floor=$applied
+  else
+    sppt_floor=$live_sppt_min
+  fi
+  sppt_ceil=$(lowest "$sppt_policy" "$live_sppt_max" "$boot_sppt_max")
+  if (( sppt_floor > sppt_ceil )); then
+    log "SPPT floor $sppt_floor is above ceiling $sppt_ceil"
+    return 1
+  fi
+  sppt=$(clamp_to "$sppt_derived" "$sppt_floor" "$sppt_ceil")
+
+  if (( sppt > live_fppt_min )); then
+    fppt_floor=$sppt
+  else
+    fppt_floor=$live_fppt_min
+  fi
+  fppt_ceil=$(lowest "$fppt_policy" "$live_fppt_max" "$boot_fppt_max")
+  if (( fppt_floor > fppt_ceil )); then
+    log "FPPT floor $fppt_floor is above ceiling $fppt_ceil"
+    return 1
+  fi
+  fppt=$(clamp_to "$fppt_derived" "$fppt_floor" "$fppt_ceil")
+
+  if (( applied > sppt || sppt > fppt )); then
+    log "planned tuple $applied/$sppt/$fppt breaks SPL <= SPPT <= FPPT"
+    return 1
+  fi
+  printf '%s\n%s\n%s\n' "$applied" "$sppt" "$fppt"
+}
+
+slider_bounds() {
+  local source=$1 live_min live_max boot_max policy ceil snap_max
+  live_min=$(read_int "$armoury/ppt_pl1_spl/min_value") || return 1
+  live_max=$(read_int "$armoury/ppt_pl1_spl/max_value") || return 1
+  if [[ $source == battery ]]; then
+    policy=$BATTERY_SPL_POLICY
+  else
+    policy=$AC_SPL_POLICY
+  fi
+  boot_max=$live_max
+  snap_max=$(snap_path "$source" ppt_pl1_spl max_value)
+  if [[ -f $snap_max ]]; then
+    boot_max=$(load_snap "$source" ppt_pl1_spl max_value) || return 1
+  fi
+  ceil=$(lowest "$policy" "$live_max" "$boot_max")
+  if (( live_min > ceil )); then
+    return 1
+  fi
+  printf '%s\n%s\n' "$live_min" "$ceil"
+}
+
+emit_status() {
+  local source=$1 stored=$2 limit=$3 spl=$4 sppt=$5 fppt=$6 min=$7 max=$8 writable=$9
+  printf 'source=%s\n' "$source"
+  printf 'stored=%s\n' "$stored"
+  printf 'limit=%s\n' "$limit"
+  printf 'spl=%s\n' "$spl"
+  printf 'sppt=%s\n' "$sppt"
+  printf 'fppt=%s\n' "$fppt"
+  printf 'min=%s\n' "$min"
+  printf 'max=%s\n' "$max"
+  printf 'writable=%s\n' "$writable"
+}
+
+acquire_lock() {
+  local lock_dir
+  lock_dir=$(dirname -- "$lock_file")
+  mkdir -p -- "$lock_dir" || {
+    log "cannot create $lock_dir"
+    exit 1
+  }
+  # shellcheck disable=SC3023
+  exec {tdp_lock_fd}>"$lock_file" || {
+    log "cannot open $lock_file"
+    exit 1
+  }
+  if ! flock -w "$lock_wait" "$tdp_lock_fd"; then
+    log "timed out after ${lock_wait}s waiting for $lock_file"
+    exit 1
+  fi
+}
+
+source=$(power_source)
+owner=""
+if owner=$(conflict_owner); then
+  writable=0
+else
+  writable=1
+  owner=""
+fi
+
+if [[ $verb == show ]]; then
+  spl=$(read_int "$armoury/ppt_pl1_spl/current_value") || exit 1
+  sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value") || exit 1
+  fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value") || exit 1
+  stored=""
+  stored=$(read_stored || true)
+  if ! bounds=$(slider_bounds "$source"); then
+    log "slider window is empty"
+    exit 1
+  fi
+  min=$(printf '%s\n' "$bounds" | sed -n '1p')
+  max=$(printf '%s\n' "$bounds" | sed -n '2p')
+  limit=$spl
+  emit_status "$source" "$stored" "$limit" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
+  exit 0
+fi
+
+if (( writable == 0 )); then
+  log "refusing while $owner is active"
+  exit 1
+fi
+
+if [[ $verb == set ]] && ! canonical_watts "$watts"; then
+  log "watts must be a canonical whole number"
+  exit 1
+fi
+
+acquire_lock
+ensure_snapshot "$source" || {
+  log "cannot snapshot firmware limits"
+  exit 1
+}
+
+if [[ $verb == snapshot ]]; then
+  stored=$(read_stored || true)
+  spl=$(read_int "$armoury/ppt_pl1_spl/current_value")
+  sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value")
+  fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value")
+  bounds=$(slider_bounds "$source")
+  min=$(printf '%s\n' "$bounds" | sed -n '1p')
+  max=$(printf '%s\n' "$bounds" | sed -n '2p')
+  emit_status "$source" "$stored" "$spl" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
+  exit 0
+fi
+
+if [[ $verb == reassert ]]; then
+  if ! watts=$(read_stored); then
+    log "no stored request to reassert"
+    exit 0
+  fi
+fi
+
+if ! planned=$(plan_tuple "$watts" "$source"); then
+  log "refusing to write"
+  exit 1
+fi
+plan_spl=$(printf '%s\n' "$planned" | sed -n '1p')
+plan_sppt=$(printf '%s\n' "$planned" | sed -n '2p')
+plan_fppt=$(printf '%s\n' "$planned" | sed -n '3p')
+
+# MIT write order: SPL, then SPPT, then FPPT. current_value is the store.
+if ! write_int "$armoury/ppt_pl1_spl/current_value" "$plan_spl"; then
+  log "SPL write failed"
+  exit 1
+fi
+if ! write_int "$armoury/ppt_pl2_sppt/current_value" "$plan_sppt"; then
+  log "SPPT write failed"
+  exit 1
+fi
+if ! write_int "$armoury/ppt_pl3_fppt/current_value" "$plan_fppt"; then
+  log "FPPT write failed"
+  exit 1
+fi
+
+got_spl=$(read_int "$armoury/ppt_pl1_spl/current_value") || exit 1
+got_sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value") || exit 1
+got_fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value") || exit 1
+if (( got_spl > got_sppt || got_sppt > got_fppt )); then
+  log "readback $got_spl/$got_sppt/$got_fppt breaks SPL <= SPPT <= FPPT"
+  exit 1
+fi
+if [[ $got_spl != "$plan_spl" || $got_sppt != "$plan_sppt" || $got_fppt != "$plan_fppt" ]]; then
+  log "readback $got_spl/$got_sppt/$got_fppt does not match $plan_spl/$plan_sppt/$plan_fppt"
+  exit 1
+fi
+
+if [[ $verb == set ]]; then
+  mkdir -p -- "$state_dir"
+  printf '%s\n' "$watts" >"$request_file"
+fi
+
+stored=$(read_stored || true)
+bounds=$(slider_bounds "$source")
+min=$(printf '%s\n' "$bounds" | sed -n '1p')
+max=$(printf '%s\n' "$bounds" | sed -n '2p')
+emit_status "$source" "$stored" "$got_spl" "$got_spl" "$got_sppt" "$got_fppt" "$min" "$max" 1
