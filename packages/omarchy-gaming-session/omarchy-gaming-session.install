@@ -6,6 +6,9 @@ post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
+  if command -v omarchy-inputplumber-profile >/dev/null; then
+    omarchy-inputplumber-profile install-service || true
+  fi
   # One owner for /etc/sddm.conf.d/omarchy-handheld-user.conf. A counted
   # User= is left in place. The name comes from the installer record, not
   # from the account that ran pacman. No second file, no Session=, no sudoers.
@@ -22,6 +25,9 @@ post_upgrade() {
 }
 
 post_remove() {
+  if command -v omarchy-inputplumber-profile >/dev/null; then
+    omarchy-inputplumber-profile remove-service || true
+  fi
   local file
   file=$(sddm_handheld_user_file)
   if [[ -L $file || -e $file ]]; then

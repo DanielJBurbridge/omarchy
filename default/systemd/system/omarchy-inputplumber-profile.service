@@ -1,0 +1,13 @@
+[Unit]
+Description=Omarchy InputPlumber profile switch
+After=inputplumber.service dbus.service
+ConditionPathExists=/usr/bin/inputplumber
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
+
+[Service]
+Type=dbus
+BusName=org.omarchy.InputPlumberProfile
+ExecStart=/usr/bin/omarchy-inputplumber-profile serve
+
+[Install]
+WantedBy=graphical.target

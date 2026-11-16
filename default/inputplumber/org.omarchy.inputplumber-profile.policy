@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Omarchy</vendor>
+  <vendor_url>https://omarchy.org</vendor_url>
+
+  <action id="org.omarchy.inputplumber-profile.load">
+    <description>Load an allowlisted InputPlumber profile</description>
+    <message>Authentication is required to load an InputPlumber profile</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.omarchy.inputplumber-profile.intercept">
+    <description>Set InputPlumber intercept mode to none or always</description>
+    <message>Authentication is required to set InputPlumber intercept mode</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

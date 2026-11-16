@@ -122,6 +122,16 @@ restart_greeter() {
   fi
 }
 
+# The greeter must not keep the desktop profile. fail is already root, so
+# this is the helper itself, not pkexec and not a sudoers grant.
+load_greeter_pointer() {
+  if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+    printf 'inputplumber-profile:load pointer\n' >> "$OMARCHY_HANDHELD_AUTOLOGIN_DIR/actions"
+  else
+    /usr/bin/omarchy-inputplumber-profile load pointer || true
+  fi
+}
+
 case $action in
   session)
     refuse_symlink
@@ -167,6 +177,7 @@ stop
 EOF
       apply_dropin
       restart_greeter
+      load_greeter_pointer
     fi
     ;;
   tripped)
