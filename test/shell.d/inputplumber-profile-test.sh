@@ -473,6 +473,61 @@ check((bare / "etc/systemd/system/omarchy-ally-pointer.service").is_file(), "the
 check(mod.install_service() == 0, "an Ally without the package does not install the service")
 check(all(not (bare / rel).exists() for rel in mod.SERVICE_FILES), "an Ally without the package gets no service, policy or rule")
 
+hookroot = work / "hookroot"
+mod.INSTALL_ROOT = hookroot
+mod.gaming_session_installed = lambda: True
+systemctl_state["value"] = "not-found"
+check(mod.install_greeter() == 0 and mod.install_service() == 0, "the package hook has a greeter and a service")
+hook_bin = work / "hookbin"
+hook_bin.mkdir()
+hook_calls = work / "hook-calls"
+hook_stub = hook_bin / "omarchy-inputplumber-profile"
+hook_stub.write_text(
+  "#!/usr/bin/python3\n"
+  "import os, sys\n"
+  "from importlib.machinery import SourceFileLoader\n"
+  "from importlib.util import module_from_spec, spec_from_loader\n"
+  "from pathlib import Path\n"
+  "import subprocess\n"
+  "calls = Path(os.environ['HOOK_CALLS'])\n"
+  "with calls.open('a') as handle:\n"
+  "    handle.write(sys.argv[1] + '\\n')\n"
+  "if sys.argv[1] != 'remove-service':\n"
+  "    raise SystemExit(0)\n"
+  "loader = SourceFileLoader('hooked_profile', os.environ['HOOK_HELPER'])\n"
+  "spec = spec_from_loader('hooked_profile', loader)\n"
+  "hooked = module_from_spec(spec)\n"
+  "loader.exec_module(hooked)\n"
+  "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, '', '')\n"
+  "hooked.run_busctl = lambda args: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
+  "raise SystemExit(hooked.remove_service_into(Path(os.environ['HOOK_ROOT'])))\n"
+)
+os.chmod(hook_stub, 0o755)
+hook_env = os.environ.copy()
+hook_env["PATH"] = str(hook_bin) + os.pathsep + hook_env.get("PATH", "")
+hook_env["HOOK_CALLS"] = str(hook_calls)
+hook_env["HOOK_HELPER"] = str(helper)
+hook_env["HOOK_ROOT"] = str(hookroot)
+hook_script = root / "packages/omarchy-gaming-session/omarchy-gaming-session.install"
+
+def run_hook(function):
+  hook_calls.write_text("")
+  proc = subprocess.run(
+    ["bash", "-c", f"source {hook_script}; {function}"],
+    env=hook_env,
+    text=True,
+    capture_output=True,
+  )
+  check(proc.returncode == 0, f"{function} exits 0")
+  return hook_calls.read_text().split()
+
+check(run_hook("post_install") == ["install-service"], "post_install installs the profile service")
+check(run_hook("post_upgrade") == ["install-service"], "post_upgrade installs the profile service")
+check(all((hookroot / rel).is_file() for rel in mod.SERVICE_FILES), "the service files are present before removal")
+check(run_hook("post_remove") == ["remove-service"], "post_remove removes the profile service")
+check(all(not (hookroot / rel).exists() for rel in mod.SERVICE_FILES), "post_remove deletes the service, policy and rule")
+check((hookroot / "etc/systemd/system/omarchy-ally-pointer.service").is_file(), "post_remove leaves the greeter unit")
+
 laptop = work / "laptop"
 mod.INSTALL_ROOT = laptop
 mod.ally = lambda: False

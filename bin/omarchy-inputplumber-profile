@@ -535,7 +535,10 @@ def _null_mask(path: Path) -> bool:
 def _leave_unit(path: Path, state: str | None) -> bool:
   # systemctl mask is a symlink to /dev/null. Replacing it fails the
   # migration on every later run, so a mask is left where it is.
-  return state == "masked" or _null_mask(path)
+  if state == "masked" or _null_mask(path):
+    print(f"omarchy-inputplumber-profile: leaving masked unit {path} in place", file=sys.stderr)
+    return True
+  return False
 
 
 def _reload() -> bool:
@@ -587,8 +590,8 @@ def install_service_into(dest: Path) -> int:
   """Install the profile switch service, D-Bus policy and polkit rule.
 
   The caller has already decided this is an Ally with the gaming session
-  package. The rule is generated from the handheld user file, so calling
-  this again after that file is written picks up the new user.
+  package. The polkit rule names whatever handheld user is in the file at
+  this moment.
   """
   root = package_root()
   unit = dest / "etc/systemd/system" / SERVICE_UNIT

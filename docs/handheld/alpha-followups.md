@@ -64,3 +64,19 @@ From the 16 Nov 2026 device findings and dev-red's review of the keyboard-free f
 - L55. The greeter row for backspace, space and enter is on every machine's login screen. The labels are English and the colours are hard-coded. The plan shows that row only when there is a touchscreen and no keyboard. Source: PR #48, review 5918323388.
 - L56. `etc/sudoers.d/omarchy-handheld-autologin` still grants NOPASSWD for `fail`, `reset` and `apply`. This branch adds no grant, and `install-user` stays out of that file. The existing grant still blocks upstreaming the session (L24). Source: PR #48, review 5918323388.
 - L57. The `Model:` trailer on commits is still an open question in the plan. Source: PR #48, review 5918323388.
+
+From dev-red's FAIL review of the InputPlumber profiles, [PR #53](https://github.com/DanielJBurbridge/omarchy/pull/53), [review 5919651211](https://github.com/DanielJBurbridge/omarchy/pull/53#pullrequestreview-5919651211). Not fixed in that PR.
+
+- L58. The polkit rule is written when `install-service` runs and is not rewritten when `omarchy-handheld-user.conf` is created later. A handheld user added after the package install is refused, and `Load gaming` does not run, so the pointer map stays active in Steam. Source: PR #53, review 5919651211.
+- L59. `load pointer` does not set `InterceptMode` back to 0. The greeter oneshot and the crash-loop path leave a dead session's mode 2 in place, and the controller keeps feeding only the D-Bus target. Source: PR #53, review 5919651211.
+- L60. Nothing in this tree loads `desktop` or `pointer` when a gaming session ends. Desktop Mode, a return to SDDM that is not the crash-loop stop, and a recreated composite (ProfileName `Default` after suspend) keep the gaming profile until some later watcher loads another name. Source: PR #53, review 5919651211.
+- L61. `gaming.yaml` targets `ds5-edge`. The Ally grips arrive as DualSense Edge Fn buttons, and Steam shows PlayStation glyphs, unless the glyph setting is changed. Whether Steam Input binds that pair is unverified on device. Source: PR #53, review 5919651211.
+- L62. The package update removes `omarchy-ally-pointer-load` before migration `1794902400` rewrites `/etc/systemd/system/omarchy-ally-pointer.service`. A reboot in that window has touch at the greeter and no stick pointer. Source: PR #53, review 5919651211.
+- L63. InputPlumber's own rules file grants YES to group `wheel` on every `org.shadowblip.Input*` action. The Omarchy user is normally in `wheel`, so the session can still call `LoadProfilePath` and the other InputPlumber methods. The allowlist holds for `sddm` and for users who are not in `wheel`. Source: PR #53, review 5919651211.
+
+Rollback for the profile switch, when the gaming session package should stop owning InputPlumber profiles:
+
+1. `sudo systemctl disable --now omarchy-inputplumber-profile.service`
+2. Remove `/etc/systemd/system/omarchy-inputplumber-profile.service`, `/usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf`, `/usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy`, and `/etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules`. Removing `omarchy-gaming-session` runs `post_remove`, which does those four removals and leaves `omarchy-ally-pointer.service`.
+3. `sudo systemctl daemon-reload` and `sudo busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig`.
+4. The greeter unit stays, and its `ExecStart` is `omarchy-inputplumber-profile load pointer`. To drop the stick pointer as well, `sudo systemctl disable --now omarchy-ally-pointer.service`. The old `omarchy-ally-pointer-load` program is not in this tree, so there is no older loader to put back.

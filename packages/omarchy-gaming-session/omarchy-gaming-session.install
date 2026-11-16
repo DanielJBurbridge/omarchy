@@ -2,8 +2,8 @@ post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
-  if [[ -x /usr/bin/omarchy-inputplumber-profile ]]; then
-    /usr/bin/omarchy-inputplumber-profile install-service || true
+  if command -v omarchy-inputplumber-profile >/dev/null; then
+    omarchy-inputplumber-profile install-service || true
   fi
 }
 
@@ -12,7 +12,7 @@ post_upgrade() {
 }
 
 post_remove() {
-  if [[ -x /usr/bin/omarchy-inputplumber-profile ]]; then
-    /usr/bin/omarchy-inputplumber-profile remove-service || true
+  if command -v omarchy-inputplumber-profile >/dev/null; then
+    omarchy-inputplumber-profile remove-service || true
   fi
 }

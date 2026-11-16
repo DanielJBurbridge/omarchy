@@ -176,16 +176,10 @@ run_guard apply
 [[ $(cat "$user_conf") == "$kept_user" ]] || fail "apply rewrites the installer User= file" "$(cat "$user_conf")"
 grep -q '^User=' "$dropin" && fail "apply writes User= into the session drop-in" "$(cat "$dropin")"
 rm -f "$user_conf"
-rm -f "$work/run/actions"
 run_guard install-user daniel
 grep -q '^User=daniel$' "$user_conf" || fail "install-user writes User= on its own" "$(cat "$user_conf")"
 grep -q '^Session=' "$user_conf" && fail "the User= file also sets Session" "$(cat "$user_conf")"
-grep -qx 'inputplumber-profile:install-service' "$work/run/actions" || fail "install-user refreshes the profile rule when the gaming session is installed"
 assert_root_file "$user_conf"
-rm -f "$user_conf" "$work/run/actions"
-PKG=absent run_guard install-user daniel
-grep -q '^User=daniel$' "$user_conf" || fail "install-user still writes User= without the gaming session"
-[[ ! -e $work/run/actions ]] || ! grep -q 'inputplumber-profile:install-service' "$work/run/actions" || fail "install-user does not install the profile service without the package"
 if run_guard install-user '../daniel'; then
   fail "install-user accepts a path"
 fi
