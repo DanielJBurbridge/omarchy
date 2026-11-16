@@ -1,6 +1,6 @@
 # 03 · First boot and install flow (handheld variant)
 
-Status: draft, revision 1, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (profiles, OSK), [02](02-mode-switch-and-dock.md) (session supervisor, autologin, fallback). Lock-screen, greeter and disk-unlock **UI** are AUTH's; this spec lists only the requirements it places on them (§8).
+Status: draft, revision 1, 12 Nov 2026 (AWST). D9 revised 16 Nov 2026. Owner: dev-ux. Depends on: [01](01-controller-button-map.md) (profiles, OSK), [02](02-mode-switch-and-dock.md) (session supervisor, autologin, fallback). Lock-screen and greeter **UI** are AUTH's; this spec lists only the requirements it places on them (§8). Disk unlock is [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md).
 
 **Desktop lock (lead ruling, 12 Nov 2026; spec 02 D10 revision 2).** AUTH K07, the lock-screen touch keyboard, lands as an additive PR on `feat/ally-parity-release-20261111`. The handheld variant is `omarchy-hw-rog-ally` and the `omarchy-gaming-session` package together. Marker path, ownership, who writes the marker, and how a read error is treated are [spec 02 §7.4](02-mode-switch-and-dock.md). This spec does not restate them. `default-off` is written only by a fresh install that chose the handheld variant, and only when §7.4 says the marker is absent. Adding `omarchy-gaming-session` to an existing desktop-only install writes `on` explicitly, so that desktop does not come up unlocked. `default-off` is not `explicit-off`. OQ-2 is resolved by this ruling.
 
@@ -10,7 +10,7 @@ Status: draft, revision 1, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 
 | # | Decision | Source |
 |---|---|---|
-| D1 | The whole install is doable with **controller + touchscreen**, no USB keyboard, for the default path (whole internal disk, no dual boot, no encryption, §4). Anything that needs a keyboard is marked so on screen before the user commits. | Brief; Bazzite/CachyOS gaps (§2) |
+| D1 | The whole install is doable with **controller + touchscreen**, no USB keyboard, for the default path (whole internal disk, no dual boot, TPM auto-unlock, §4). Anything that needs a keyboard is marked so on screen before the user commits. | Brief; Bazzite/CachyOS gaps (§2). D9 |
 | D2 | Reuse Omarchy's existing TUI form and **deferred provisioning**: the ISO only picks the disk and installs; user, password, Wi-Fi and timezone are asked on **first boot** by `omarchy-provision-owner`, using the same `install/provisioning/setup-form.sh`. No second installer. | Baseline (§1) |
 | D3 | Keyboardless input in the TUI = **InputPlumber `tty` profile** (controller → arrows/Enter/Esc/Tab/Backspace). `buffyboard` is the touch keyboard on **first boot only**, and only under §3.1. It does not run on the live ISO, and it is stopped before SDDM starts. | New (Δ-I1, Δ-I2); dev-red review, 12 Nov 2026 |
 | D4 | `omarchy-hw-rog-ally` **preselects** the handheld variant on RC71L; the user can still choose “Desktop only”. Other handhelds get no automatic variant yet. | This branch (same file as PR #3), P2 |
@@ -18,7 +18,7 @@ Status: draft, revision 1, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 | D6 | After the wizard the handheld variant **autologins into gaming**; failure falls back to desktop (spec 02 D1/D2). | Daniel's decision, 12 Nov 2026. SESSION sign-off comes through dev-red's review. |
 | D7 | `desktop-lock` is root-owned. When the effective value is `on`, it is enforced at **one choke point**: `desktop()` in `bin/omarchy-session-start`, before `uwsm start`, the first frame and autostart. It **fails closed** (back to gaming while a spec 02 D2 retry remains, otherwise to SDDM). `off` stores `explicit-off` and needs an interactive password prompt, never a passwordless polkit rule. `on` needs no password. `default-off` is written only for a fresh handheld-variant install, and only while spec 02 §7.4 says the marker is absent. A later install of `omarchy-gaming-session` on a desktop-only machine writes `on`. | Lead ruling, 12 Nov 2026; spec 02 §7.4 |
 | D8 | First-boot wizard steps: Wi-Fi → controller test → InputPlumber enable → MCU firmware check (warn < 319) → `asusctl`/`asusd` check (kept off RC71L) → Steam sign-in hand-off. Each step is skippable except Wi-Fi-or-confirm-offline; none is hold-only. | Brief |
-| D9 | Disk encryption is **off by default** on the handheld variant and offered as an explicit opt-in with a “needs a USB keyboard at every boot” warning until a touch unlock ships (AUTH K11). | Baseline K11 (§1), OQ-1 |
+| D9 | A handheld install encrypts the disk. The default unlock is TPM2 bound to PCR 7, with no PIN, and the recovery passphrase is mandatory. "Passphrase every boot" remains a choice and warns that a USB or 2.4 GHz keyboard is required at every boot. "Security chip + PIN" is shown and is not selectable until the boot keypad ships ([L62](alpha-followups.md)). This supersedes the earlier default of leaving handheld encryption off. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md), dev-lead 16 Nov 2026 |
 | D10 | Red-team rules: every input-profile hand-over sends explicit key-ups and waits for the new target; any failure drops **atomically** to the firmware gamepad / plain `tty` mapping; prompts ignore controller input for 500 ms and default to the safe choice. | Red review, 12 Nov |
 
 ## 1. Baseline: what is already built
@@ -29,7 +29,7 @@ Paths below were checked on `feat/ally-parity-integration-20261111` (`bbc819047`
 |---|---|---|
 | Setup form | `install/provisioning/setup-form.sh` (this branch). `bin/omarchy-provision-owner` sources it. gum prompts for keyboard, username, password + confirm, hostname (empty ⇒ `omarchy`, `OMARCHY_HOSTNAME_DEFAULT`), timezone (`geo.omarchy.org`, else `OMARCHY_FORM_TIMEZONE_FALLBACK`, else the full `timedatectl` list in `gum filter`). Shared by the ISO configurator and first-boot setup “so the copies cannot drift”. Exit codes: 0 next, 1 Esc = unwind to the start of the form, 130 Ctrl+C = caller side channel (ISO: arm deferred provisioning or toggle encryption; first boot: offer a reboot). | Keep one form. Add handheld behaviour by caller variables, not a fork. Never map any controller button to **Ctrl+C**. |
 | Deferred provisioning | `install/provisioning/omarchy-provision-owner.service`: runs `/usr/bin/omarchy-provision-owner` on **tty1 before `display-manager.service`**, armed by `/var/lib/omarchy/provisioning/pending`; blocked while `/var/lib/omarchy/provisioning/wipe-pending` exists. | Our wizard rides on this unit (Δ-P1). |
-| Disk key | `install/provisioning/luks-rekey.sh`: resumable re-key from a staged install key to the owner's password. The journal records phase, slot numbers and a layout fingerprint, never key material. Boot-time unlock is the caller's `luks_auto_unlock_present` / `luks_auto_unlock_drop`. | Encryption opt-in reuses it; boot unlock still needs a keyboard (K11). |
+| Disk key | `install/provisioning/luks-rekey.sh`: resumable re-key from a staged install key to the owner's password. The journal records phase, slot numbers and a layout fingerprint, never key material. Boot-time unlock is the caller's `luks_auto_unlock_present` / `luks_auto_unlock_drop`. | Automatic unlock reuses it for the recovery passphrase, then adds a TPM slot and does not remove the passphrase slot. Passphrase every boot still needs a keyboard at boot. The PIN keypad is L62. |
 | Login | `install/login/sddm.sh`: “The ISO owns autologin/session state because it knows whether the target is encrypted.” | Handheld autologin is written by the ISO/provisioning, not at runtime (spec 02 §7.1). |
 | RC71L detection | `bin/omarchy-hw-rog-ally` (this branch; same file as PR #3, `cursor/rog-ally-rc71l-3178`): vendor `ASUSTeK COMPUTER INC.` and product `ROG Ally RC71L*` or board `RC71L`; excludes Ally X/Xbox Ally. | Single detector for ISO + installed system. |
 | asusctl | `install/hardware/asus-rog.sh`: `asusctl` only if `omarchy-hw-asus-rog && ! omarchy-hw-rog-ally`. `install/hardware/asus/rog-ally.sh`: runs offline on an image's first boot, “never prompt or install a handheld control daemon here”. | Wizard must not install from the offline hardware leaf; it runs later (online, owner known). |
@@ -49,7 +49,7 @@ Paths below were checked on `feat/ally-parity-integration-20261111` (`bbc819047`
 | Keyboardless? | Touch works; **no OSK in installer** for custom user, manual partitioning or MOK ([#715](https://github.com/ublue-os/bazzite/issues/715), [#1463](https://github.com/ublue-os/bazzite/issues/1463)) | Yes (nothing to type until Steam) | Touch + Maliit OSK in live session ([CachyOS-Handheld TODO #9](https://github.com/CachyOS/CachyOS-Handheld/issues/9)) | Controller on the ISO. Buffyboard on first boot only, after dev-red accepts §3.1 |
 | Detection | Image choice | Device TOML in steamos-manager | `chwd` DMI profiles, RC71L board match ([profiles.toml](https://github.com/CachyOS/chwd/blob/master/profiles/pci/handhelds/profiles.toml)) | `omarchy-hw-rog-ally` preselect |
 | User / password | Default account ok; custom needs keyboard | `deck` user, **no password** until `passwd` in Desktop Mode ([guide](https://survivalconfigs.com/reference/steamos/install-steamos)) | User + password typed in Calamares | Mandatory password, explained |
-| Encryption | Optional; “you will need a physical USB keyboard to decrypt” ([guide](https://docs.bazzite.gg/General/Installation_Guide/install-guide/)) | None | Optional; keyboard or manual `unl0kr` ([guide](https://discuss.cachyos.org/t/guide-luks-touchscreen-on-steam-deck-running-cachyos-handheld-edition-unl0kr/20293)) | Off by default, opt-in with warning |
+| Encryption | Optional; “you will need a physical USB keyboard to decrypt” ([guide](https://docs.bazzite.gg/General/Installation_Guide/install-guide/)) | None | Optional; keyboard or manual `unl0kr` ([guide](https://discuss.cachyos.org/t/guide-luks-touchscreen-on-steam-deck-running-cachyos-handheld-edition-unl0kr/20293)) | On. Default unlock is TPM2, PCR 7. Passphrase every boot warns about a USB keyboard. PIN is L62 |
 | First boot | Steam Gaming Mode autologin (SDDM `zz-holo-autologin.conf`) | OOBE: language → Wi-Fi → timezone → Steam sign-in → update | Plasma Login autologin into gamescope; Steam downloads (≤ 2 min) | Wizard → autologin gaming |
 
 Take: SteamOS's “type nothing until Steam” flow is the bar; Bazzite and CachyOS both trip on typing. Omarchy must type user + password, so it needs a real OSK in the TUI.
@@ -107,7 +107,7 @@ The xpad pad sends gamepad events, not keys, so a TTY ignores it. Both stages us
 | 3 | “ROG Ally detected” — **Handheld (Gaming Mode)** / Desktop only | Handheld | No |
 | 4 | Disk: internal NVMe only listed; microSD and USB hidden behind “Show other disks” | Internal NVMe | No |
 | 5 | Erase confirm: “Everything on <model, size> will be erased.” Erase / Back | **Back** focused; input ignored 500 ms | No |
-| 6 | Encryption: Off / On (“needs a USB keyboard at every boot”) | **Off** (D9) | Only if On |
+| 6 | Disk unlock: Unlock automatically / Passphrase every boot / Security chip + PIN (shown, not selectable) | **Unlock automatically** (D9) | Passphrase every boot needs a USB or 2.4 GHz keyboard at every later boot. PIN does not continue |
 | 7 | Install progress (`install/provisioning/progress-icon.sh`); writes `/var/lib/omarchy/provisioning/pending`, `/etc/omarchy/variant` = `handheld` | — | No |
 | 8 | “Remove the USB drive” → reboot | — | No |
 
@@ -144,7 +144,7 @@ A journal that cannot be parsed is not a resume. The stage starts again at W1, a
 | Fields | Password, Confirm (masked; baseline `omarchy_prompt_password`) |
 | Rules | Baseline: non-empty, must match. OQ-4: minimum length. |
 | Hint | “The on-screen keyboard is up for this screen.” The stage unit starts it. View does not toggle it. |
-| Encrypted install | One extra line: “This also unlocks the disk at power-on (USB keyboard needed).” (`luks-rekey.sh` re-keys to it.) |
+| Encrypted install | The recovery passphrase from the disk-unlock screen is this password when the user has not set a different one. `luks-rekey.sh` re-keys to it. Automatic unlock adds a TPM slot and does not remove this one. Passphrase every boot adds the line “You'll type this at every power-on, using a physical keyboard.” |
 
 ## 7. Autologin, desktop lock and fallback (D6, D7)
 
@@ -167,13 +167,13 @@ A journal that cannot be parsed is not a resume. The stage starts again at W1, a
 | R2 | Lock must publish a confirmed-locked state the supervisor can wait on before first frame. | D7 choke point. The feed on `feat/ally-auth-20261111` is `$XDG_RUNTIME_DIR/omarchy-lock-$HYPRLAND_INSTANCE_SIGNATURE.sock`. |
 | R3 | Controller navigation on the lock: focus Password/Unlock/Cancel with d-pad, A = activate, no hold-only action. | Spec 01 P6 + red team. |
 | R4 | “Return to Gaming” on the lock surface (no auth needed) so a user who can't type is not stuck. | Fail-safe exit; never unlocks the desktop. |
-| R5 | Touch disk unlock (K11, `unl0kr`/`sd-unl0kr`) before encryption can default on. | D9. |
+| R5 | The PIN card stays unselectable until L62: a numeric PIN from the touchscreen or the pad at the boot prompt. Automatic unlock does not wait on that keypad. | D9. [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md) |
 
 ## 9. User flows
 
 | # | Flow | Steps |
 |---|---|---|
-| F1 | Fresh keyboardless install | Vol− + Power → USB → Handheld → internal NVMe → Erase (after 500 ms) → Encryption Off → reboot → W1 username/password via buffyboard → Wi-Fi → timezone (guess) → controller test → enable InputPlumber → MCU warning → disable asusd → Steam hand-off → gaming autologin → Steam update → QR sign-in. |
+| F1 | Fresh keyboardless install | Vol− + Power → USB → Handheld → internal NVMe → Erase (after 500 ms) → Unlock automatically, recovery passphrase saved → reboot → W1 username/password via buffyboard → Wi-Fi → timezone (guess) → controller test → enable InputPlumber → MCU warning → disable asusd → Steam hand-off → gaming autologin → Steam update → QR sign-in. The disk opens with no passphrase prompt. |
 | F2 | Offline install | As F1, W2 “Continue offline” → W8 warning → gaming start fails (Steam bootstrap) → spec 02 fallback → desktop. While the value is `default-off`, that desktop is **unlocked** and shows “Gaming Mode didn't start”. After the migration, unless `explicit-off`, it is locked and the notification shows after unlock. Then Wi-Fi panel → “Try Gaming again”. |
 | F3 | Decline controller integration | W5 “Use Steam only” → firmware pad in gaming; desktop has no controller mouse; hub → Controller input later. |
 | F4 | Power loss mid-wizard | Reboot → `pending` still set → resume at the unfinished step. |
@@ -211,7 +211,7 @@ A journal that cannot be parsed is not a resume. The stage starts again at W1, a
 
 | # | Question | Owner |
 |---|---|---|
-| OQ-1 | Encryption default: off (D9) vs LUKS + TPM2 auto-unlock (`systemd-cryptenroll`, needs `sd-encrypt` instead of busybox `encrypt`) vs `unl0kr`. Trade-off: data at rest vs keyboardless boot. | Daniel / AUTH |
+| OQ-1 | **Resolved (dev-lead, 16 Nov 2026).** Handheld default is LUKS + TPM2 auto-unlock, PCR 7, recovery passphrase kept. The busybox `encrypt` hook is replaced for that path by `systemd` and `sd-encrypt`. PIN at the boot prompt is L62, not this default. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md) |
 | OQ-2 | **Resolved (lead ruling, 12 Nov 2026).** The marker and the migration are spec 02 §7.4. This spec writes `default-off` only on a fresh handheld-variant install. | Daniel / AUTH |
 | OQ-3 | **Flagged for dev-red.** §3.1 is the acceptance bar for AUR `buffybox` (split package `buffyboard`, GPL-3.0-or-later). Do not add it to the package set before that review. | dev-red |
 | OQ-4 | Minimum password length/PIN policy for an OSK-typed password. | AUTH |

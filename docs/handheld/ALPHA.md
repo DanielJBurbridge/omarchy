@@ -66,6 +66,21 @@ The F17 escape and the watchdog aren't in this alpha because no InputPlumber int
 
 The greeter keypad has backspace, space and enter. Qt Virtual Keyboard is `GreeterEnvironment=QT_IM_MODULE=qtvirtualkeyboard` in `etc/sddm.conf.d/10-wayland.conf`. There is no `InputMethod=` line and no kwin `--inputmethod`.
 
+### Handheld stuck at the passphrase prompt
+
+Automatic unlock did not unseal the disk. Plymouth is asking for the recovery passphrase. Touch and the built-in pad do not type it. Plug in a USB or 2.4 GHz keyboard and type the passphrase. Bluetooth will not do it.
+
+When the session is up, enrol the TPM slot again. This asks for that passphrase, removes only TPM slots, and writes a new one bound to PCR 7. The passphrase slot stays.
+
+```bash
+ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
+MAPPER_NAME=$(basename "$ROOT_SRC")
+LUKS_DEV=$(sudo cryptsetup status "$MAPPER_NAME" | awk '/^[[:space:]]+device:/ { print $2; exit }')
+sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 "$LUKS_DEV"
+```
+
+`LUKS_DEV` is the path `cryptsetup status` prints. Do not pass `--wipe-slot=password`. The rest of the procedure, including the hook and cmdline this command expects, is [tpm-unlock.md](tpm-unlock.md). If the new image will not boot at all, the Limine snapshot from before the change still takes the passphrase.
+
 Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
 
 ```bash
