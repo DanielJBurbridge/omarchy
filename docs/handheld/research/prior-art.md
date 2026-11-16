@@ -248,3 +248,16 @@ Priority is Steam-ready and session start, then keyboard-free login, then the re
 | Brightness writer | `stage_priv_write_helper`, `render_priv_write_helper`. Installed path `/usr/bin/steamos-polkit-helpers/steamos-priv-write`. Sudoers `/etc/sudoers.d/99-deck-priv-write`. | MIT | A second root writer for sysfs, behind `NOPASSWD` on that one binary. Brightness on this branch is not that helper. | Do not add the helper. Power work stays with the Ally powerbutton package and `bin/omarchy-session-start`'s existing TDP-shim restart. |
 
 DeckShift's `deckshift.sh`, `uninstall.sh`, and `plugins/nosignal.deckshift/` are not in either table. No LICENSE file, so the code stays where it is. The behaviour notes are in §5.
+
+## Ported from Pizzarchy
+
+The four rows in "Adapt these" are adapted on this branch, not pasted. The copyright line, the permission notice and the disclaimer from Diego Huyke's MIT licence stay on each adapted file. Pizzarchy commit `daa9376ab733880e612569467164754096a5f0f4`.
+
+| Piece | Where it landed | What changed from upstream |
+|---|---|---|
+| Update stub | `default/gaming/steamos-update`, installed only by `packages/omarchy-gaming-session` to `/usr/bin/steamos-polkit-helpers/steamos-update` | `#!/bin/bash`. Help says `omarchy update`. The stub updates nothing. Exit 0 is only help, so apply cannot reboot the machine. Core does not copy it into `/usr/bin`. |
+| PATH probe | `default/gaming/steam-path.sh`, called from `bin/omarchy-gaming-steam` | The `env -i PATH=/usr/bin:/bin` check. The private shim stays. A parent PATH that still contains it, a missing environ, or a shim already on that PATH does not install `/usr/bin/steamos-session-select`. The sudo shim was not copied. |
+| `User=` | `default/gaming/sddm-user.sh`, same path as #48: `/etc/sddm.conf.d/omarchy-handheld-user.conf` | One owner, the gaming-session package, and only when `omarchy-hw-rog-ally` and the package are both present. `parse_autologin` ignores a `User=` outside `[Autologin]`. After `autologin.conf` is gone, `[Last] User=` in SDDM's state is the same installer record. apply does not write `User=` while the variant is installed, and deletes the file when the variant is gone. No second file. |
+| Console keymap | `omarchy_form_pin_console_keymap` in `install/provisioning/setup-form.sh` | Live console only, and only while `OMARCHY_FORM_CONSOLE_OSK=1` on an Ally VT. The installed `$keyboard` layout is not changed. A failed `loadkeys` is loud because the password is masked. |
+
+The SDDM rewrite, the `NOPASSWD` sudoers, the timezone helper and the brightness writer were not ported. `etc/sudoers.d/omarchy-handheld-autologin` is unchanged and is not part of this package.

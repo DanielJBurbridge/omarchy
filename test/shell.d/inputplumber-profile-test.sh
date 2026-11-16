@@ -508,6 +508,7 @@ hook_env["PATH"] = str(hook_bin) + os.pathsep + hook_env.get("PATH", "")
 hook_env["HOOK_CALLS"] = str(hook_calls)
 hook_env["HOOK_HELPER"] = str(helper)
 hook_env["HOOK_ROOT"] = str(hookroot)
+hook_env["OMARCHY_SDDM_CONF_DIR"] = str(work / "hook-sddm")
 hook_script = root / "packages/omarchy-gaming-session/omarchy-gaming-session.install"
 
 def run_hook(function):

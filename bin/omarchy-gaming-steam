@@ -29,6 +29,9 @@ fi
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
 proc_root=${OMARCHY_STEAM_PROC_ROOT:-/proc}
+# shellcheck source=/dev/null
+source "$OMARCHY_PATH/default/gaming/steam-path.sh"
+steam_session_select_record "$proc_root" "$steam_pid" "$OMARCHY_PATH/default/gaming/bin" "$OMARCHY_GAMING_RUNTIME/steam-path" || true
 while kill -0 "$steam_pid" 2>/dev/null; do
   if steam_tree_has_ui "$proc_root" "$steam_pid"; then
     # A reader that already timed out must not leave this write blocked.

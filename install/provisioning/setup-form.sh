@@ -173,8 +173,75 @@ omarchy_prompt_username() {
   done
 }
 
+# Adapted from Pizzarchy deck-form.sh deck_form_pin_console_keymap, commit
+# daa9376ab733880e612569467164754096a5f0f4. The live console keymap is pinned
+# to us while a console on-screen keyboard is up. That is not the installed
+# layout: $keyboard and /etc/vconsole.conf stay whatever the wizard stored.
+# A failed loadkeys is loud because the password field is masked.
+#
+# Copyright (c) 2026 Diego Huyke
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+OMARCHY_FORM_CONSOLE_KEYMAP=us
+
+omarchy_form_console_osk_active() {
+  [[ ${OMARCHY_FORM_CONSOLE_OSK:-} == 1 ]] || return 1
+  omarchy-cmd-present omarchy-hw-rog-ally || return 1
+  omarchy-hw-rog-ally
+}
+
+omarchy_form_console_tty() {
+  if [[ -n ${OMARCHY_FORM_TTY+x} ]]; then
+    printf '%s\n' "$OMARCHY_FORM_TTY"
+    return 0
+  fi
+  tty 2>/dev/null || true
+}
+
+omarchy_form_pin_console_keymap() {
+  local keymap=${1:-$OMARCHY_FORM_CONSOLE_KEYMAP}
+  local tty_name err rc=0
+  omarchy_form_console_osk_active || return 0
+  tty_name=$(omarchy_form_console_tty)
+  if [[ $tty_name != /dev/tty* ]]; then
+    return 0
+  fi
+  if [[ -n ${OMARCHY_FORM_LOADKEYS:-} ]]; then
+    err=$("$OMARCHY_FORM_LOADKEYS" "$keymap" 2>&1) || rc=$?
+  else
+    err=$(loadkeys "$keymap" 2>&1) || rc=$?
+  fi
+  if ((rc != 0)); then
+    printf 'Could not pin the console keymap to %s (loadkeys exited %s: %s). The password field is masked, so a different keymap would be invisible.\n' "$keymap" "$rc" "${err:-no output}" >&2
+    return 1
+  fi
+}
+
 omarchy_prompt_password() {
   local status
+  if ! omarchy_form_pin_console_keymap; then
+    if declare -F notice >/dev/null; then
+      notice "Could not pin the console keymap to US. The password is masked, so a wrong keymap would be invisible." 4
+    fi
+    return 1
+  fi
   while true; do
     password=$(gum input --placeholder "$(omarchy_form_text setupForm.passwordPlaceholder)" --prompt.foreground="#845DF9" --password --prompt "$(omarchy_form_text setupForm.passwordPrompt)") && status=0 || status=$?
     ((status == 0)) || return $status

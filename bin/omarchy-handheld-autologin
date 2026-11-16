@@ -77,23 +77,33 @@ Relogin=$relogin
 EOF
 }
 
-# Written once by the installer. apply never creates or replaces this file.
+# User= is owned by the gaming-session helper. apply never writes it.
+# A User= outside [Autologin] does not count, so a misplaced line is rewritten.
+# sudo clears the environment, so this never reads OMARCHY_PATH. The installed
+# helper is /usr/share/omarchy/default/gaming/sddm-user.sh. A checkout command
+# carries the same file beside itself, which is how the tests reach it.
 install_user() {
-  local username=$1
-  refuse_symlink
-  [[ $username =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || exit 2
-  [[ -e $user_dropin ]] && return 0
-  ensure_dir "$conf_dir"
-  write_file "$user_dropin" <<EOF
-[Autologin]
-User=$username
-EOF
+  local command_path helper
+  command_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+  helper=$(dirname -- "$command_path")/../default/gaming/sddm-user.sh
+  if [[ ! -f $helper || -L $helper ]]; then
+    helper=/usr/share/omarchy/default/gaming/sddm-user.sh
+  fi
+  if [[ ! -f $helper || -L $helper ]]; then
+    echo "omarchy-handheld-autologin: missing /usr/share/omarchy/default/gaming/sddm-user.sh" >&2
+    return 0
+  fi
+  # shellcheck source=/dev/null
+  source "$helper"
+  sddm_install_user "$1"
 }
 
 apply_dropin() {
   refuse_symlink
   if ! handheld_variant; then
-    rm -f -- "$dropin"
+    # A User= left behind with no Session= makes SDDM autologin into the last
+    # desktop. Drop both files together.
+    rm -f -- "$dropin" "$user_dropin"
     return 0
   fi
   # A crash-loop stop shows the greeter. A boot with no stop file autologins.

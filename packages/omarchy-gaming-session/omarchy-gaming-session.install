@@ -1,9 +1,22 @@
+sddm_handheld_user_file() {
+  printf '%s\n' "${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}/omarchy-handheld-user.conf"
+}
+
 post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
   if command -v omarchy-inputplumber-profile >/dev/null; then
     omarchy-inputplumber-profile install-service || true
+  fi
+  # One owner for /etc/sddm.conf.d/omarchy-handheld-user.conf. A counted
+  # User= is left in place. The name comes from the installer record, not
+  # from the account that ran pacman. No second file, no Session=, no sudoers.
+  # The package is present because this scriptlet is that package.
+  if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
+    if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
+      OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded
+    fi
   fi
 }
 
@@ -14,5 +27,10 @@ post_upgrade() {
 post_remove() {
   if command -v omarchy-inputplumber-profile >/dev/null; then
     omarchy-inputplumber-profile remove-service || true
+  fi
+  local file
+  file=$(sddm_handheld_user_file)
+  if [[ -L $file || -e $file ]]; then
+    rm -f -- "$file"
   fi
 }
