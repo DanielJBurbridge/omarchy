@@ -129,8 +129,6 @@ From dev-red's FAIL on [PR #55](https://github.com/DanielJBurbridge/omarchy/pull
 - L86. F2. **Open.** The runbook says os-separator extends PCR 7. `systemd-pcrosseparator.service` extends PCRs 0-7, 9 and 12-14. Name those registers. A later 7+14 or 0+7 binding has the same gap. Source: PR #55, review 5920728504, F2. [systemd-pcrosseparator.service(8)](https://man.archlinux.org/man/systemd-pcrosseparator.service.8.en).
 - L87. F6. **Open.** "What other images bind" does not name the licences of the linked peers (ublue-os and Bazzite are Apache-2.0, Limine's docs are BSD-2-Clause) or say that only commands are cited and nothing is copied. Source: PR #55, review 5920728504, F6.
 
-#55 claims L77–L87 and L120–L129. L88–L95 are #58, L96–L103 are #59, L104–L111 are #61, and later PRs start at L130.
-
 From the ready-waiter fix, [PR #57](https://github.com/DanielJBurbridge/omarchy/pull/57), merged as `aa8c14fb`. These stay open.
 
 - L120. **Open.** `test/shell.d/gaming-steam-ready-test.sh` covers an unreadable status (`chmod 000` on the middle `status`). Add an ENOENT case where that status vanishes between the glob and the read. Source: PR #57. Owner: session.
