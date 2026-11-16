@@ -2,6 +2,19 @@ post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
+  # One owner for /etc/sddm.conf.d/omarchy-handheld-user.conf. A counted
+  # User= is left in place. No second file, no Session=, no sudoers.
+  # The package is present because this scriptlet is that package. pacman -Q
+  # is not required. SUDO_USER is the person installing it, used only when
+  # the installer record has no counted User=.
+  if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
+    if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
+      OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded
+      if [[ ${SUDO_USER:-} != root && ${SUDO_USER:-} =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
+        OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-user "$SUDO_USER"
+      fi
+    fi
+  fi
 }
 
 post_upgrade() {

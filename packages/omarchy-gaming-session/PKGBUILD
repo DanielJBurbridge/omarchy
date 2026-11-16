@@ -17,5 +17,7 @@ package() {
   install -Dm644 default/gaming/wayland-sessions/omarchy-gamescope.desktop "$pkgdir/usr/share/wayland-sessions/omarchy-gamescope.desktop"
   install -Dm644 default/gaming/wayland-sessions/omarchy-handheld.desktop "$pkgdir/usr/share/wayland-sessions/omarchy-handheld.desktop"
   install -Dm644 'default/gaming/applications/Omarchy Gaming.desktop' "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
+  install -Dm755 default/gaming/steamos-update "$pkgdir/usr/bin/steamos-polkit-helpers/steamos-update"
+  install -Dm755 default/gaming/sddm-user.sh "$pkgdir/usr/lib/omarchy-gaming-session/sddm-user.sh"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

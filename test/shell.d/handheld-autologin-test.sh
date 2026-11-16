@@ -175,7 +175,66 @@ assert_root_file "$user_conf"
 if run_guard install-user '../daniel'; then
   fail "install-user accepts a path"
 fi
+printf '[General]\nUser=other\n' > "$user_conf"
+run_guard install-user daniel
+grep -q '^\[Autologin\]$' "$user_conf" || fail "a User= outside [Autologin] is rewritten into the section" "$(cat "$user_conf")"
+grep -q '^User=daniel$' "$user_conf" || fail "a misplaced User= is replaced" "$(cat "$user_conf")"
+printf '[Autologin]\n# User=ghost\nUser=\n' > "$user_conf"
+run_guard install-user daniel
+grep -q '^User=daniel$' "$user_conf" || fail "a comment or an empty User= counts" "$(cat "$user_conf")"
+rm -f "$user_conf"
+HW=laptop run_guard install-user daniel
+[[ ! -e $user_conf ]] || fail "a laptop install-user writes User=" "$(cat "$user_conf" 2>/dev/null)"
+HW=ally PKG=absent run_guard install-user daniel
+[[ ! -e $user_conf ]] || fail "install-user writes User= without the gaming session package"
 pass "User= stays in its own file and apply never writes it"
+
+stub=$work/steamos-update
+rm -f "$stub"
+OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
+[[ -x $stub ]] || fail "install-stub copies the SteamOS update stub"
+[[ $(stat -c %a -- "$stub") == 755 ]] || fail "the update stub is mode 0755" "$(stat -c %a -- "$stub")"
+"$stub" check
+[[ $? == 7 ]] || fail "the installed stub check exits 7"
+printf 'custom\n' > "$stub"
+OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
+[[ $(cat "$stub") == custom ]] || fail "install-stub replaces a stub that is already installed" "$(cat "$stub")"
+rm -f "$stub"
+ln -s "$work/elsewhere" "$stub"
+if OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub; then
+  fail "install-stub follows a symlink"
+fi
+[[ -L $stub ]] || fail "install-stub removed the symlink it refused"
+rm -f "$stub"
+HW=laptop OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
+[[ ! -e $stub ]] || fail "a laptop install-stub writes the update stub"
+pass "the update stub is installed once, on the Ally gaming session"
+
+rm -f "$user_conf"
+printf '[General]\nUser=other\n[Autologin]\nUser=daniel\n' > "$work/sddm/autologin.conf"
+PATH="$work/bin:$ROOT/bin:$PATH" HW=ally PKG=present \
+  OMARCHY_SDDM_CONF_DIR=$work/sddm OMARCHY_SDDM_STATE=$work/missing-state \
+  "$ROOT/default/gaming/sddm-user.sh" install-recorded
+grep -q '^User=daniel$' "$user_conf" || fail "install-recorded reads [Autologin] User=" "$(cat "$user_conf" 2>/dev/null)"
+kept_user=$(cat "$user_conf")
+printf '[Autologin]\nUser=other\n' > "$work/sddm/autologin.conf"
+PATH="$work/bin:$ROOT/bin:$PATH" HW=ally PKG=present \
+  OMARCHY_SDDM_CONF_DIR=$work/sddm \
+  "$ROOT/default/gaming/sddm-user.sh" install-recorded
+[[ $(cat "$user_conf") == "$kept_user" ]] || fail "install-recorded replaces a counted User=" "$(cat "$user_conf")"
+rm -f "$user_conf" "$work/sddm/autologin.conf"
+printf '[Last]\nSession=omarchy.desktop\nUser=daniel\n' > "$work/state.conf"
+PATH="$work/bin:$ROOT/bin:$PATH" HW=ally PKG=present \
+  OMARCHY_SDDM_CONF_DIR=$work/sddm OMARCHY_SDDM_STATE=$work/state.conf \
+  "$ROOT/default/gaming/sddm-user.sh" install-recorded
+grep -q '^User=daniel$' "$user_conf" || fail "install-recorded reads SDDM [Last] User= after autologin.conf is gone" "$(cat "$user_conf" 2>/dev/null)"
+rm -f "$user_conf"
+printf '[Autologin]\nUser=other\n' > "$work/state.conf"
+PATH="$work/bin:$ROOT/bin:$PATH" HW=ally PKG=present \
+  OMARCHY_SDDM_CONF_DIR=$work/sddm OMARCHY_SDDM_STATE=$work/state.conf \
+  "$ROOT/default/gaming/sddm-user.sh" install-recorded
+[[ ! -e $user_conf ]] || fail "a User= outside [Last] in the SDDM state is used" "$(cat "$user_conf")"
+pass "the recorded installer user is copied and never guessed"
 
 rm -f "$work/run/stop" "$work/run/failures" "$work/run/actions"
 OMARCHY_AUTOLOGIN_NOW=3000 run_guard fail

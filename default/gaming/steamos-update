@@ -1,0 +1,78 @@
+#!/bin/bash
+# Adapted from Pizzarchy src/deck-session.sh render_update_stub, commit
+# daa9376ab733880e612569467164754096a5f0f4. The exit codes are Steam's.
+# This file updates nothing.
+#
+# Copyright (c) 2026 Diego Huyke
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# steamos-update: a stub. It updates nothing.
+#
+# Steam's Gaming Mode runs this absolute path
+# (/usr/bin/steamos-polkit-helpers/steamos-update) to ask about OS updates.
+# On SteamOS that path is a real updater. Here it is missing, Steam exits 127,
+# and first-run setup stops on a network error that is not a network error.
+#
+# Exit 7 is "already up to date" / "nothing to apply". Exit 0 on apply is what
+# Pizzarchy measured as "an update was applied", which makes Steam reboot.
+# This stub never exits 0 except for help.
+#
+# To update this system, from the desktop: omarchy update
+
+set -euo pipefail
+
+note() {
+  printf 'steamos-update: %s\n' "$1" >&2
+  logger -t steamos-update -- "$1" || true
+}
+
+case ${1-} in
+  check)
+    exit 7
+    ;;
+  --supports-duplicate-detection)
+    exit 1
+    ;;
+  "" | apply)
+    note "nothing to apply; this OS is updated with omarchy update"
+    exit 7
+    ;;
+  -h | --help | help)
+    cat <<'USAGE'
+steamos-update (stub) — reports up to date and updates nothing.
+
+Steam calls this path during Gaming Mode setup. It is not the SteamOS
+updater, and it does not download, stage or apply an update.
+
+  check                            exit 7 (already up to date)
+  --supports-duplicate-detection   exit 1 (not supported)
+  (no argument) | apply            exit 7 (nothing to apply)
+
+Exit 0 on apply is not used. Steam reads 0 as "applied" and reboots.
+
+To update this system, from the desktop: omarchy update
+USAGE
+    exit 0
+    ;;
+  *)
+    note "unrecognised argument '$1'; answering up to date"
+    exit 7
+    ;;
+esac

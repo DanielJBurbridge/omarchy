@@ -77,17 +77,12 @@ Relogin=$relogin
 EOF
 }
 
-# Written once by the installer. apply never creates or replaces this file.
+# User= is owned by the gaming-session helper. apply never writes it.
+# A User= outside [Autologin] does not count, so a misplaced line is rewritten.
 install_user() {
-  local username=$1
-  refuse_symlink
-  [[ $username =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || exit 2
-  [[ -e $user_dropin ]] && return 0
-  ensure_dir "$conf_dir"
-  write_file "$user_dropin" <<EOF
-[Autologin]
-User=$username
-EOF
+  # shellcheck source=/dev/null
+  source "$OMARCHY_PATH/default/gaming/sddm-user.sh"
+  sddm_install_user "$1"
 }
 
 apply_dropin() {
@@ -124,6 +119,11 @@ case $action in
     ;;
   install-user)
     install_user "${2:-}"
+    ;;
+  install-stub)
+    # shellcheck source=/dev/null
+    source "$OMARCHY_PATH/default/gaming/sddm-user.sh"
+    gaming_install_update_stub
     ;;
   apply)
     apply_dropin
