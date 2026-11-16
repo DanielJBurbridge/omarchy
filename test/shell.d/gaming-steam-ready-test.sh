@@ -56,6 +56,50 @@ ln -s '/tmp/.X11-unix/X1' "$race/210/fd/4"
 steam_tree_has_ui "$race" 200 || fail "an unreadable status hides steamwebhelper's display"
 pass "an unreadable proc status is skipped and steamwebhelper's display still counts"
 
+# Ally capture, 16 Nov 2026. Gamescope's Xwayland accepts clients on the
+# abstract socket. /proc/net/unix names that socket on the server inode only,
+# and steamwebhelper's fd is a path-less socket:[client]. gamescopereaper has
+# reparented that process out of the launcher's children. ss pairs the client
+# inode with the abstract path. A steamwebhelper in another cgroup does not
+# count, even with the same socket shape.
+ally=$work/proc-ally
+scope='0::/user.slice/user-1000.slice/user@1000.service/app.slice/omarchy-gamescope-27.scope'
+mkdir -p "$ally/300" "$ally/310" "$ally/400/fd" "$ally/999" "$ally/net"
+printf 'Name:\tbash\nPPid:\t1\nUid:\t1000\t1000\t1000\t1000\n' > "$ally/300/status"
+printf '%s\n' "$scope" > "$ally/300/cgroup"
+printf 'Name:\tsteam\nPPid:\t300\nUid:\t1000\t1000\t1000\t1000\n' > "$ally/310/status"
+printf '%s\n' "$scope" > "$ally/310/cgroup"
+printf 'Name:\tgamescopereaper\nPPid:\t1\nUid:\t1000\t1000\t1000\t1000\n' > "$ally/999/status"
+printf 'Name:\tsteamwebhelper\nPPid:\t999\nUid:\t1000\t1000\t1000\t1000\n' > "$ally/400/status"
+printf '%s\n' "$scope" > "$ally/400/cgroup"
+ln -s 'socket:[555]' "$ally/400/fd/12"
+printf '%s\n' \
+  'ffff: 00000002 00000000 00010000 0001 01 1718531 /tmp/.X11-unix/X0' \
+  'ffff: 00000002 00000000 00010000 0001 01 1454770 @/tmp/.X11-unix/X0' \
+  > "$ally/net/unix"
+cat > "$ally/ss" <<'EOF'
+u_str LISTEN 0 128 /tmp/.X11-unix/X0 1718531 * 0 users:(("Xwayland",pid=21,fd=4))
+u_str LISTEN 0 128 @/tmp/.X11-unix/X0 1454770 * 0 users:(("Xwayland",pid=21,fd=5))
+u_str ESTAB 0 0 @/tmp/.X11-unix/X0 1454800 * 555 users:(("Xwayland",pid=21,fd=8))
+u_str ESTAB 0 0 * 555 * 1454800 users:(("steamwebhelper",pid=400,fd=12))
+EOF
+steam_tree_has_ui "$ally" 300 || fail "a reparented steamwebhelper on the abstract X socket counts as a UI"
+pass "a reparented steamwebhelper on Gamescope's abstract X socket counts as a UI"
+
+other=$work/proc-other-scope
+mkdir -p "$other/300" "$other/400/fd" "$other/net"
+printf 'Name:\tbash\nPPid:\t1\nUid:\t1000\t1000\t1000\t1000\n' > "$other/300/status"
+printf '%s\n' '0::/user.slice/user-1000.slice/session-3.scope' > "$other/300/cgroup"
+printf 'Name:\tsteamwebhelper\nPPid:\t1\nUid:\t1000\t1000\t1000\t1000\n' > "$other/400/status"
+printf '%s\n' '0::/user.slice/user-1000.slice/session-4.scope' > "$other/400/cgroup"
+ln -s 'socket:[555]' "$other/400/fd/12"
+cp "$ally/net/unix" "$other/net/unix"
+cp "$ally/ss" "$other/ss"
+if steam_tree_has_ui "$other" 300; then
+  fail "a steamwebhelper outside the gamescope scope counts as this session's UI"
+fi
+pass "a steamwebhelper in another cgroup is not this session's UI"
+
 state=$work/state
 mkdir -p "$state"
 gaming_state=$state
@@ -94,3 +138,41 @@ grep -q 'leaving them up' "$fallback" || fail "the timeout did not record that S
 recovery=$HANDHELD_HOME/.local/state/omarchy/gaming-session/recovery
 [[ ! -e $recovery ]] || fail "a live Steam wrote the recovery latch" "$(cat "$recovery")"
 pass "a ready-waiter timeout leaves a live Gamescope and Steam running"
+
+# The scan stops when the waiter's window ends. Steam keeps running; the
+# 0.2s sleep does not continue for the rest of that process.
+poll=$work/poll
+mkdir -p "$poll/bin" "$poll/proc/1" "$poll/runtime"
+printf 'PPid:\t0\n' > "$poll/proc/1/status"
+mkfifo -m 600 "$poll/runtime/ready"
+cat > "$poll/bin/steam" <<'EOF'
+#!/bin/bash
+/bin/sleep 3
+EOF
+cat > "$poll/bin/sleep" <<'EOF'
+#!/bin/bash
+if [[ ${1:-} == 0.2 ]]; then
+  date +%s%N >> "$POLL_LOG"
+fi
+exec /bin/sleep "$@"
+EOF
+chmod +x "$poll/bin/steam" "$poll/bin/sleep"
+: > "$poll/sleeps"
+PATH="$poll/bin:/usr/bin:/bin" \
+  OMARCHY_PATH="$ROOT" \
+  OMARCHY_GAMING_RUNTIME="$poll/runtime" \
+  OMARCHY_STEAM_PROC_ROOT="$poll/proc" \
+  OMARCHY_GAMING_READY_TIMEOUT=1 \
+  DISPLAY=:9 \
+  POLL_LOG="$poll/sleeps" \
+  "$ROOT/bin/omarchy-gaming-steam" >"$poll/out" 2>"$poll/err" &
+child=$!
+wait "$child" || fail "the ready poller exited early" "$(cat "$poll/err" 2>/dev/null)"
+child=
+mapfile -t stamps < "$poll/sleeps"
+(( ${#stamps[@]} > 0 )) || fail "the ready poll never slept" "$(cat "$poll/err" 2>/dev/null)"
+first=${stamps[0]}
+last=${stamps[-1]}
+span=$(( (last - first) / 1000000000 ))
+(( span < 2 )) || fail "the ready poll kept sleeping after the waiter window" "span=${span}s count=${#stamps[@]}"
+pass "the ready poll stops when the waiter window ends"
