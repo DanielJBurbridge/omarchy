@@ -29,7 +29,7 @@ The reviewed companion recipe is `packaging/rog-ally-powerbutton/PKGBUILD`. It b
 | `/usr/bin/steamos-powerbuttond` | Unmodified upstream daemon |
 | `/usr/share/licenses/omarchy-rog-ally-powerbutton/LICENSE` | Upstream BSD notice |
 | `/usr/lib/udev/hwdb.d/70-omarchy-rog-ally-power-button.hwdb` | Mark KEY_POWER candidates using complete capability tokens |
-| `/usr/lib/udev/rules.d/70-omarchy-rog-ally-power-button.rules` | Grant active-seat access only for the ACPI power button (name `Power Button`, modalias `PNP0C0C` or `LNXPWRBN`) when `/usr/bin/omarchy-hw-rog-ally` succeeds |
+| `/usr/lib/udev/rules.d/70-omarchy-rog-ally-power-button.rules` | Grant active-seat access only for the ACPI power button (input parent name `Power Button` and phys `PNP0C0C/button/input0` or `LNXPWRBN/button/input0`) when `/usr/bin/omarchy-hw-rog-ally` succeeds |
 
 It does not install upstream's global input access/scancode overrides or the `gamescope-session.service.wants` link. It conflicts with separately installed Steam power-button daemon packages; resolve an existing handler deliberately rather than enabling both. InputPlumber must leave the real power button to this owner; no KEY_POWER mapping to an additional suspend action. No input-group membership is required.
 

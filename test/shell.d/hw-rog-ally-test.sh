@@ -901,13 +901,143 @@ fi
   fail "a failed build records a power-button success"
 pass "a failed build is not marked done and setup retries it"
 
+# udev applies every ATTRS match to one parent. This walks a udevadm info -a
+# chain and accepts a rule only when one parent satisfies all of its ATTRS keys.
+attrs_block_matches() {
+  local i val alt pat
+  local -a alts=()
+  for i in "${!keys[@]}"; do
+    [[ $1 =~ ATTRS\{${keys[$i]}\}==\"([^\"]*)\" ]] || return 1
+    val=${BASH_REMATCH[1]}
+    IFS='|' read -ra alts <<< "${pats[$i]}"
+    alt=0
+    for pat in "${alts[@]}"; do
+      # udev match text is a glob. "*PNP0C0C*" must stay unquoted.
+      # shellcheck disable=SC2053
+      if [[ $val == $pat ]]; then
+        alt=1
+        break
+      fi
+    done
+    (( alt == 1 )) || return 1
+  done
+  return 0
+}
+
+attrs_same_parent() {
+  local fixture=$2 rest=$1
+  local -a keys=() pats=()
+  while [[ $rest =~ ATTRS\{([A-Za-z0-9_]+)\}==\"([^\"]*)\" ]]; do
+    keys+=("${BASH_REMATCH[1]}")
+    pats+=("${BASH_REMATCH[2]}")
+    rest=${rest#*"ATTRS{${BASH_REMATCH[1]}}==\"${BASH_REMATCH[2]}\""}
+  done
+  (( ${#keys[@]} > 0 )) || return 1
+  local block='' line
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line == 'looking at '* && -n $block ]]; then
+      attrs_block_matches "$block" && return 0
+      block=''
+    fi
+    block+=$line$'\n'
+  done <<< "$fixture"
+  [[ -n $block ]] && attrs_block_matches "$block"
+}
+
+# Parent chains in `udevadm info -a` shape. name and phys are on the input
+# device. The ACPI modalias is on the grandparent, so a rule that requires
+# both can never match.
+pnp_chain='looking at device /devices/LNXSYSTM:00/PNP0C0C:00/input/input3/event3:
+    KERNEL=="event3"
+    SUBSYSTEM=="input"
+looking at parent device /devices/LNXSYSTM:00/PNP0C0C:00/input/input3:
+    KERNELS=="input3"
+    SUBSYSTEMS=="input"
+    ATTRS{name}=="Power Button"
+    ATTRS{phys}=="PNP0C0C/button/input0"
+    ATTRS{modalias}=="input:b0019v0000p0001e0000-e0,1,k74,ramlsfw"
+looking at parent device /devices/LNXSYSTM:00/PNP0C0C:00:
+    KERNELS=="PNP0C0C:00"
+    SUBSYSTEMS=="acpi"
+    DRIVERS=="button"
+    ATTRS{hid}=="PNP0C0C"
+    ATTRS{modalias}=="acpi:PNP0C0C:"
+'
+lnx_chain='looking at device /devices/LNXSYSTM:00/LNXPWRBN:00/input/input4/event4:
+    KERNEL=="event4"
+    SUBSYSTEM=="input"
+looking at parent device /devices/LNXSYSTM:00/LNXPWRBN:00/input/input4:
+    KERNELS=="input4"
+    SUBSYSTEMS=="input"
+    ATTRS{name}=="Power Button"
+    ATTRS{phys}=="LNXPWRBN/button/input0"
+    ATTRS{modalias}=="input:b0019v0000p0001e0000-e0,1,k74,ramlsfw"
+looking at parent device /devices/LNXSYSTM:00/LNXPWRBN:00:
+    KERNELS=="LNXPWRBN:00"
+    SUBSYSTEMS=="acpi"
+    DRIVERS=="button"
+    ATTRS{hid}=="LNXPWRBN"
+    ATTRS{modalias}=="acpi:LNXPWRBN:"
+'
+keyboard_chain='looking at device /devices/platform/i8042/serio0/input/input0/event0:
+    KERNEL=="event0"
+    SUBSYSTEM=="input"
+looking at parent device /devices/platform/i8042/serio0/input/input0:
+    KERNELS=="input0"
+    SUBSYSTEMS=="input"
+    ATTRS{name}=="AT Translated Set 2 keyboard"
+    ATTRS{phys}=="isa0060/serio0/input0"
+    ATTRS{modalias}=="input:b0011v0001p0001eab83-e0,1,4,11,14,k71,72,73,74,75,ramlsfw"
+looking at parent device /devices/platform/i8042/serio0:
+    KERNELS=="serio0"
+    SUBSYSTEMS=="serio"
+    DRIVERS=="atkbd"
+'
+sleep_chain='looking at parent device /devices/LNXSYSTM:00/PNP0C0E:00/input/input5:
+    ATTRS{name}=="Sleep Button"
+    ATTRS{phys}=="PNP0C0E/button/input0"
+    ATTRS{modalias}=="input:b0019v0000p0003e0000-e0,1,k8e,ramlsfw"
+looking at parent device /devices/LNXSYSTM:00/PNP0C0E:00:
+    ATTRS{hid}=="PNP0C0E"
+    ATTRS{modalias}=="acpi:PNP0C0E:"
+'
+mixed_parent='ATTRS{name}=="Power Button", ATTRS{modalias}=="*PNP0C0C*"'
+if attrs_same_parent "$mixed_parent" "$pnp_chain"; then
+  fail "a rule that mixes the input name with the ACPI modalias was accepted"
+fi
+if attrs_same_parent 'ATTRS{name}=="Power Button", ATTRS{modalias}=="*LNXPWRBN*"' "$lnx_chain"; then
+  fail "a rule that mixes the input name with the ACPI modalias was accepted"
+fi
+
 rules=$ROOT/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.rules
 uaccess_count=0
+pnp_rule=''
+lnx_rule=''
 while IFS= read -r line; do
   [[ $line == *'TAG+="uaccess"'* ]] || continue
   uaccess_count=$((uaccess_count + 1))
-  [[ $line == *'ATTRS{name}=="Power Button"'* ]] || fail "uaccess is not limited to the ACPI power button" "$line"
-  [[ $line == *'PNP0C0C'* || $line == *'LNXPWRBN'* ]] || fail "uaccess is not limited to the ACPI power-button id" "$line"
+  [[ $line == *'ATTRS{name}=="Power Button"'* && $line == *'ATTRS{phys}=='* ]] ||
+    fail "uaccess is not limited to the input device name and phys" "$line"
+  if [[ $line == *'PNP0C0C/button/input0'* ]]; then
+    pnp_rule=$line
+  elif [[ $line == *'LNXPWRBN/button/input0'* ]]; then
+    lnx_rule=$line
+  else
+    fail "uaccess phys is not the ACPI power-button input" "$line"
+  fi
 done <"$rules"
 (( uaccess_count == 2 )) || fail "the power-button rule no longer grants uaccess" "$uaccess_count"
-pass "the power-button uaccess rule matches only the ACPI power button"
+attrs_same_parent "$pnp_rule" "$pnp_chain" || fail "the PNP0C0C power button is not granted uaccess"
+attrs_same_parent "$lnx_rule" "$lnx_chain" || fail "the LNXPWRBN power button is not granted uaccess"
+if attrs_same_parent "$pnp_rule" "$lnx_chain" || attrs_same_parent "$lnx_rule" "$pnp_chain"; then
+  fail "a power-button rule matches the other ACPI id"
+fi
+for line in "$pnp_rule" "$lnx_rule"; do
+  if attrs_same_parent "$line" "$keyboard_chain"; then
+    fail "a KEY_POWER keyboard is granted uaccess" "$line"
+  fi
+  if attrs_same_parent "$line" "$sleep_chain"; then
+    fail "the sleep button is granted uaccess" "$line"
+  fi
+done
+pass "the power-button uaccess rule matches one parent of the ACPI power button"

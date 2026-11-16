@@ -1,7 +1,9 @@
 # KEY_POWER is also advertised by laptop and dock keyboards. uaccess is only
-# for the ACPI power button: name "Power Button", and PNP0C0C or LNXPWRBN.
-# Sleep Button, the AT keyboard, and InputPlumber's virtual keyboard stay out.
+# for the ACPI power button. name and phys are both on the input device:
+# the kernel button driver sets phys to PNP0C0C/button/input0 or
+# LNXPWRBN/button/input0. Do not also match the ACPI parent's modalias.
+# udev requires every ATTRS key to come from the same parent.
 ACTION=="remove", GOTO="omarchy_rog_ally_power_button_end"
-SUBSYSTEM=="input", KERNEL=="event*", ENV{OMARCHY_POWER_BUTTON}=="1", ATTRS{name}=="Power Button", ATTRS{modalias}=="*PNP0C0C*", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{STEAMOS_POWER_BUTTON}="1", TAG+="uaccess"
-SUBSYSTEM=="input", KERNEL=="event*", ENV{OMARCHY_POWER_BUTTON}=="1", ATTRS{name}=="Power Button", ATTRS{modalias}=="*LNXPWRBN*", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{STEAMOS_POWER_BUTTON}="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{OMARCHY_POWER_BUTTON}=="1", ATTRS{name}=="Power Button", ATTRS{phys}=="PNP0C0C/button/input0", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{STEAMOS_POWER_BUTTON}="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{OMARCHY_POWER_BUTTON}=="1", ATTRS{name}=="Power Button", ATTRS{phys}=="LNXPWRBN/button/input0", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{STEAMOS_POWER_BUTTON}="1", TAG+="uaccess"
 LABEL="omarchy_rog_ally_power_button_end"
