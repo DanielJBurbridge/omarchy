@@ -1,6 +1,6 @@
 # Speaker DSP for the ROG Ally RC71L
 
-16 Nov 2026. Docs only. Gap 5 in [feature-parity-audit.md](feature-parity-audit.md). Nothing here was run on an RC71L. Do not copy the CachyOS or Bazzite filter files, `game.wav`, or anyone else's coefficients into this MIT tree.
+16 Nov 2026. Docs only. Gap 5 in [feature-parity-audit.md](feature-parity-audit.md). Nothing here was run on an RC71L. Reuse the speaker host already in this tree. Do not copy the CachyOS or Bazzite filter files, `game.wav`, or anyone else's coefficients into this MIT tree.
 
 ## What this branch already has
 
@@ -40,36 +40,36 @@ CachyOS targets BDF `09:00.6`. One RC71L log shows `pci-0000_0a_00.6` ([Batocera
 
 ## Steam Deck, for comparison
 
-[valve-hardware-audio-processing](https://github.com/evlaV/valve-hardware-audio-processing) is Deck cards (`acp5x`, `sof-nau8821-max`): Faust to LV2, WirePlumber routing, UCM. Not an Ally profile. `LICENSE` is GPL-2 text plus a Faust "version 2 or later" notice. Chimera packages 0.56 as `GPL-2.0-or-later` ([template](https://github.com/chimera-linux/cports/blob/master/main/valve-hardware-audio-processing/template.py)). Bazzite `steamdeck-dsp` at [`5c62bccc`](https://github.com/ublue-os/bazzite/blob/5c62bccc/spec_files/steamdeck-dsp/steamdeck-dsp.spec) says `GPLv2`, version 0.69. Jupiter also loads `cs35l41-dsp1-spk-prot.wmfw` ([holoiso #426](https://github.com/theVakhovskeIsTaken/holoiso/issues/426)). Whether Ally `cs35l41-hda` requests that name was not read (**unverified**).
+[valve-hardware-audio-processing](https://github.com/evlaV/valve-hardware-audio-processing) targets Deck cards (`acp5x`, `sof-nau8821-max`): Faust to LV2, WirePlumber routing, UCM. Not an Ally profile. The pinned files are under Code to reuse. Jupiter also loads `cs35l41-dsp1-spk-prot.wmfw` ([holoiso #426](https://github.com/theVakhovskeIsTaken/holoiso/issues/426)). Whether Ally `cs35l41-hda` requests that name was not read (**unverified**).
 
-## Other references, not coefficients
+## Code to reuse
 
-[asahi-audio](https://github.com/AsahiLinux/asahi-audio) is the shape to copy as an idea: a virtual device, a WirePlumber rule, the raw sink hidden. README: through 4.2 MIT, later check-ins GPL-2. The `LICENSE` file on `main` is still the MIT text. [speakersafetyd](https://github.com/AsahiLinux/speakersafetyd) estimates coil temperature from TAS2764 voltage and current (through 2.0.2 MIT, later GPL-2). It does not speak CS35L41. Do not port it. If firmware loaded, protection here is the amp DSP. Confirm that before any boost.
+Reuse this tree's speaker host.
 
-EasyEffects is `GPL-3.0-or-later` ([README](https://github.com/wwmm/easyeffects)) and cannot sit beside a tuning ([docs/audio-tuning.md](../../audio-tuning.md)). No licensed RC71L preset was found. A Reddit "ROG Ally X Speakers" EQ has no licence. The MIT [G14 preset](https://github.com/WontonOP/g14-easyeffects-preset) is another laptop, tuned by ear. [M0Rf30/easyeffects-presets](https://github.com/M0Rf30/easyeffects-presets) is MIT for its own files and says its laptop chain is not from a measurement. Do not reuse those gains.
+- This repo at [`ff1020916`](https://github.com/DanielJBurbridge/omarchy/commit/ff1020916fe6518d8835cc91b2a1f8cbe308adca). The root `LICENSE` is the MIT text (SPDX `MIT`). Keep [`bin/omarchy-audio-tuning`](../../../bin/omarchy-audio-tuning) and [`default/audio/filter-chain-host.conf`](../../../default/audio/filter-chain-host.conf). Copy the shape of [`default/audio/tunings/asus-proart-p14-n1x/filter-chain.conf`](../../../default/audio/tunings/asus-proart-p14-n1x/filter-chain.conf) and its `tuning.conf`: stereo links, `node.dont-move`, `node.dont-fallback`, and the LSP limiter URI. Do not copy that laptop's gains. Its `tuning.conf` says they were fitted from an ASUS Dolby curve for the H7407BA.
 
-## Clean-room design
+- PipeWire [`8e3a214e`](https://github.com/PipeWire/pipewire/commit/8e3a214ecfd9aece7eaabb67d29ade3496b9bbdf) (2026-11-16), `src/daemon/filter-chain/sink-eq6.conf`. [`COPYING`](https://github.com/PipeWire/pipewire/blob/8e3a214ecfd9aece7eaabb67d29ade3496b9bbdf/COPYING) is the MIT Expat text (SPDX `MIT`). The file has no SPDX line. It is six `builtin` bands (`bq_lowshelf`, four `bq_peaking`, `bq_highshelf`) with `Freq`, `Q` and `Gain`, every gain 0. Vendor those bands into that skeleton, keep the copyright notice, and set the controls from a new RC71L measurement.
 
-Opt-in package `omarchy-rog-ally-speaker`. Not a base package. [`install/hardware/asus/rog-ally.sh`](../../../install/hardware/asus/rog-ally.sh) stays as it is: it must not install this.
+- [asahi-audio](https://github.com/AsahiLinux/asahi-audio) `v4.2` ([`f5b118a8`](https://github.com/AsahiLinux/asahi-audio/commit/f5b118a8a2fb150b145cb667b4738cdab0304eb0)). `LICENSE` is MIT. `conf/wireplumber.conf` matches `hw:AppleJ*` and renames the raw sink. `conf/asahi-lock-volume.lua` forces the Apple speaker route to unity. `firs/` is per-MacBook impulse data. Do not vendor: wrong machine. On `main` ([`ab1b4692`](https://github.com/AsahiLinux/asahi-audio/commit/ab1b46928d056bb02bb4ad72d522dab57dc9efe1)) those two configs are `SPDX-License-Identifier: GPL-2.0-or-later`. Do not depend on the package. The host already hides the fronted sink and leaves volume on the physical sink. [speakersafetyd](https://github.com/AsahiLinux/speakersafetyd) estimates TAS2764 coil temperature. It does not speak CS35L41. Do not port it.
 
-Installed paths:
+- Valve [`027c7bbe`](https://github.com/evlaV/valve-hardware-audio-processing/commit/027c7bbe2145fcc7ec4cb511d692baf9d302de5e) (2026-11-11). `LICENSE` is the Faust compiler's GPL notice: SPDX `GPL-2.0-or-later`. `src/faust/valve_deck_speakers.dsp` says "Speaker tuning for the Steam Deck speakers" and sets `IN_GAIN_DB = 10.5`. `pipewire-confs/hardware-profiles/valve-jupiter/filter-chain.conf.d/filter-chain.conf` is a microphone chain (`valve_deck_microphone`, rnnoise). `ucm2/conf.d/acp5x/HiFi.conf` is the Deck card. Do not vendor, and do not depend on the package for the Ally.
+
+- EasyEffects [`c8081b8d`](https://github.com/wwmm/easyeffects/commit/c8081b8df73a89ae14dc5b9f76ecc81b376a9188) (2026-11-15) is `GPL-3.0-or-later`. No licensed RC71L preset was found. A Reddit "ROG Ally X Speakers" EQ has no licence. [g14.json](https://github.com/WontonOP/g14-easyeffects-preset/blob/42c9d8e7557bf09eea90619d28b224dfc3519e5c/g14.json) at [`42c9d8e7`](https://github.com/WontonOP/g14-easyeffects-preset/commit/42c9d8e7557bf09eea90619d28b224dfc3519e5c) is MIT and was tuned by ear for a Zephyrus G14. [Cupertino Laptop Speakers.json](https://github.com/M0Rf30/easyeffects-presets/blob/654f94b780183c2fa5c78ed002b288e15ffca20f/Cupertino%20Laptop%20Speakers.json) at [`654f94b7`](https://github.com/M0Rf30/easyeffects-presets/commit/654f94b780183c2fa5c78ed002b288e15ffca20f) is one of that repo's own MIT files; the README says it is not from a measurement. Other files there are not all MIT. Do not vendor those gains. Do not run EasyEffects beside a tuning ([docs/audio-tuning.md](../../audio-tuning.md)).
+
+CachyOS and Bazzite `game.wav`, and both Ally `filter-chain.conf` files, have no usable licence. Nothing there is reusable.
+
+## What to ship
+
+Opt-in package `omarchy-rog-ally-speaker`. Not a base package. [`install/hardware/asus/rog-ally.sh`](../../../install/hardware/asus/rog-ally.sh) must not install it. No new WirePlumber file and no `pipewire.conf.d` fragment.
 
 - `/usr/share/omarchy-rog-ally-speaker/tuning.conf`
 - `/usr/share/omarchy-rog-ally-speaker/filter-chain.conf`
-- `/usr/share/wireplumber/wireplumber.conf.d/51-omarchy-rog-ally-speaker.conf`
 
-Later, `tuning_match` may select that `tuning.conf`. `match_command` is `omarchy-hw-rog-ally`. `sink_pattern` waits for `pactl list sinks` on the RC71L: the Ryzen analog sink (`1022:15e3`), not Radeon HDMI. Until then, leave it empty and do not ship the package.
+`match_command` is `omarchy-hw-rog-ally`. `sink_pattern` stays empty until `pactl list sinks` on an RC71L names the Ryzen analog sink (`1022:15e3`), not HDMI. Do not ship before that, and do not match a PCI slot. The graph is the vendored `sink-eq6` skeleton plus the host limiter (`http://lsp-plug.in/plugins/lv2/limiter_stereo`, `alr` and `boost` off, threshold -1 dBFS). High-pass for excursion. No broadband boost. No `convolver`. No `bq_raw`. Bands come from the new measurement. `derived_from` is "measured on this RC71L", with `magnitude_rms_db`, `bass_group_delay_swing_ms`, `limiter_headroom_db` and `dynamic_range_delta_lu`. One volume control: `omarchy-audio-output-sink` stays the control, and the fronted sink stays hidden. That is the fix for the linked pair. If the amps loaded their firmware, protection stays in the amp DSP. Confirm that before any boost.
 
-Graph, new numbers only, SPDX `MIT` with Omarchy:
+## Omarchy core fit
 
-- `builtin` `param_eq`, or `bq_highpass` plus `bq_peaking`, using `Freq`, `Q` and `Gain` ([PipeWire filter-chain](https://docs.pipewire.org/page_module_filter_chain.html)). No `convolver`. No `bq_raw`.
-- High-pass for excursion. No broadband boost. Cutoff and bands come from a new measurement.
-- End on the host's LSP limiter (`http://lsp-plug.in/plugins/lv2/limiter_stereo`), `alr` and `boost` off, threshold -1 dBFS ([docs/audio-tuning.md](../../audio-tuning.md)). Peaks stay under 0 dBFS.
-- Sink name `omarchy_speaker_tuning`, `@SPEAKER_SINK@`, `node.dont-move`, `node.dont-fallback`.
-
-The WirePlumber rule matches the Ryzen analog node by card or vendor/product id, not by PCI slot. Confirm the keys with `wpctl inspect` (**unverified**). Do not copy CachyOS's period, headroom or suspend values. It adds no second volume: `omarchy-audio-output-sink` stays the control and the fronted sink stays hidden. That is the fix for the linked pair.
-
-`tuning.conf` sets `derived_from` to "measured on this RC71L" and records `magnitude_rms_db`, `bass_group_delay_swing_ms`, `limiter_headroom_db`, `dynamic_range_delta_lu`.
+Working is `omarchy audio tuning on` on an RC71L: one speaker in the panel, volume keys on the physical sink, headphone and HDMI left alone. Fit for core is those two files later moving under `default/audio/tunings/`, still gated by `omarchy-hw-rog-ally`, with `omarchy-*` names, no GPL blob, and no unlicensed impulse in this MIT tree.
 
 ## On-device test
 
