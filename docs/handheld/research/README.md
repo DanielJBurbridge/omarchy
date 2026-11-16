@@ -1,6 +1,6 @@
 # Handheld research
 
-Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md`, `touch-desktop-and-stick-mouse.md`, `inputplumber-profiles-brief.md`, `brief-speaker-dsp.md`, `brief-power-button.md` and `brief-tdp-limits.md` are dated 16 Nov 2026.
+Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md`, `parity-gaps-ranked.md`, `touch-desktop-and-stick-mouse.md`, `inputplumber-profiles-brief.md`, `brief-speaker-dsp.md`, `brief-power-button.md` and `brief-tdp-limits.md` are dated 16 Nov 2026.
 
 **An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
@@ -13,6 +13,7 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 ## Index
 
 - [`feature-parity-audit.md`](feature-parity-audit.md) — User-facing features of Bazzite Deck, CachyOS Handheld and SteamOS, plus touch Hyprland setups. Each row has integ status with a file on this branch, the source repo and SPDX licence, effort, and whether it belongs in Omarchy core or an opt-in handheld package. Ranked gaps at the end.
+- [`parity-gaps-ranked.md`](parity-gaps-ranked.md) — Ranked list of what Bazzite, CachyOS Handheld and SteamOS do on the RC71L that this branch still does not. Each row is open, briefed or partial against the tree, with the brief or spec, the code to reuse and its licence, and the effort. Dated 16 Nov 2026.
 - [`brief-speaker-dsp.md`](brief-speaker-dsp.md) — Implementation brief for gap 5, Ally speaker DSP. What CachyOS and Bazzite ship, why those files stay out, the two-volume sink against the CS35L41 pair, and an opt-in tuning under `default/audio/tunings/` that reuses the existing speaker host.
 - [`touch-desktop-and-stick-mouse.md`](touch-desktop-and-stick-mouse.md) — An undocked touch desktop on the Ally (gestures, OSK, menu size, scale, rotation), and how Bazzite and InputPlumber turn sticks into a desktop pointer. Idea list and port candidates.
 - [`prior-art.md`](prior-art.md) — Pizzarchy, cephalization/omarchy-steam-gaming-mode, DeckShift and deckarchy. What each does, its licence, how it starts gamescope and gets back to the desktop, keyboard-free install and login, and a port list for the files on this branch.
