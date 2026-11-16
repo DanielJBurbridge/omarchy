@@ -2,7 +2,7 @@
 
 16 Nov 2026. Brief for gap 4 in [feature-parity-audit.md](feature-parity-audit.md): AC and battery watts, a charge limit, and a reapply after resume, so Steam's Quick Access slider works under gamescope. Docs only. Nothing here was run on the device.
 
-Standing decision, [tdp-decision-review.md](../tdp-decision-review.md): do not ship stock or forked steamos-manager. Build backlog #10 (root writer) and #11 (session-bus shim for the public SteamOSManager1 API). Reuse existing code, in the Omarchy shape: shell and units, `omarchy-*` names, opt-in on this hardware. Goal 1 is a working slider. Goal 2 is a later core fit. The spike ceiling in [PR #33](https://github.com/DanielJBurbridge/omarchy/pull/33) still bounds the write. Port the MIT write, then clamp it. Leave the spike's ratio in the spike.
+Standing decision, [tdp-decision-review.md](../tdp-decision-review.md): do not ship stock or forked steamos-manager. Build backlog #10 (root writer) and #11 (session-bus shim for the public SteamOSManager1 API). Reuse existing code, in the Omarchy shape: shell and units, `omarchy-*` names, opt-in on this hardware. Goal 1 is a working slider. Goal 2 is a later core fit. The apply contract is [04-quick-access-overlay.md](../04-quick-access-overlay.md) §5.1, written out under #10. Read `min_value`, `max_value` and `default_value` live and clamp to them. Do not hard-code the caps. Port the MIT write order.
 
 [`bin/omarchy-session-start`](../../../bin/omarchy-session-start) already copies [`10-gaming-session.conf`](../../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf) and restarts `omarchy-ally-tdp-shim.service` only when that unit exists, before `gamescope`. The unit is not in the tree. [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam) runs `steam -steamos3 -steampal -steamdeck -gamepadui` and sets no fake Deck capability flags.
 
@@ -14,20 +14,20 @@ Write the firmware-attributes class. `asus-armoury` exposes `/sys/class/firmware
 
 | | SPL min/def/max | SPPT | FPPT |
 |---|---|---|---|
-| AC | 7 / none / 30 | 15 / none / 43 | 15 / none / 53 |
+| AC | 7 / 30 / 30 | 15 / 43 / 43 | 15 / 53 / 53 |
 | DC | 7 / 15 / 25 | 15 / 20 / 30 | 15 / 25 / 35 |
 
-`ppt_apu_sppt` and `ppt_platform_sppt` stay 0. The deprecated platform ABI is `ppt_pl1_spl`, `ppt_pl2_sppt`, `ppt_fppt` (not `ppt_pl3_fppt`), `ppt_apu_sppt`, `ppt_platform_sppt`, min 5 and max 250 or 130 ([sysfs-platform-asus-wmi](https://github.com/torvalds/linux/blob/v7.2/Documentation/ABI/testing/sysfs-platform-asus-wmi)). Do not write those files.
+The AC struct leaves `_def` unset. [`__ROG_TUNABLE_SHOW_DEFAULT`](https://github.com/torvalds/linux/blob/v7.2/drivers/platform/x86/asus-armoury.h) reports `*_max` in that case, so sysfs `default_value` is 30/43/53, and that is the ratio anchor. `ppt_apu_sppt` and `ppt_platform_sppt` stay 0. The deprecated platform ABI is `ppt_pl1_spl`, `ppt_pl2_sppt`, `ppt_fppt` (not `ppt_pl3_fppt`), `ppt_apu_sppt`, `ppt_platform_sppt`, min 5 and max 250 or 130 ([sysfs-platform-asus-wmi](https://github.com/torvalds/linux/blob/v7.2/Documentation/ABI/testing/sysfs-platform-asus-wmi)). Do not write those files.
 
 `get_current_tunables()` picks AC or DC with `power_supply_is_system_supplied()`. v7.2 has no power-supply notifier. Whether the EC swaps the live limit is **unverified**.
 
-The dump's kernel is `7.2.15-2-omarchy` ([ally-hw-dump.md](ally-hw-dump.md)). There is no `v7.2.15` tag on torvalds/linux. The spike's AC run on that kernel read mins 7/15/15 and currents 30/43/53. `apu` and `platform` absence, and the non-Extreme Z1, are **unverified**.
+The dump's kernel is `7.2.15-2-omarchy` ([ally-hw-dump.md](ally-hw-dump.md)). There is no `v7.2.15` tag. The spike's AC run on that kernel read mins 7/15/15 and currents 30/43/53. `apu` and `platform` absence, and the non-Extreme Z1, are **unverified**.
 
 `asusd` and `power-profiles-daemon` were both running and race on `platform_profile` and EPP ([Asusctl](https://wiki.archlinux.org/title/Asusctl)). That page does not say asusd writes PPT. An unfiled RC73XA draft says a profile change drops PPT enforcement while sysfs stays stale ([hpd report](https://github.com/CiroDev-Git/hpd-handheld-power-daemon/blob/main/docs/dev/UPSTREAM-ASUS-PPT-PROFILE-REPORT.md), `GPL-3.0-or-later`). **Unverified** on RC71L. Profile names are `quiet`, `balanced`, `performance` ([asus-wmi.c](https://github.com/torvalds/linux/blob/v7.2/drivers/platform/x86/asus-wmi.c)).
 
 ## (b) ryzenadj
 
-[RyzenAdj](https://github.com/FlyGoat/RyzenAdj) is SPDX `LGPL-3.0` ([LICENSE](https://github.com/FlyGoat/RyzenAdj/blob/master/LICENSE)). It needs root, tries `ryzen_smu` then `/dev/mem`, and the README says device power management overwrites values. [#255](https://github.com/FlyGoat/RyzenAdj/issues/255): a Z1 Extreme Ally could set a limit on v0.13.0 while the PM table read failed. [#256](https://github.com/FlyGoat/RyzenAdj/pull/256) added Phoenix table reads (merged 15 Jul 2023). Prefer the kernel attributes. RyzenAdj has no RC71 AC/DC table.
+[RyzenAdj](https://github.com/FlyGoat/RyzenAdj) is SPDX `LGPL-3.0` ([LICENSE](https://github.com/FlyGoat/RyzenAdj/blob/master/LICENSE)). It needs root, tries `ryzen_smu` then `/dev/mem`, and power management overwrites values. [#255](https://github.com/FlyGoat/RyzenAdj/issues/255) set a limit on a Z1 Extreme while the PM table read failed. [#256](https://github.com/FlyGoat/RyzenAdj/pull/256) added Phoenix reads. It has no RC71 AC/DC table. Prefer the kernel attributes.
 
 ## (c) What the slider expects
 
@@ -35,7 +35,7 @@ Session bus, `com.steampowered.SteamOSManager1`, object `/com/steampowered/Steam
 
 No step property. `TdpLimit1`: `TdpLimit` `u` rw, min and max `u` r. `PerformanceProfile1`: available profiles `as` r, profile `s` rw, suggested default `s` r. `GpuPerformanceLevel1`: levels `as` r, level `s` rw, `ManualGpuClock` `u` rw plus min and max. `Manager2.DeviceModel` is `(ss)` r. `BatteryChargeLimit1`: `MaxChargeLevel` `i` rw, `SuggestedMinimumLimit` `i` r.
 
-The Ally toml matches `ASUSTeK COMPUTER INC.` and `RC71L`, method `firmware_attribute` on `asus-armoury`, active only when the `asus-wmi` profile is `performance`. `FirmwareAttributeLimitManager::set_tdp_limit` in [power.rs](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/steamos-manager/src/power.rs) reads SPL `current_value`, then writes SPL, SPPT `max(limit, sppt_min)`, FPPT `max(limit, fppt_min)`. That is the write to port.
+The Ally toml matches `ASUSTeK COMPUTER INC.` and `RC71L`, method `firmware_attribute` on `asus-armoury`, active only when the `asus-wmi` profile is `performance`. `FirmwareAttributeLimitManager::set_tdp_limit` in [power.rs](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/steamos-manager/src/power.rs) checks `is_active`, rejects a limit outside `get_tdp_limit_range` (SPL `min_value`..`max_value`), reads SPPT and FPPT `min_value`, then writes SPL, SPPT and FPPT `current_value` in that order. It does not read SPL `current_value` first. That read is `get_tdp_limit`. Port that order. The watts are the overlay derive-and-clamp, not `max(limit, min)` alone.
 
 Steam is proprietary. A Deck-identity check beyond the four flags is **unverified**. CachyOS execs the same four ([steam-launcher](https://github.com/CachyOS/gamescope-session/blob/f151b891b3936f1a90ae3c7a659adf2298f484ea/usr/lib/steamos/steam-launcher)). Own the bus name before Steam starts.
 
@@ -53,9 +53,9 @@ evlaV writes `charge_control_end_threshold` for `acpi_sb`, suggested minimum 10.
 
 ## #10 and #11
 
-Opt-in package. The writer checks board `RC71L` itself and exits if the three attributes are missing. Laptops keep ppd. Mask ppd only when the Ally gate, the gaming session and this writer are all installed.
+Opt-in package. The writer calls `omarchy-hw-rog-ally` (vendor `ASUSTeK COMPUTER INC.`, product `ROG Ally RC71L*` or board `RC71L`) and exits unless that succeeds and the three attributes exist. Laptops keep ppd. Mask ppd only when the Ally gate, the gaming session and this writer are all installed.
 
-**#10.** `/usr/bin/omarchy-ally-tdp-apply`. Polkit `org.omarchy.ally.set-tdp` (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`) via `pkexec`. No sudoers `NOPASSWD`. Verbs `--show`, `--snapshot`, `--set WATTS`, `--reassert`, canonical whole watts. Port the MIT three-write, then clamp: SPL floor 7, battery tuple at most 20/20/25, AC at most 30. `--set 5` stores 5 and writes SPL 7. `--reassert` keeps the stored request. Unplug after 30 W AC stays inside 20/20/25 and still remembers 30. Stock mins make that write 20/20/20 on battery and 30/30/30 on AC. Keep SPL ≤ SPPT ≤ FPPT after every store and read them back. Refuse while ppd, asusd, hhd, tuned, gamemoded or powerstation is active. AC is `Mains` or `USB` with `online` 1. Do not write `platform_profile` or the deprecated files.
+**#10.** `/usr/bin/omarchy-ally-tdp-apply`. Polkit `org.omarchy.ally.set-tdp` (`allow_active=yes`, `allow_inactive=no`, `allow_any=no`) via `pkexec`. The rule returns NO when `subject.user` is `sddm`, and it grants nothing to `wheel`. D1's `allow_active=yes` sign-off is still outstanding. No sudoers `NOPASSWD`. The shim never writes sysfs. It pkexecs only `--set` and `--reassert`. Verbs `--show`, `--snapshot`, `--set WATTS`, `--reassert`, canonical whole watts. Read `min_value`, `max_value` and `default_value` live. The ratio anchor is the boot-captured `default_value` when it is greater than zero, otherwise `max_value`. Derive SPPT and FPPT, then clamp each attribute to its live min and max, the boot-captured max, and the policy ceiling (battery applied tuple at most 20/20/25, AC slider 30). On the stock tables, battery `--set 25` and `--set 20` apply 20/20/25, and AC `--set 30` applies 30/43/53. `--set 5` stores 5 and writes SPL 7, then the same derive-and-clamp. `--reassert` keeps the stored request. Unplug after 30 W AC applies 20/20/25 and still remembers 30. Plugging back in restores 30/43/53. Write in the MIT order above. Keep SPL ≤ SPPT ≤ FPPT after the write and read them back. A tuple that would break that order writes nothing. Refuse while ppd, asusd, hhd, adjustor, tlp, auto-cpufreq, tuned, gamemoded or powerstation is active. AC is `Mains` or `USB` with `online` 1. Do not write `platform_profile` or the deprecated files.
 
 **#11.** User unit `omarchy-ally-tdp-shim.service`, `PartOf=` and `WantedBy=` `graphical-session.target` and `omarchy-gaming-session.target`. Claim the name before Steam. Speak `TdpLimit1` from the vendored XML. `PerformanceProfile1` advertises only `performance` and does not write the profile. `GpuPerformanceLevel1` advertises only `auto`; `ManualGpuClock` returns `NotSupported`. `DeviceModel` is `("rog_ally", "RC71L")`. No factory-reset, storage, Wi-Fi, session or BIOS methods. `PropertiesChanged` only after readback. Do not install evlaV's user service file: it sets `SystemdService=steamos-manager.service`.
 
@@ -66,8 +66,8 @@ Opt-in package. The writer checks board `RC71L` itself and exits if the three at
 | Piece | Pin | SPDX | What to do |
 |---|---|---|---|
 | Interface XML | evlaV `85fbd8f`, `data/interfaces/com.steampowered.SteamOSManager1.xml` | MIT | Vendor with the copyright and permission notice, in the handheld package. #11 introspects against this file. |
-| TDP write | same pin, `steamos-manager/src/power.rs`, `FirmwareAttributeLimitManager` | MIT | Port the three `current_value` writes into `omarchy-ally-tdp-apply`. Keep the notice beside the port. Do not depend on the package. |
-| Ally device toml | same pin, `data/devices/rog-ally-series.toml` | MIT | Read it. The shell hard-codes RC71L and `asus-armoury`. Do not load upstream toml. |
+| TDP write | same pin, `steamos-manager/src/power.rs`, `FirmwareAttributeLimitManager` | MIT | Port the live range read and the SPL, then SPPT, then FPPT write order. The watts are overlay §5.1, not `max(limit, min)` alone. Keep the notice beside the port. Do not depend on the package. |
+| Ally device toml | same pin, `data/devices/rog-ally-series.toml` | MIT | Read it. The writer calls `omarchy-hw-rog-ally`. Do not load upstream toml. |
 | User D-Bus service | same pin, `data/user/com.steampowered.SteamOSManager1.service` | MIT | Do not vendor. `Exec=/bin/false` and it activates `steamos-manager.service`. |
 | PowerStation Asus path | `9799ca99cc2bc87aaeb66f63f326eae8c2eb1aa5`, `src/performance/gpu/asus/asus_wmi.rs` | `GPL-3.0` | Do not vendor or depend. `set_boost` uses `ppt_platform_sppt`, max 0 on this board. |
 | HHD Asus TDP | `180f0cd8515787789ce82a8d8a116076c36c98a6`, `src/adjustor/drivers/asus/__init__.py` `set_tdp` | `LGPL-2.1` | Do not vendor. Writes deprecated `asus-nb-wmi` `ppt_*`. |
@@ -85,12 +85,12 @@ Goal 1 is the slider moving the three attributes on an RC71L, using the restart 
 Read package power under load. Battery, unplug, resume and the slider are still open.
 
 1. QAM slider once the shim owns the name. Max 20 on battery and 30 on AC, including after desktop-to-gaming.
-2. Battery 15 writes 15/15/15. A request of 25 stays inside 20/20/25. AC 30 writes 30/30/30, inside 30/43/53.
-3. Unplug at 30 W with the shim stopped: inside 20/20/25, stored request still 30. Plug in restores the AC write.
+2. Battery `--set 25` and `--set 20` apply 20/20/25. AC `--set 30` applies 30/43/53. Readback matches those tuples, and each value sits inside the live min and max.
+3. Unplug at stored 30 W with the shim stopped: the applied tuple is 20/20/25 and the stored request stays 30. Plugging back in restores 30/43/53.
 4. Suspend and resume: the limit holds under load. If it sticks near 4–7 W, record the MCU first.
 5. Afterwards `powerprofilesctl` works, and gaming had one PPT writer.
 6. A non-RC71L, a missing armoury class, and an inactive or remote caller write nothing.
 
 ## Licences
 
-Vendor only the MIT XML and the ported write, with the copyright and permission notice. steamos-manager `MIT`. RyzenAdj `LGPL-3.0`. PowerStation `GPL-3.0`. HHD `LGPL-2.1`. Bazzite `Apache-2.0`. chwd `GPL-3.0-only`. The hpd note `GPL-3.0-or-later`. The kernel is GPL-2.0. Omarchy is MIT.
+Vendor only the MIT XML and the ported write, with the copyright and permission notice. The kernel is GPL-2.0. The hpd note is `GPL-3.0-or-later`. The other SPDX ids are in Code to reuse. Omarchy is MIT.
