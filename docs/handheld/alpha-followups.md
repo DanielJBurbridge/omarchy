@@ -316,6 +316,38 @@ How peers compare. Bazzite binds PCR 7+14 with the passphrase kept, and Secure B
 - Its recovery re-extracts the Steam bootstrap, which can overwrite Steam settings ([bazzite#4045](https://github.com/ublue-os/bazzite/issues/4045)). Do not copy that part.
 - Neither peer offers a keyboard-free disk-unlock fallback.
 
+From dev-red's PASS on [PR #65](https://github.com/DanielJBurbridge/omarchy/pull/65), [review 5921631571](https://github.com/DanielJBurbridge/omarchy/pull/65#pullrequestreview-5921631571), at `00aecbec`. No blockers. This range is L150–L159. L157–L159 are unused.
+
+- L150. **Medium. Open.** Ready can fire on Steam's bootstrap, update, or offline-error window, not only the gamepad UI. `steam_scope_has_ui` and `steam_tree_has_ui` accept any process named `steam` that holds an X connection in the scope (`default/gaming/steam-ready.sh`). The main `steam` client and its progress and error dialogs are X clients on `@/tmp/.X11-unix/X0`. On the Ally, `started` and `omarchy-handheld-autologin reset` (`bin/omarchy-session-start`) can happen seconds into startup, before the UI is on screen. This makes L136 real on the device. Before this PR the Ally only reached `mark_steam_ready` through the 60 s timeout while Steam was alive, so the exposure is about the same. Two shifts. (a) An offline or error dialog dismissed with a non-zero exit inside 60 s now counts as started. The session still fails when that exit is under 120 s after ready, so the retry and the recovery latch still happen, but that supervisor run never stamps the crash counter, which drops one stamp toward L130 and L132. (b) `steam_ready_at` is earlier, so a Steam that dies 125–180 s after launch is now a clean exit (status 0, desktop, no latch) where integ called it a failure. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Count only `steamwebhelper`, or require the `steam` X client to stay held across several polls. Longer term, check for the gamepadui window. That needs `xorg-xprop`, written here, not copied from Handheld Daemon (LGPL-2.1).
+
+- L151. **Medium. Open.** The scan during the waiter window is heavier than integ. Measured by the review on a box with 167 processes: one `steam_tree_has_ui` took about 109 ms, against 23 ms on integ. `steam_read_status` reads every line of every `/proc/*/status`. The old loop stopped at `PPid`. `ss -Hxnp` walks every `/proc/*/fd`: 50 runs took 0.46 s with `-p` and 0.20 s without. On the Ally, under gamescope and a low TDP, the 0.2 s poll gets close to a busy loop until ready, for up to 60 s. The scan does stop after ready or the window (L58, L122). This item is the cost of the scans that still run. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Drop `-p`. The users column is not parsed. Stop the status read once `Name`, `PPid` and `Uid` are set (`Uid` is the ninth line). Run `ss` only when the walk has a candidate.
+
+- L152. **Low. Open.** If `unix_diag` is missing, `ss` falls back to `/proc/net/unix` and prints peer inode `0` for every socket. The review saw that on its kernel. The new path then finds no client inode, and the waiter times out exactly as on integ, with no note. Stock Arch sets `CONFIG_UNIX_DIAG=m`, which autoloads, so the Ally should be fine. Unverified on the device. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Write one line to `session.log` when `ss` returns X or Wayland sockets and every peer inode is `0`, so the next waiter capture says why.
+
+- L153. **Low. Open.** `steam_scope_has_ui` requires the candidate cgroup to equal the launcher's cgroup. A Steam that moves helpers into a sub-cgroup of the gamescope scope would be missed. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Also accept a cgroup that is that scope with a slash and a suffix.
+
+- L154. **Low. Open.** A process that exits between the readability test and the open can write `No such file or directory` into the session log. `steam_read_status` and `steam_cgroup_path` do not redirect stderr. The old status loop used `2>/dev/null`. Source: PR #65, review 5921631571. Owner: session.
+
+- L155. **Low. Open.** `iproute2` is not named in `install/omarchy-base.packages`. It arrives because the ISO pacstraps Arch `base`, and `bin/omarchy-openclaw-onboard` already calls `ss`. The comment in `default/gaming/steam-ready.sh` says it is already in base. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Name `iproute2` in `install/omarchy-base.packages`, or in the gaming-session package's depends, or drop the "already in base" claim.
+
+- L156. **Low. Open.** `steam_read_status` keeps only the first word of `Name:`. A comm whose first word is `steam` matches `steam`. Harmless while the same uid and the same scope are required. Source: PR #65, review 5921631571. Owner: session.
+
+  Fix. Take the rest of the `Name:` line and trim the leading tab, instead of the first field.
+
+- L157. Unused. Reserved with L150–L159 so the range stays one block.
+- L158. Unused. Reserved with L150–L159 so the range stays one block.
+- L159. Unused. Reserved with L150–L159 so the range stays one block.
+
 From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. L150–L169 belong to other PRs. This range is L170–L179.
 
 - L170. **Open.** Whether Steam draws the TDP slider on this RC71L with only `-steamos3 -steampal -steamdeck -gamepadui` is unverified. A further Deck-identity check was not found. Source: build-tdp-slider.md. Owner: hardware.
