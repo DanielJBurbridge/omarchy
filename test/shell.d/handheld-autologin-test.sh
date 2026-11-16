@@ -247,10 +247,9 @@ HW=ally PKG=absent run_guard apply
 grep -Rqs 'User=' "$work/sddm" && fail "removing the gaming package leaves User= under sddm.conf.d"
 # shellcheck source=/dev/null
 source "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
-printf '[Autologin]\nUser=daniel\n' > "$user_conf"
-OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
-[[ ! -e $user_conf ]] || fail "post_remove leaves a file whose only key is User="
 printf '[Autologin]\nUser=daniel\nSession=omarchy.desktop\n' > "$user_conf"
+printf '[Autologin]\nUser=keep\nSession=omarchy.desktop\n' > "$work/sddm/autologin.conf"
 OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
-grep -q '^Session=omarchy.desktop$' "$user_conf" || fail "post_remove deletes a file that also sets Session="
-pass "laptops and a removed variant leave no User= under sddm.conf.d"
+[[ ! -e $user_conf ]] || fail "post_remove leaves omarchy-handheld-user.conf"
+grep -q '^User=keep$' "$work/sddm/autologin.conf" || fail "post_remove deletes autologin.conf"
+pass "laptops and a removed package leave no handheld User="

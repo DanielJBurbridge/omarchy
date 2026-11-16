@@ -29,8 +29,7 @@ for file in \
   "$ROOT/default/gaming/steamos-update" \
   "$ROOT/default/gaming/steam-path.sh" \
   "$ROOT/default/gaming/sddm-user.sh" \
-  "$ROOT/install/hardware/asus/gaming-session.sh" \
-  "$ROOT/migrations/1794827890.sh"
+  "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
 do
   if grep -v '^[[:space:]]*#' "$file" | grep -q 'NOPASSWD\|sudo -n'; then
     fail "ported file grants passwordless sudo" "$file"

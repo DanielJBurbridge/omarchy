@@ -79,33 +79,19 @@ EOF
 
 # User= is owned by the gaming-session helper. apply never writes it.
 # A User= outside [Autologin] does not count, so a misplaced line is rewritten.
-# sudo clears the caller's environment, so this does not read a passed-in
-# OMARCHY_PATH. The package helper is the fixed path. Otherwise the same
-# bootstrap session-start uses, then the copy beside this command.
+# sudo clears the environment, so this never reads OMARCHY_PATH. The installed
+# helper is /usr/share/omarchy/default/gaming/sddm-user.sh. A checkout command
+# carries the same file beside itself, which is how the tests reach it.
 install_user() {
-  local helper="" packaged bootstrap sibling_dir
-  packaged=/usr/lib/omarchy-gaming-session/sddm-user.sh
-  bootstrap=/usr/share/omarchy/default/bash/env-bootstrap
-  if [[ -f $packaged && ! -L $packaged ]]; then
-    helper=$packaged
-  elif [[ -f $bootstrap && ! -L $bootstrap ]]; then
-    set +u
-    # shellcheck source=/dev/null
-    source "$bootstrap"
-    set -u
-    if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/sddm-user.sh && ! -L $OMARCHY_PATH/default/gaming/sddm-user.sh ]]; then
-      helper=$OMARCHY_PATH/default/gaming/sddm-user.sh
-    fi
+  local command_path helper
+  command_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+  helper=$(dirname -- "$command_path")/../default/gaming/sddm-user.sh
+  if [[ ! -f $helper || -L $helper ]]; then
+    helper=/usr/share/omarchy/default/gaming/sddm-user.sh
   fi
-  if [[ -z $helper ]]; then
-    sibling_dir=$(dirname -- "${BASH_SOURCE[0]}")/../default/gaming
-    if [[ -f $sibling_dir/sddm-user.sh && ! -L $sibling_dir/sddm-user.sh ]]; then
-      helper=$sibling_dir/sddm-user.sh
-    fi
-  fi
-  if [[ -z $helper ]]; then
-    echo "omarchy-handheld-autologin: missing gaming session user helper" >&2
-    exit 1
+  if [[ ! -f $helper || -L $helper ]]; then
+    echo "omarchy-handheld-autologin: missing /usr/share/omarchy/default/gaming/sddm-user.sh" >&2
+    return 0
   fi
   # shellcheck source=/dev/null
   source "$helper"
