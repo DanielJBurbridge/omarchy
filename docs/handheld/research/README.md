@@ -1,6 +1,6 @@
 # Handheld research
 
-Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md` is dated 16 Nov 2026 (AWST).
+Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md` and `prior-art.md` are dated 16 Nov 2026 (AWST).
 
 **An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
@@ -12,6 +12,7 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 
 ## Index
 
+- [`prior-art.md`](prior-art.md) — Pizzarchy, cephalization/omarchy-steam-gaming-mode, DeckShift and deckarchy. What each does, its licence, how it starts gamescope and gets back to the desktop, keyboard-free install and login, and a port list for the files on this branch.
 - [`touch-first-boot.md`](touch-first-boot.md) — Power on, log in and get online on the RC71L with the touchscreen and the built-in controller only. Greeter keyboard, Steam OSK, Wi-Fi without the bar module, controller-as-mouse before login, polkit prompts, crash-loop fallback, and the iPadOS patterns worth copying.
 - [`buttons-and-input.md`](buttons-and-input.md) — Ally extra buttons, kernel codes, how InputPlumber and HHD map them, and the InputPlumber recommendation. Paddle codes and the M1/M2 side mapping are marked unverified there and still need the press test.
 - [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and a 10-line recommended Omarchy stack, with the steamos-manager caveat above.
