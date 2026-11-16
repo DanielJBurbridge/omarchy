@@ -37,7 +37,7 @@ Pre-selected. It is the only keyboard-free choice today. The label "Recommended 
 
 Body: Powers straight on to your games, no typing. With Secure Boot off, anyone holding the handheld can read every file on it. The desktop lock and your password don't stop that. Only a drive removed from the handheld stays protected. If automatic unlock fails, you'll need a USB or 2.4 GHz keyboard and the recovery passphrase. SSH can't help at that prompt.
 
-Small print: Automatic unlock stops when Secure Boot is toggled, when the Secure Boot keys change (PK, KEK, db, dbx, including a fwupd or LVFS dbx update), when a BIOS update changes those certificates, when the BIOS is reset, when the TPM is cleared, or when an AMD fTPM reset prompt after an AGESA or BIOS update is answered yes. That last one destroys the sealed key. A kernel or UKI rebuild does not, because this choice binds PCR 7 only. PCR 0+7 is not used: PCR 0 is the firmware code and changes on a BIOS update even when Secure Boot did not. PCR 11 is not used: this boot is a systemd-stub UKI, and a literal PCR 11 binding changes on every `limine-update`. Secure Boot is off on the RC71L this was read from. PCR 7 there does not measure the kernel, the initramfs, or an edited Limine command line. Limine's editor is on. Turning Secure Boot on is not part of this screen. It is [L69](alpha-followups.md). PCR 15 (`tpm2-measure-pcr=yes`), `systemd-pcrlock`, and a signed PCR 11 policy are the later binding for the volume-confusion attack. They are not this choice.
+Small print: Automatic unlock stops when Secure Boot is toggled, when the Secure Boot keys change (PK, KEK, db, dbx, including a fwupd or LVFS dbx update), when a BIOS update changes those certificates, when the BIOS is reset, when the TPM is cleared, or when an AMD fTPM reset prompt after an AGESA or BIOS update is answered yes. That last one destroys the sealed key. A kernel or UKI rebuild does not, because this choice binds PCR 7 only. PCR 0+7 is not used: PCR 0 is the firmware code and changes on a BIOS update even when Secure Boot did not. PCR 11 is not used: this boot is a systemd-stub UKI, and a literal PCR 11 binding changes on every `limine-update`. Secure Boot is off on the RC71L this was read from. PCR 7 there does not measure the kernel, the initramfs, or an edited Limine command line. Limine's editor is on. `editor_enabled: no` only holds with Secure Boot and `limine enroll-config`. Anyone who can write the ESP can turn that line back on otherwise. Turning Secure Boot on is not part of this screen. It is [L69](alpha-followups.md). PCR 15 (`tpm2-measure-pcr=yes`), `systemd-pcrlock`, and a signed PCR 11 policy are the later binding for the volume-confusion attack. They are not this choice.
 
 ### Passphrase every boot
 
@@ -122,8 +122,9 @@ This change does not patch `luks-rekey.sh`. Until [L70](alpha-followups.md) land
 
 1. W1 sets the disk passphrase. That passphrase is the recovery passphrase. "Generate one for me" is this secret.
 2. Rekey reaches `done` and verify passes. The busybox line is still in place.
-3. On the installed system: header backup onto removable media (`cryptsetup luksHeaderBackup`, never this disk), then the hook switch and the cmdline edit, `limine-update`, the UKI check, then TPM enrolment.
-4. Reboot, with a USB or 2.4 GHz keyboard available.
+3. On the installed system: header backup onto a drive that is not the internal disk (`cryptsetup luksHeaderBackup`). The ESP and any other partition of that disk are the wrong target. Then the hook switch and the cmdline edit, `limine-update`, and the UKI check.
+4. Reboot once, with a USB or 2.4 GHz keyboard, and unlock with the passphrase. Enrol only after that boot. The busybox `encrypt` initrd does not extend PCR 7 with os-separator. `systemd-pcrosseparator.service` in the `sd-encrypt` initrd does, before cryptsetup. A token sealed on the busybox boot never unseals. When the sha256 from an `sd-encrypt` boot is already known, `--tpm2-pcrs=7:sha256=<value>` pins that value.
+5. Reboot again. That boot is the one that unseals.
 
 ### Build and enrol
 
@@ -131,7 +132,7 @@ This change does not patch `luks-rekey.sh`. Until [L70](alpha-followups.md) land
 
 Rebuild with `limine-update`. The boot file is the Limine UKI under `/boot/EFI/Linux/`. There is no loose initramfs image. Do not pass `-h` or `--help` to `limine-update` or `limine-mkinitcpio`. On the checked machine those flags start a rebuild.
 
-Verify before enrol, and before reboot. `ukify inspect` on the UKI, or `objcopy` of the `.initrd` section into `lsinitcpio`. The hooks in that initrd include `systemd`, `plymouth`, `sd-encrypt` and `sd-btrfs-overlayfs`. They do not include busybox `encrypt` as the unlock hook, and they do not include `btrfs-overlayfs`. `libtss2` is present. `overlayfs-setup.service` is present. The UKI cmdline contains `root=`, `tpm2-device=auto`, and does not contain `cryptdevice=`. Confirm `/boot/limine.conf` lists the pre-change snapshot and that its archived UKI exists under `limine_history`. Those entries keep the old cmdline. They are how you get in. They do not persist a repair. The lasting repair is the live-ISO path in the runbook.
+Verify the UKI before the first reboot. Enrol after that reboot has unlocked with the passphrase. `ukify inspect` on the UKI, or `objcopy` of the `.initrd` section into `lsinitcpio`. The hooks in that initrd include `systemd`, `plymouth`, `sd-encrypt` and `sd-btrfs-overlayfs`. They do not include busybox `encrypt` as the unlock hook, and they do not include `btrfs-overlayfs`. `libtss2` is present. `overlayfs-setup.service` is present. The UKI cmdline contains `root=`, `tpm2-device=auto`, and does not contain `cryptdevice=`. Confirm `/boot/limine.conf` lists the pre-change snapshot and that its archived UKI exists under `limine_history`. Those entries keep the old cmdline. They are how you get in. They do not persist a repair. The lasting repair is the live-ISO path in the runbook.
 
 Enrol only after rekey is `done`, and only with the recovery passphrase that rekey kept:
 
@@ -139,11 +140,11 @@ Enrol only after rekey is `done`, and only with the recovery passphrase that rek
 systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 <luks-device>
 ```
 
-`<luks-device>` is the path `cryptsetup status` prints for the mapper, found the way the runbook finds it. The passphrase is read from the enrolment prompt. It is not an argument. `--tpm2-pcrs=7` is required on systemd 258 and later: omitting it binds no PCR. Earlier versions bound literal PCR 7 when the option was omitted.
+`<luks-device>` is the path `cryptsetup status` prints for the mapper, found the way the runbook finds it. The passphrase is read from the enrolment prompt. It is not an argument. `--tpm2-pcrs=7` is required on systemd 258 and later: omitting it binds no PCR. Earlier versions bound literal PCR 7 when the option was omitted. Run it on the `sd-encrypt` boot, after `systemd-pcrlock log --pcr=7` shows `os-separator`. `systemd-analyze pcrs 7` is the sha256 that boot sealed, and it is the value at the next unlock, because this image does not extend PCR 7 after the separator. Before the unseal reboot, `luksDump`'s `tpm2-policy-hash` is the policy of that value. A slot that was sealed too early is replaced in the same call: `--wipe-slot=tpm2` together with the enrolment flags. That drops the old TPM slots after the new slot is written and leaves the passphrase slot.
 
-Then `systemd-cryptenroll` with no enrolment flag, and `cryptsetup luksDump`. A `password` row and a `tpm2` row, and a `systemd-tpm2` token. Missing password row: do not reboot; treat it as a failed install of this choice. Take the header backup before this enrolment. The snapper snapshot does not cover the header.
+Then `systemd-cryptenroll` with no enrolment flag, and `cryptsetup luksDump`. A `password` row and a `tpm2` row, and a `systemd-tpm2` token. Missing password row: do not reboot; treat it as a failed install of this choice. Take the header backup before this enrolment. The snapper snapshot does not cover the header. The backup is off the internal disk, which excludes the ESP.
 
-PIN enrolment (`--tpm2-with-pin=yes`) is not run until L68. When it is run, it is the same command plus that flag, and the image also contains `sd-unl0kr` and `MODULES+=(i2c-hid i2c-hid-acpi hid-multitouch)`.
+PIN enrolment (`--tpm2-with-pin=yes`) is not run until L68. When it is run, it is the same command plus that flag, on the same `sd-encrypt` boot, with the same header-backup gate as the plain TPM enrolment, and the image also contains `sd-unl0kr` and `MODULES+=(i2c-hid i2c-hid-acpi hid-multitouch)`.
 
 ## 7. Failure
 
