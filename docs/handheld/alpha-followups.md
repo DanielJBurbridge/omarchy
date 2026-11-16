@@ -162,3 +162,156 @@ From the re-check of [PR #61](https://github.com/DanielJBurbridge/omarchy/pull/6
 - L109. **Open.** No fallback is built if Steam ignores `steam://shortpowerpress` and `steam://longpowerpress`. The proposed wrapper fallback is in the power-button brief. Source: PR #60, review 5920908119. Owner: power.
 - L110. **Open.** Measure the RC71L firmware long-hold force-off time. It is the only escape outside gamescope (spec 09 OQ-7). Do not invent the duration. Source: PR #60, review 5920908119. Owner: hardware.
 - L111. AUR `steamos-powerbuttond` 4.2-3 `make install` paths are recorded. Do not take Bazzite's 4.2-2 debounce patch ([bazzite#6180](https://github.com/ublue-os/bazzite/issues/6180)). Source: PR #60, review 5920908119.
+
+From dev-red's read-only review of the keyboard-free boot path on integ `a5593dac8532e9160abd937d5a4aab625c52e5ad`, 16 Nov 2026. It was read from the code and docs only. Nothing ran on the Ally. The path is power-on, Plymouth/LUKS, SDDM autologin, the gaming session, the Steam ready waiter, the switch to the desktop, and the crash-loop fallback.
+
+Integ ships no TPM code. The hook line is still the busybox `encrypt` line in `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf:34`. TPM unlock exists only as the manual runbook ([tpm-unlock.md](tpm-unlock.md)) and the draft installer spec. The TPM items below are about that runbook and spec.
+
+These are already filed and are not repeated:
+
+- Enrolling before the first `sd-encrypt` boot, and the gate not wrapping the enrol command: L82, L86.
+- `limine enroll-config` with Secure Boot: L69, L80, L81.
+- The passphrase fallback needs a USB or 2.4 GHz keyboard, and there is no keypad in the initramfs: L40, L68, L71.
+- The rekey deletes TPM slots: L70.
+- TPM no-input unlock plus autologin: L129.
+- After package removal, `zz-omarchy-handheld.conf` still names the removed session: L123.
+- `stop` is cleared only by a reboot: L59.
+- The waiter keeps scanning after it times out: L58, L122.
+- The stop-trigger wording: L18.
+- Sudoers and polkit scope: L24, L56, L62, L67, L106.
+- No enable migration on existing Allys: L27.
+
+No new root-service, udev or polkit grant was found. Ranked by severity. Nothing here is a blocker on integ as it stands.
+
+- L130. **HIGH.** The crash-loop stop does not see every failed start. If the supervisor exits before it arms the trap, is killed, or calls `fail` as a no-op, SDDM `Relogin=true` restarts the session with no limit, and the screen stays black or flickers. Source: dev-red boot-path review, `a5593dac`. Owner: session.
+
+  Where. `bin/omarchy-session-start:164` sets `trap cleanup EXIT`, and `cleanup` is the only caller of `omarchy-handheld-autologin fail` (`:158-161`). Two earlier exits skip it: `:111` (`gaming_state_init && gaming_runtime_init || exit 1`) and `:114` (flock busy). SIGKILL of the supervisor skips it too. `bin/omarchy-handheld-autologin:24-29` turns `fail` into a silent `exit 0` when `sudo -n -l` refuses, for example when `/etc/sudoers.d/omarchy-handheld-autologin` is missing or a later sudoers rule overrides it.
+
+  Scenario.
+  1. Boot.
+  2. `apply` writes `Relogin=true`.
+  3. SDDM autologins `omarchy-handheld.desktop`, which runs `exec omarchy-session-start relogin` (`bin/omarchy-handheld-autologin:145`).
+  4. The supervisor exits at `:111`. One way: `~/.local/state/omarchy/gaming-session` is not owned by the user after a root-run tool, so `-O` fails.
+  5. No `fail` stamp is written, so `stop` never appears.
+  6. SDDM relogs in at once, and the loop has no limit.
+  7. The loop survives a reboot, because the cause is on disk.
+  8. Nothing on screen takes input. Bazzite shows the same SDDM relogin black-screen loop when its session exits early ([bazzite#3282](https://github.com/ublue-os/bazzite/issues/3282), [bazzite#5125](https://github.com/ublue-os/bazzite/issues/5125)).
+
+  Recovery.
+  - Over SSH: `sudo install -D -m 0644 /dev/null /run/omarchy/handheld-autologin/stop && sudo omarchy-handheld-autologin apply && sudo systemctl restart sddm`.
+  - With a USB keyboard: Ctrl+Alt+F3, or the Limine editor with `systemd.unit=multi-user.target`.
+  - There is no route without a keyboard.
+
+  Fix.
+  - Record the attempt first and clear it on ready. Have the `session` action call `fail` before the `exec`, and keep `reset` on the ready read. Early exits and SIGKILL then count.
+  - Make the non-root `fail` path log to the journal (`logger -t omarchy-handheld-autologin`) when the grant is missing, instead of exiting 0 silently.
+  - Add a test that kills the supervisor before the trap and expects `stop` after three runs.
+
+- L131. **HIGH.** Daniel decides; no code change yet. On an unencrypted handheld, the gaming package makes autologin permanent. Upstream removes `autologin.conf` after the first boot, so later boots ask for the SDDM password. Here, the `User=` file and `Relogin=true` keep the autologin, and with `desktop-lock` `default-off`, Switch to Desktop is an unlocked desktop on an unencrypted disk. L129 names only the TPM case. This is the same exposure with no disk encryption at all. Source: dev-red boot-path review, `a5593dac`. Sits with L129. Owner: Daniel.
+
+  Where:
+  - `bin/omarchy-provision-owner:782` writes `omarchy-handheld-user.conf`.
+  - `:789` removes only `autologin.conf` on unencrypted installs.
+  - `bin/omarchy-handheld-autologin:101-115` writes `Session=` and `Relogin=true` on every boot.
+  - `default/gaming/session.sh:96-99` makes `default-off` effective.
+  - Spec 09 says "An already-unencrypted disk still has no passphrase prompt" ([09-keyboard-free-boot.md](09-keyboard-free-boot.md) line 51). Nothing at install or package time tells the owner.
+
+  Scenario.
+  1. Unencrypted install on an Ally, with the gaming package.
+  2. Anyone who powers the device on gets Steam, Switch to Desktop, the user's files, and sudo prompts.
+  3. Pulling the drive also reads everything.
+
+  Recovery. Remove the package, or run `omarchy-setup-gaming-session desktop-lock on`.
+
+  Fix. Use L129's options, plus one of these:
+  - `apply` writes the handheld autologin only when `/` is on dm-crypt.
+  - The package or installer step states the trade-off and needs an explicit yes.
+
+- L132. Medium. The crash-loop window is shorter than a slow failure. Three stamps within 60 s write `stop` (`bin/omarchy-handheld-autologin:167`, `:176`). A supervisor run where Gamescope comes up and Steam never becomes ready takes at least 123 s: two 60 s waits (`bin/omarchy-session-start:199-200`), plus the 3 s retry (`:325`, `:343-344`), before `desktop()`. If `desktop()` also fails fast (Hyprland crash after a Mesa or kernel update), each relogin adds one stamp about 2 minutes after the last. Three never fall inside 60 s, so `stop` never trips, and the device loops through 2-minute black Gamescope screens. L18 is only the spec wording. Source: dev-red boot-path review, `a5593dac`. Owner: session.
+
+  Recovery. Same as L130.
+
+  Fix.
+  - Count consecutive starts since the last `reset`, not a 60 s window. Or size the window from the ready timeout: at least 2 × timeout + gap + margin.
+  - Peer: `gamescope-session-plus`, which Bazzite runs, counts every session shorter than 60 s. It falls back to desktop at 5, however far apart they are, and only a session of 60 s or more rearms it ([gamescope-session-plus](https://github.com/ChimeraOS/gamescope-session/blob/main/usr/share/gamescope-session-plus/gamescope-session-plus)).
+
+- L133. Medium. `omarchy-update-firmware` (Update › Firmware) runs `fwupdmgr update` with no TPM check (`bin/omarchy-update-firmware:17-18`). L71 puts fwupd/LVFS dbx updates in the install-card copy. The tool that applies them says nothing. Source: dev-red boot-path review, `a5593dac`. Owner: boot.
+
+  Scenario.
+  1. A TPM-enrolled Ally, with no keyboard.
+  2. Update › Firmware applies a UEFI dbx or capsule update.
+  3. PCR 7 changes.
+  4. Next boot: Plymouth passphrase prompt, with no input that can type it. The token stays sealed until re-enrolled ([tpm-unlock.md](tpm-unlock.md) §14).
+
+  Recovery. A USB or 2.4 GHz keyboard and the recovery passphrase, then §14's re-enrol. The Ally has one USB-C port, so that keyboard needs a USB-C cable or an adapter.
+
+  Fix. On a disk with a `systemd-tpm2` token, `omarchy-update-firmware` should:
+  - list the pending devices;
+  - say that automatic unlock will stop;
+  - refuse unless the user confirms and a physical keyboard is attached (`omarchy-hw-physical-keyboard`).
+
+- L134. Medium. On the runbook machine, a kernel update can fail without any message. The `zz-tpm-sd-encrypt.conf` line freezes the whole hook array ([tpm-unlock.md](tpm-unlock.md) section 4, the `HOOKS=(…)` block). A later `00-omarchy-hooks.conf` baseline change is dropped without notice. If `limine-mkinitcpio-hook` renames or drops `sd-btrfs-overlayfs`, the rebuild fails. `limine-mkinitcpio` still exits 0 on a failed kernel (`bin/omarchy-hibernation-setup:125`), and on x86 `omarchy-update-boot` verifies nothing (`bin/omarchy-update-boot:7-11`). The update then reports success with a stale or missing UKI. Source: dev-red boot-path review, `a5593dac`. Owner: boot.
+
+  Scenario.
+  1. `omarchy update` brings a new kernel and a hook package that no longer has `sd-btrfs-overlayfs`.
+  2. The UKI rebuild fails, and the update says done.
+  3. On reboot, the old UKI loads a kernel whose modules are gone, or the entry is missing.
+  4. The result is a black screen or the Limine menu.
+
+  Recovery. A keyboard for a Limine snapshot entry, or the live-USB path in [tpm-unlock.md](tpm-unlock.md) §13.
+
+  Fix.
+  - Land spec D5: a package-owned, Ally-gated hook line, so no long-lived `zz-` file.
+  - Until then, add a pacman hook after `linux*`, `mkinitcpio` and `limine*` upgrades that re-runs the runbook §7 UKI check: `systemd`, `sd-encrypt`, `sd-btrfs-overlayfs`, `libtss2`, `tpm2-device=auto`. It fails the update loudly.
+
+- L135. Medium. A snapshot restore undoes the TPM boot config. `omarchy-snapshot restore` runs `limine-snapper-restore` (`bin/omarchy-snapshot:46-48`). Restoring a snapshot taken before the runbook reverts `/etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf` and `/etc/default/limine`. The next rebuild is the busybox `encrypt` image with `cryptdevice=`. The TPM slot stays in the header and is never used, so every boot asks for the passphrase. The runbook's section 2 snapshot is exactly such a snapshot. Source: dev-red boot-path review, `a5593dac`. Owner: boot.
+
+  Recovery. A keyboard at every boot until runbook §4–§7 are re-run. The existing token unseals again once the `sd-encrypt` line is back and PCR 7 has not changed.
+
+  Fix.
+  - Spec D5: the hook line lives in a package file, not in `/etc`.
+  - Until then, `omarchy-snapshot restore` warns when the header has a `systemd-tpm2` token and the target root lacks `tpm2-device=auto` in `/etc/default/limine`.
+
+- L136. Medium. An offline first boot never reaches gaming, and the desktop it falls back to cannot join Wi-Fi without a keyboard. Expected from the code; unverified on the device. Source: dev-red boot-path review, `a5593dac`. Related: L39, L61. Owner: session.
+
+  Scenario.
+  1. Fresh install, no network.
+  2. Steam's bootstrap needs to download its client.
+  3. Its update or error window is an X client in the Steam tree. `steam_tree_has_ui` therefore writes `started` (`bin/omarchy-gaming-steam:35-39`), and `reset` clears the counter.
+  4. Dismissing the dialog makes Steam exit non-zero within 120 s, which counts as a failure (`bin/omarchy-session-start:302-313`).
+  5. One retry, then the recovery desktop (`:337-341`).
+  6. wvkbd is AUR and not installed by default (L61), so the Wi-Fi passphrase cannot be typed.
+  7. Every boot repeats this, because relogin forces gaming (L16).
+
+  Recovery. A USB keyboard on the desktop, or a USB-C Ethernet adapter.
+
+  Fix.
+  - Check connectivity and Steam bootstrap state before starting Gamescope. When offline and the client is not yet bootstrapped, open a touch-usable network join instead of Steam.
+  - Or bring the on-screen keyboard (L89) into the recovery desktop.
+
+- L137. Medium. PCR 7 is not firmware-only on this path. Unverified. The `sd-encrypt` initrd extends PCR 7 with `os-separator` before cryptsetup ([tpm-unlock.md](tpm-unlock.md), section 8). So a systemd update that adds or changes a PCR 7 measurement in the initrd changes the sealed value. Booting an archived snapshot UKI built with another systemd can do the same. [tpm-unlock.md](tpm-unlock.md) "Security, in plain words" and [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md) section 2 say a kernel or UKI rebuild never stops automatic unlock. That is true only while the initrd's PCR 7 events stay the same. Source: dev-red boot-path review, `a5593dac`. Related: L86. Owner: boot.
+
+  Scenario. A routine `omarchy update` with a systemd that measures differently in the initrd. On the next boot the TPM does not unseal, and the device stops at the passphrase prompt with no keyboard.
+
+  Recovery. A keyboard and the passphrase, then §14's re-enrol.
+
+  Fix.
+  - Qualify the "survives rebuilds" copy.
+  - Ship spec section 7's "Automatic unlock stopped working" toast before any installer offers TPM.
+  - Longer term, `systemd-pcrlock` or a signed policy (L69).
+
+- L138. Low. The session sets no Steam reboot or shutdown sentinel. ChimeraOS's Steam session exports `STEAMOS_STEAM_REBOOT_SENTINEL` and `STEAMOS_STEAM_SHUTDOWN_SENTINEL` as a "workaround for steam getting killed immediately during reboot", and runs the reboot itself after Steam exits ([sessions.d/steam](https://github.com/ChimeraOS/gamescope-session-steam/blob/main/usr/share/gamescope-session-plus/sessions.d/steam)). `bin/omarchy-gaming-steam:9-11` sets neither. Restart or Shut down from Steam's power menu may kill Steam while it is writing config or cloud saves. The device effect is unverified. Source: dev-red boot-path review, `a5593dac`. Owner: session.
+
+  Fix. Set both variables to paths under `$OMARCHY_GAMING_RUNTIME`, and act on them in `run_gaming` after the scope exits. The variable names are Steam's interface. Check the gamescope-session licence before copying any of its code.
+
+- L139. Low. An Ally without the gaming package still locks with no keyboard. `gaming_lock_decision` returns `allow` when `gaming_handheld_variant` fails (`default/gaming/session.sh:178-181`). A desktop-only Ally, or one whose package was removed (L123), then locks on idle and before suspend. That lock has no on-screen keyboard (L44), so the device stays locked until a keyboard is attached. It is stock behaviour on any touch device, but the removal path in this tree leads straight to it. Source: dev-red boot-path review, `a5593dac`. Owner: AUTH.
+
+  Recovery. Plug in a keyboard, or hold the power button to force it off (L110).
+
+  Fix. Base the no-keyboard rule on `omarchy-hw-rog-ally` plus touch-and-no-keyboard, not on the package. Or remove the package with a notice that the lock will need a keyboard.
+
+How peers compare. Bazzite binds PCR 7+14 with the passphrase kept, and Secure Boot is optional (already in [tpm-unlock.md](tpm-unlock.md)). CachyOS publishes no TPM default. For the session, Bazzite runs `gamescope-session-plus`:
+
+- It counts short sessions in `/tmp` and falls back to the desktop after 5, which L130 and L132 would match in spirit.
+- Its recovery re-extracts the Steam bootstrap, which can overwrite Steam settings ([bazzite#4045](https://github.com/ublue-os/bazzite/issues/4045)). Do not copy that part.
+- Neither peer offers a keyboard-free disk-unlock fallback.
