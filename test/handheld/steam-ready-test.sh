@@ -57,8 +57,8 @@ order_detail=$(
   cat "$work/order-err"
 )
 
-# A hung Steam child must not leave the supervisor waiting forever once the
-# ready check has already passed. Steam here never selects the desktop.
+# A live Steam that never opens an X fd on $DISPLAY must stay up. The ready
+# waiter used to stop Gamescope and open Hyprland.
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
 printf 'steam:%s\n' "$*" >> "$HANDHELD_ACTIONS"
@@ -100,11 +100,11 @@ if (( ! steam_before_reader )); then
 fi
 if (( ! hung )); then
   problems+="hung-Steam fixture never started Steam. $hang_detail"$'\n'
-elif (( ! desktop )); then
-  problems+="Steam hung without Switch to Desktop, and the session did not return to Hyprland. $hang_detail"$'\n'
+elif (( desktop )); then
+  problems+="a live Steam with no ready fd was stopped and the desktop was opened. $hang_detail"$'\n'
 fi
 if [[ -z $problems ]]; then
-  pass "Steam ready follows a live Steam child and a hung child returns to the desktop"
+  pass "Steam ready follows a live Steam child and a hung child is left running"
   exit 0
 fi
-fail "Steam ready follows a live Steam child and a hung child returns to the desktop" "$problems"
+fail "Steam ready follows a live Steam child and a hung child is left running" "$problems"

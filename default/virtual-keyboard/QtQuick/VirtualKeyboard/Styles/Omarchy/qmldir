@@ -1,0 +1,6 @@
+module QtQuick.VirtualKeyboard.Styles.Omarchy
+singleton Theme 1.0 Theme.qml
+AuthButton 1.0 AuthButton.qml
+AuthChoice 1.0 AuthChoice.qml
+Keyboard 1.0 Keyboard.qml
+AuthKey 1.0 AuthKey.qml

@@ -17,6 +17,7 @@ handheld_gaming_tree() {
   cp "$ROOT/bin/omarchy-gaming-steam" "$tree/bin/omarchy-gaming-steam"
   cp "$ROOT/bin/omarchy-launch-gaming-desktop" "$tree/bin/omarchy-launch-gaming-desktop"
   cp "$ROOT/default/gaming/session.sh" "$tree/default/gaming/session.sh"
+  cp "$ROOT/default/gaming/steam-ready.sh" "$tree/default/gaming/steam-ready.sh"
   cp "$ROOT/default/gaming/bin/steamos-session-select" "$tree/default/gaming/bin/steamos-session-select"
   mkdir -p "$tree/default/systemd/user/omarchy-rog-ally-input.service.d" \
     "$tree/default/systemd/user/omarchy-ally-tdp-shim.service.d"

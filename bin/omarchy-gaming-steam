@@ -10,20 +10,8 @@ export XDG_SESSION_TYPE=x11 SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
 export STEAM_MULTIPLE_XWAYLANDS=1 SRT_URLOPEN_PREFER_STEAM=1
 # No fake Deck HDR, fan, TDP, drive-formatting or update capability flags.
 
-# A display connection, not a live pid. sleep has neither a window nor this socket.
-steam_has_display() {
-  local pid=$1 sock=$2 child fd target ppid
-  for fd in /proc/"$pid"/fd/*; do
-    target=$(readlink "$fd" 2>/dev/null) || continue
-    [[ $target == "$sock" ]] && return 0
-  done
-  for child in /proc/[0-9]*; do
-    ppid=$(awk '/^PPid:/ { print $2; exit }' "$child/status" 2>/dev/null) || continue
-    [[ $ppid == "$pid" ]] || continue
-    steam_has_display "${child##*/}" "$sock" && return 0
-  done
-  return 1
-}
+# shellcheck source=/dev/null
+source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
 
 power_pid=''
 cleanup() {
@@ -40,14 +28,9 @@ if omarchy-cmd-present omarchy-launch-gaming-powerbutton && omarchy-pkg-present 
 fi
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
-display_num=${DISPLAY#:}
-display_num=${display_num%%.*}
-socket=''
-if [[ $display_num =~ ^[0-9]+$ ]]; then
-  socket=/tmp/.X11-unix/X$display_num
-fi
+proc_root=${OMARCHY_STEAM_PROC_ROOT:-/proc}
 while kill -0 "$steam_pid" 2>/dev/null; do
-  if [[ -n $socket && -S $socket ]] && steam_has_display "$steam_pid" "$socket"; then
+  if steam_tree_has_ui "$proc_root" "$steam_pid"; then
     printf 'started\n' > "$OMARCHY_GAMING_RUNTIME/ready"
     break
   fi

@@ -10,7 +10,9 @@ gaming_desktop_next=0
 # shellcheck source=/dev/null
 source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
-(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
+# shellcheck source=/dev/null
+source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" || $1 == "stopped" ]] || exit 2
 
 # Hyprland instance sockets already on disk belong to an earlier compositor.
 existing_hypr_sockets() {
@@ -107,6 +109,7 @@ if ! omarchy-hw-rog-ally; then
   exit $?
 fi
 gaming_state_init && gaming_runtime_init || exit 1
+gaming_clear_waiter_latch
 exec 9>"$gaming_runtime/lock"
 flock -n 9 || { gaming_fail 'a managed session is already running.'; exit 1; }
 scope=omarchy-gamescope-$XDG_SESSION_ID.scope
@@ -240,8 +243,7 @@ run_gaming() {
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
   local finished='' status=0 started=false steam_ready_at=0 returned=false
-  wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
-  if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
+  mark_steam_ready() {
     started=true
     gaming_autologin_ready=1
     if omarchy-cmd-present omarchy-handheld-autologin; then
@@ -250,16 +252,29 @@ run_gaming() {
     steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
+  }
+  gaming_scope_alive() {
+    [[ -n $scope_pid ]] && kill -0 "$scope_pid" 2>/dev/null
+  }
+  wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
+  if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
+    mark_steam_ready
+    wait -n -p finished "$scope_pid" "$return_pid" || status=$?
+  elif [[ $finished == "$ready_pid" ]] && gaming_scope_alive && [[ ! -f $gaming_runtime/steam-exit ]]; then
+    # The fd check can miss a UI that is up. Stopping the scope here is what
+    # turned a running Steam into the recovery desktop on every boot.
+    printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
+    mark_steam_ready
     wait -n -p finished "$scope_pid" "$return_pid" || status=$?
   fi
   if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
     returned=true
   elif [[ $finished == "$ready_pid" ]]; then
     status=1
-    echo "Gamescope did not start its Steam child within ${ready_timeout} seconds." >> "$gaming_state/session.log"
+    printf '%s\n' "Gamescope exited before Steam's UI was ready." >> "$gaming_state/fallback.log"
   elif ! $started; then
     status=1
-    echo 'Gamescope exited before starting its Steam child.' >> "$gaming_state/session.log"
+    printf '%s\n' 'Gamescope exited before starting its Steam child.' >> "$gaming_state/fallback.log"
   fi
   # Explicit Switch to Desktop only. Crash, timeout, a missing gamescope or
   # steam, and a non-zero Steam exit do not write it. The file is the session
@@ -308,8 +323,10 @@ else
 fi
 retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
 [[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
-if omarchy-cmd-present omarchy-handheld-autologin && omarchy-handheld-autologin tripped; then
-  exit 0
+if [[ $1 == "stopped" ]] || { omarchy-cmd-present omarchy-handheld-autologin && omarchy-handheld-autologin tripped; }; then
+  printf '%s\n' "autologin stop is set; starting the desktop instead of the greeter." >> "$gaming_state/fallback.log"
+  desktop
+  exit $?
 fi
 retries=0
 autologin_watch=1
@@ -322,7 +339,7 @@ while true; do
     if (( status == 0 )); then
       selection=desktop
     elif (( status == 2 || retries >= 1 )); then
-      gaming_save recovery 'Gaming failed; desktop selected until an explicit gaming choice.'
+      gaming_save recovery 'Steam or Gamescope exited; desktop selected until an explicit gaming choice.'
       omarchy-notification-send 'Gaming Mode didn’t start' 'Gaming did not start. Log: ~/.local/state/omarchy/gaming-session/session.log' || true
       retries=1
       selection=desktop
