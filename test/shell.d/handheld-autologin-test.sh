@@ -135,9 +135,27 @@ OMARCHY_AUTOLOGIN_NOW=2040 run_guard fail
   fail "three timestamps inside 60s are stored" "$(cat "$work/run/failures")"
 [[ -f $work/run/stop ]] || fail "the third failure within 60s writes the stop file"
 assert_root_file "$work/run/stop"
-grep -q '^Relogin=false$' "$dropin" || fail "the stop file turns autologin off" "$(cat "$dropin")"
-grep -q '^sddm-restart$' "$work/run/actions" || fail "tripping restarts the greeter"
-pass "three failure timestamps within 60s stop autologin"
+grep -q '^Relogin=true$' "$dropin" || fail "the stop file keeps Relogin=true" "$(cat "$dropin")"
+[[ ! -f $work/run/actions ]] || fail "tripping does not restart the greeter" "$(cat "$work/run/actions")"
+pass "three failure timestamps within 60s stop autologin and stay logged in"
+
+user_conf=$work/sddm/omarchy-handheld-user.conf
+printf '[Autologin]\nUser=daniel\n' > "$user_conf"
+kept_user=$(cat "$user_conf")
+run_guard install-user othername
+[[ $(cat "$user_conf") == "$kept_user" ]] || fail "install-user does not replace an existing User=" "$(cat "$user_conf")"
+run_guard apply
+[[ $(cat "$user_conf") == "$kept_user" ]] || fail "apply rewrites the installer User= file" "$(cat "$user_conf")"
+grep -q '^User=' "$dropin" && fail "apply writes User= into the session drop-in" "$(cat "$dropin")"
+rm -f "$user_conf"
+run_guard install-user daniel
+grep -q '^User=daniel$' "$user_conf" || fail "install-user writes User= on its own" "$(cat "$user_conf")"
+grep -q '^Session=' "$user_conf" && fail "the User= file also sets Session" "$(cat "$user_conf")"
+assert_root_file "$user_conf"
+if run_guard install-user '../daniel'; then
+  fail "install-user accepts a path"
+fi
+pass "User= stays in its own file and apply never writes it"
 
 rm -f "$work/run/stop" "$work/run/failures" "$work/run/actions"
 OMARCHY_AUTOLOGIN_NOW=3000 run_guard fail

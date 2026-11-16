@@ -513,6 +513,16 @@ assertEqual(
   '/home/dhh/.config/omarchy/bar/modules/local.weather.qml',
   'bar builds default custom module paths'
 )
+
+const dropped = { version: 1, bar: { layout: { right: [{ id: 'daniel.media' }] } } }
+bar.pinHandheldTouch(dropped)
+for (const id of ['omarchy.bluetooth', 'omarchy.network', 'omarchy.desktop-keyboard'])
+  assert(dropped.bar.layout.right.some((entry) => entry.id === id), `a dropped handheld bar still has ${id}`)
+const disabled = { version: 1, disabledPlugins: ['omarchy.network'], bar: { layout: { right: [] } } }
+bar.pinHandheldTouch(disabled)
+assert(!disabled.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'an explicitly disabled network widget stays off the handheld bar')
+assert(bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally RC71L_RC71L', 'other'), 'the Ally product prefix is the handheld')
+assert(!bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally X RC72LA', 'RC72LA'), 'the Ally X is not this handheld')
 JS
 
 put_tmp=$(mktemp -d)

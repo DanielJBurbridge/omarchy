@@ -769,6 +769,11 @@ configure_login() {
   # authenticated in the form, so we don't make them retype at SDDM.
   mkdir -p /etc/sddm.conf.d
   printf '[Autologin]\nUser=%s\nSession=omarchy.desktop\n' "$username" >/etc/sddm.conf.d/autologin.conf
+  # Relogin=true needs User= after the unencrypted cleanup deletes autologin.conf.
+  # This file is not that drop-in, and apply never rewrites it.
+  if "$OMARCHY_PATH/bin/omarchy-hw-rog-ally"; then
+    "$OMARCHY_PATH/bin/omarchy-handheld-autologin" install-user "$username" || true
+  fi
 
   # Encrypted installs keep autologin permanently (the LUKS prompt is the auth
   # boundary). Unencrypted installs autologin only this first boot, then a

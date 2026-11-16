@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
+# Omarchy's own stick-to-pointer map for the RC71L. The stock Ally composite
+# device creates a mouse target and does not map a stick to it. This file is
+# not that device config.
+version: 1
+kind: DeviceProfile
+name: Omarchy Ally pointer
+description: Left stick moves the pointer and the south button clicks. Loaded before the greeter. Whether the greeter actually moves is unverified on device.
+mapping:
+  - name: Left stick horizontal
+    source_event:
+      gamepad:
+        axis:
+          name: LeftStick
+          direction: horizontal
+          deadzone: 0.2
+    target_events:
+      - mouse:
+          motion:
+            direction: horizontal
+            speed_pps: 900
+  - name: Left stick vertical
+    source_event:
+      gamepad:
+        axis:
+          name: LeftStick
+          direction: vertical
+          deadzone: 0.2
+    target_events:
+      - mouse:
+          motion:
+            direction: vertical
+            speed_pps: 900
+  - name: South clicks
+    source_event:
+      gamepad:
+        button: South
+    target_events:
+      - mouse:
+          button: Left

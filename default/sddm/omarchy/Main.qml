@@ -151,4 +151,69 @@ Rectangle {
       }
     }
   }
+
+  Row {
+    anchors.bottom: greeterKeyboard.top
+    anchors.bottomMargin: 8
+    anchors.horizontalCenter: parent.horizontalCenter
+    spacing: 8
+
+    Rectangle {
+      width: 96
+      height: 36
+      radius: 4
+      color: "#1a1b26"
+      border.color: "#ffffff"
+      border.width: 1
+      Text {
+        anchors.centerIn: parent
+        text: "backspace"
+        color: "#ffffff"
+        font.pixelSize: 12
+      }
+      MouseArea {
+        anchors.fill: parent
+        onClicked: if (password.length > 0) password.remove(password.length - 1, password.length)
+      }
+    }
+
+    Rectangle {
+      width: 96
+      height: 36
+      radius: 4
+      color: "#1a1b26"
+      border.color: "#ffffff"
+      border.width: 1
+      Text {
+        anchors.centerIn: parent
+        text: "space"
+        color: "#ffffff"
+        font.pixelSize: 12
+      }
+      MouseArea {
+        anchors.fill: parent
+        onClicked: password.insert(password.length, " ")
+      }
+    }
+
+    Rectangle {
+      width: 96
+      height: 36
+      radius: 4
+      color: "#1a1b26"
+      border.color: "#ffffff"
+      border.width: 1
+      Text {
+        anchors.centerIn: parent
+        text: "enter"
+        color: "#ffffff"
+        font.pixelSize: 12
+      }
+      MouseArea {
+        anchors.fill: parent
+        objectName: "greeterSubmit"
+        onClicked: sddm.login(root.currentUser, password.text, root.sessionIndex)
+      }
+    }
+  }
 }

@@ -686,6 +686,45 @@ function fullscreenOn(toplevels, workspaceId) {
   return false
 }
 
+var handheldTouchIds = ["omarchy.bluetooth", "omarchy.network", "omarchy.desktop-keyboard"]
+
+function isRogAllyDmi(vendor, product, board) {
+  var v = String(vendor || "").trim()
+  var p = String(product || "").trim()
+  var b = String(board || "").trim()
+  if (v !== "ASUSTeK COMPUTER INC.") return false
+  return p.indexOf("ROG Ally RC71L") === 0 || b === "RC71L"
+}
+
+function layoutHasId(layout, id) {
+  if (!isPlainObject(layout)) return false
+  for (var s = 0; s < sections.length; s++) {
+    var entries = layout[sections[s]]
+    if (!Array.isArray(entries)) continue
+    for (var i = 0; i < entries.length; i++) {
+      if (entryId(entries[i]) === id) return true
+    }
+  }
+  return false
+}
+
+// A handheld bar still has Wi-Fi, Bluetooth and the desktop keyboard when the
+// user's shell.json left them out. An explicit disabledPlugins entry stays out.
+function pinHandheldTouch(config) {
+  if (!isPlainObject(config)) return config
+  var disabled = Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []
+  if (!isPlainObject(config.bar)) config.bar = {}
+  if (!isPlainObject(config.bar.layout)) config.bar.layout = {}
+  if (!Array.isArray(config.bar.layout.right)) config.bar.layout.right = []
+  for (var i = 0; i < handheldTouchIds.length; i++) {
+    var id = handheldTouchIds[i]
+    if (disabled.indexOf(id) !== -1) continue
+    if (layoutHasId(config.bar.layout, id)) continue
+    config.bar.layout.right.unshift({ id: id })
+  }
+  return config
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     barSizeFor: barSizeFor,
@@ -723,6 +762,8 @@ if (typeof module !== "undefined") {
     expandPath: expandPath,
     customModuleSafeName: customModuleSafeName,
     customModuleType: customModuleType,
-    customModulePath: customModulePath
+    customModulePath: customModulePath,
+    isRogAllyDmi: isRogAllyDmi,
+    pinHandheldTouch: pinHandheldTouch
   }
 }

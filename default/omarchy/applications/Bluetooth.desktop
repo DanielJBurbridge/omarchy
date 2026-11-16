@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Bluetooth
+Comment=Open the Bluetooth list
+Exec=omarchy-shell shell summon omarchy.bluetooth
+Icon=bluetooth
+Terminal=false
+Type=Application
+Categories=Network;Settings;
+Keywords=Bluetooth;
+StartupNotify=false

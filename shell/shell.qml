@@ -9,6 +9,7 @@ import qs.Commons
 import qs.Commons as Commons
 
 import "plugins/bar"
+import "plugins/bar/BarModel.js" as BarModel
 import "services"
 import "services/AuthServiceStore.js" as AuthServiceStore
 
@@ -103,7 +104,40 @@ ShellRoot {
       }
     }
     userConfigUnreadable = !!userText.trim() && !user
-    shellConfig = user || defaults
+    var next = user || defaults
+    if (handheldAlly) BarModel.pinHandheldTouch(next)
+    shellConfig = next
+  }
+
+  property bool handheldAlly: false
+
+  function refreshHandheld() {
+    var ally = BarModel.isRogAllyDmi(dmiVendor.text(), dmiProduct.text(), dmiBoard.text())
+    if (ally === handheldAlly) return
+    handheldAlly = ally
+    applyShellConfig()
+  }
+
+  FileView {
+    id: dmiVendor
+    path: "/sys/class/dmi/id/sys_vendor"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
+  }
+  FileView {
+    id: dmiProduct
+    path: "/sys/class/dmi/id/product_name"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
+  }
+  FileView {
+    id: dmiBoard
+    path: "/sys/class/dmi/id/board_name"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
   }
 
   function loadDefaults(raw) {

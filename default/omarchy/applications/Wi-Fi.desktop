@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Wi-Fi
+Comment=Open the Wi-Fi list
+Exec=omarchy-shell shell summon omarchy.network
+Icon=network-wireless
+Terminal=false
+Type=Application
+Categories=Network;Settings;
+Keywords=WiFi;Network;Wireless;
+StartupNotify=false

@@ -2,5 +2,10 @@
 
 # omarchy:summary=Exit 0 when a physical keyboard is attached.
 
+if [[ -z ${OMARCHY_PATH:-} ]]; then
+  # A caller that has not exported OMARCHY_PATH still has the packaged bootstrap.
+  # shellcheck source=/dev/null
+  source "${OMARCHY_ENV_BOOTSTRAP:-/usr/share/omarchy/default/bash/env-bootstrap}"
+fi
 source "$OMARCHY_PATH/default/gaming/keyboard.sh"
 gaming_physical_keyboard_in /sys/class/input
