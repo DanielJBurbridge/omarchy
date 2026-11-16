@@ -1,6 +1,6 @@
 # Handheld research
 
-Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md` and `touch-desktop-and-stick-mouse.md` are dated 16 Nov 2026.
+Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md`, `touch-desktop-and-stick-mouse.md` and `inputplumber-profiles-brief.md` are dated 16 Nov 2026.
 
 **An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
@@ -17,6 +17,7 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 - [`prior-art.md`](prior-art.md) — Pizzarchy, cephalization/omarchy-steam-gaming-mode, DeckShift and deckarchy. What each does, its licence, how it starts gamescope and gets back to the desktop, keyboard-free install and login, and a port list for the files on this branch.
 - [`touch-first-boot.md`](touch-first-boot.md) — Power on, log in and get online on the RC71L with the touchscreen and the built-in controller only. Greeter keyboard, Steam OSK, Wi-Fi without the bar module, controller-as-mouse before login, polkit prompts, crash-loop fallback, and the iPadOS patterns worth copying.
 - [`buttons-and-input.md`](buttons-and-input.md) — Ally extra buttons, kernel codes, how InputPlumber and HHD map them, and the InputPlumber recommendation. Paddle codes and the M1/M2 side mapping are marked unverified there and still need the press test.
+- [`inputplumber-profiles-brief.md`](inputplumber-profiles-brief.md) — Implementation brief for the RC71L profiles in [spec 01](../01-controller-button-map.md): the upstream composite device, the `gaming`, `desktop` and `osk` YAML against the InputPlumber 0.84 schema, D-Bus profile loads, and the licence split. OQ-1, OQ-2 and OQ-17 stay TBC.
 - [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and a 10-line recommended Omarchy stack, with the steamos-manager caveat above.
 - [`distros.md`](distros.md) — How Bazzite, CachyOS Handheld, SteamOS, ChimeraOS and Nobara install, boot into gaming mode, switch to the desktop and handle docking, plus what Omarchy can reuse and under which licence.
 - [`accessibility.md`](accessibility.md) — Handheld accessibility findings for a gamescope + Steam gaming mode and the Hyprland desktop.
