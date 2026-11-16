@@ -9,9 +9,8 @@ Two Arch packages are built from this one repo (PKGBUILDs live in the
 separate `omarchy-pkgs` repository, under `pkgbuilds/`):
 
 - **`omarchy`** — runtime binaries (`bin/`, including `bin/omarchy-dev-*`),
-  install/finalize scripts (`install/`), migrations, themes, the
-  Quickshell desktop (`shell/`), and `share/` (shipped recipes, including
-  the RC71L power-button build). Depends on `omarchy-settings`.
+  install/finalize scripts (`install/`), migrations, themes, and the
+  Quickshell desktop (`shell/`). Depends on `omarchy-settings`.
 - **`omarchy-settings`** — everything that has to be on the target *before*
   the omarchy package installs (specifically before `useradd -m` and the
   limine bootloader install): all `/etc/skel/**`, `/etc/` drop-ins,
@@ -85,7 +84,6 @@ install/**                     ──►  omarchy             /usr/share/omarchy
 migrations/**                  ──►  omarchy             /usr/share/omarchy/migrations/
 themes/**                      ──►  omarchy             /usr/share/omarchy/themes/
 shell/**                       ──►  omarchy             /usr/share/omarchy/shell/
-share/**                       ──►  omarchy             /usr/share/omarchy/share/
 version                        ──►  omarchy             /usr/share/omarchy/version
                                                         + /etc/skel/.local/state/omarchy/migrations/*
 
@@ -145,7 +143,8 @@ default/**                     ──►  omarchy-settings    /usr/share/omarchy
   ├─ sddm/omarchy/                                      /usr/share/sddm/themes/omarchy/
   ├─ sddm/hyprland.lua                                  /usr/share/sddm/hyprland.lua
   ├─ wayland-sessions/omarchy.desktop                   /usr/local/share/wayland-sessions/
-  └─ plymouth/                                          /usr/share/plymouth/themes/omarchy/
+  ├─ plymouth/                                          /usr/share/plymouth/themes/omarchy/
+  └─ rog-ally/powerbutton/                              (RC71L power-button recipe; stays in this tree)
 
 logo.{txt,svg}, icon.{txt,png}  ──► omarchy-settings    /usr/share/omarchy/  (resync source)
                                                         /usr/share/pixmaps/omarchy.png
@@ -155,7 +154,7 @@ logo.{txt,svg}, icon.{txt,png}  ──► omarchy-settings    /usr/share/omarchy
 
 The hardware-conditional `force-igpu` and `keyboard-backlight` sources also live under `default/systemd/system-sleep/`, but their setup commands publish root-owned copies only on machines that need them; they are not installed by `omarchy-settings`.
 
-`share/rog-ally/powerbutton/` is the RC71L power-button recipe (`PKGBUILD`, the hwdb and the udev rule). It compiles Valve's powerbuttond v4.2 (`9392e688`, BSD-2-Clause, copyright 2023 Valve Software) and the recipe installs that upstream LICENSE with the binary. `omarchy-install-rog-ally-powerbutton` reads it from `$OMARCHY_PATH/share/rog-ally/powerbutton`. `packaging/` is not installed.
+`default/rog-ally/powerbutton/` is the RC71L power-button recipe (`PKGBUILD`, the hwdb and the udev rule). `omarchy-settings` and `omarchy-settings-dev` `package()` copy the whole `default/` tree with `cp -a default/.` to `/usr/share/omarchy/default/`, so a packaged install has it at `$OMARCHY_PATH/default/rog-ally/powerbutton`. It compiles Valve's powerbuttond v4.2 (`9392e688`, BSD-2-Clause, copyright 2023 Valve Software) and the recipe installs that upstream LICENSE with the binary. `omarchy` and `omarchy-dev` `package()` copy `install`, `themes`, `icons` when that directory exists, `migrations`, `shell` and `version` into `/usr/share/omarchy`. They do not copy `default/`, `share/` or `packaging/`.
 
 ### Platform root
 

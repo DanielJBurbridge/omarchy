@@ -452,7 +452,7 @@ pass "gaming handler starts once and shares exclusion with desktop handler"
 # only KEY_ZOOM (0x174). Query a real isolated hwdb, never the host database.
 hwdb_root="$test_tmp/hwdb"
 mkdir -p "$hwdb_root/usr/lib/udev/hwdb.d"
-cp "$ROOT/share/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.hwdb" "$hwdb_root/usr/lib/udev/hwdb.d/"
+cp "$ROOT/default/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.hwdb" "$hwdb_root/usr/lib/udev/hwdb.d/"
 systemd-hwdb --root="$hwdb_root" --strict update
 for keys in "74," "71,74,8F,"; do
   tagged=$(systemd-hwdb --root="$hwdb_root" query "id-input:modalias:input:b0019v0000p0001e0000-e0,1,k${keys}ramlsfw")
@@ -686,9 +686,9 @@ cat >"$build_stub/makepkg" <<'SH'
 printf 'makepkg %s\n' "$*" >>"$PKG_LOG"
 printf 'git-speed %s %s\n' "${GIT_HTTP_LOW_SPEED_LIMIT:-missing}" "${GIT_HTTP_LOW_SPEED_TIME:-missing}" >>"$PKG_LOG"
 pwd >"$PKG_LOG.workdir"
-cmp -s PKGBUILD "$OMARCHY_PATH/share/rog-ally/powerbutton/PKGBUILD" || exit 1
-cmp -s 70-omarchy-rog-ally-power-button.hwdb "$OMARCHY_PATH/share/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.hwdb" || exit 1
-cmp -s 70-omarchy-rog-ally-power-button.rules "$OMARCHY_PATH/share/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.rules" || exit 1
+cmp -s PKGBUILD "$OMARCHY_PATH/default/rog-ally/powerbutton/PKGBUILD" || exit 1
+cmp -s 70-omarchy-rog-ally-power-button.hwdb "$OMARCHY_PATH/default/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.hwdb" || exit 1
+cmp -s 70-omarchy-rog-ally-power-button.rules "$OMARCHY_PATH/default/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.rules" || exit 1
 : >omarchy-rog-ally-powerbutton-4.2-1-x86_64.pkg.tar.zst
 SH
 cat >"$build_stub/pacman" <<'SH'
@@ -800,7 +800,7 @@ udev_refreshed || fail "a new companion reloads the input tags" "$(<"$pkg_log")"
 [[ $(<"$pkg_log") != *yay* && $(<"$pkg_log") != *steamos-powerbuttond* ]] ||
   fail "the installer does not take the AUR or CachyOS package" "$(<"$pkg_log")"
 [[ -f $pkg_log.workdir && ! -d $(<"$pkg_log.workdir") ]] || fail "the build directory is removed"
-[[ -z $(find "$ROOT/share/rog-ally/powerbutton" -name '*.pkg.tar.*' -print -quit) ]] ||
+[[ -z $(find "$ROOT/default/rog-ally/powerbutton" -name '*.pkg.tar.*' -print -quit) ]] ||
   fail "the recipe directory is not the build directory"
 pass "the missing companion is built from the in-tree recipe and installed locally"
 
@@ -1009,7 +1009,7 @@ if attrs_same_parent 'ATTRS{name}=="Power Button", ATTRS{modalias}=="*LNXPWRBN*"
   fail "a rule that mixes the input name with the ACPI modalias was accepted"
 fi
 
-rules=$ROOT/share/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.rules
+rules=$ROOT/default/rog-ally/powerbutton/70-omarchy-rog-ally-power-button.rules
 uaccess_count=0
 pnp_rule=''
 lnx_rule=''
@@ -1042,69 +1042,60 @@ for line in "$pnp_rule" "$lnx_rule"; do
 done
 pass "the power-button uaccess rule matches one parent of the ACPI power button"
 
-# A packaged install is the omarchy payload under /usr/share/omarchy. The
-# rows come from the build-time map in docs/file-layout.md. packaging/ is
-# not one of them, and this tree must not grow a copy of it by hand.
+# A packaged /usr/share/omarchy is only what omarchy-pkgs package() copies
+# there. Pinned from omacom/omarchy-pkgs master on 16 Nov 2026, not from
+# docs/file-layout.md.
+#
+# pkgbuilds/omarchy-dev/PKGBUILD (_commit 7c8e05925391188d6e95e581dc51c12fb2facd48)
+# and pkgbuilds/omarchy/PKGBUILD (_commit a948d8a6871f446b335258c827648ac5f4e9428b)
+# copy install, themes, icons when that directory exists, migrations, shell
+# and version. They do not copy default/, config/, share/ or packaging/.
+#
+# pkgbuilds/omarchy-settings-dev/PKGBUILD (same 7c8e059 pin) and
+# pkgbuilds/omarchy-settings/PKGBUILD (same a948d8a pin) copy config/. to
+# /usr/share/omarchy/config/, applications/. to /usr/share/omarchy/applications/
+# (then remove applications/icons), default/. to /usr/share/omarchy/default/,
+# and logo.txt, logo.svg, icon.txt and icon.png into /usr/share/omarchy/.
 copy_packaged_omarchy() {
   local dest=$1
-  local in_map=0
-  local spec="" line package path rel repo_path
+  local name brand
+  local -a omarchy_dirs=(install themes migrations shell)
 
   mkdir -p "$dest"
-  : >"$dest.map"
-  while IFS= read -r line || [[ -n $line ]]; do
-    if [[ $line == '```' ]]; then
-      if (( in_map )); then
-        break
-      fi
-      in_map=1
-      continue
-    fi
-    (( in_map )) || continue
-    if [[ $line != *'──►'* ]]; then
-      if [[ -n $line && $line != [[:space:]]* ]]; then
-        spec=${line%% *}
-      fi
-      continue
-    fi
-    if [[ $line != [[:space:]]* ]]; then
-      spec=${line%% *}
-    fi
-    [[ -n $spec ]] || fail "the package map has a row with no source" "$line"
-    read -r package _ <<<"${line#*──►}"
-    path=${line##* }
-    [[ $package == omarchy ]] || continue
-    [[ $path == /usr/share/omarchy || $path == /usr/share/omarchy/* ]] || continue
-    rel=${path#/usr/share/omarchy/}
-    rel=${rel%/}
-    [[ -n $rel && $rel != /* && $rel != *..* ]] || fail "the package map names a path outside the install root" "$path"
-    repo_path=${spec%%/\*\*}
-    repo_path=${repo_path%%/\*}
-    printf '%s\n' "$rel" >>"$dest.map"
-    if [[ -d $ROOT/$repo_path ]]; then
-      mkdir -p "$dest/$(dirname -- "$rel")"
-      cp -a "$ROOT/$repo_path" "$dest/$rel"
-    elif [[ -f $ROOT/$repo_path ]]; then
-      mkdir -p "$(dirname -- "$dest/$rel")"
-      cp -a "$ROOT/$repo_path" "$dest/$rel"
-    else
-      fail "the package map names a missing tree" "$repo_path"
-    fi
-  done <"$ROOT/docs/file-layout.md"
-  (( in_map )) || fail "the package map was not found"
-  [[ -s $dest.map ]] || fail "the package map ships nothing under /usr/share/omarchy"
+  if [[ -d $ROOT/icons ]]; then
+    omarchy_dirs+=(icons)
+  fi
+  for name in "${omarchy_dirs[@]}"; do
+    [[ -d $ROOT/$name ]] || fail "omarchy package() names a missing tree" "$name"
+    cp -a "$ROOT/$name" "$dest/$name"
+  done
+  [[ -f $ROOT/version ]] || fail "omarchy package() names a missing version file"
+  cp -a "$ROOT/version" "$dest/version"
+
+  for name in config applications default; do
+    [[ -d $ROOT/$name ]] || fail "omarchy-settings package() names a missing tree" "$name"
+    mkdir -p "$dest/$name"
+    cp -a "$ROOT/$name/." "$dest/$name/"
+  done
+  rm -rf "$dest/applications/icons"
+  for brand in logo.txt logo.svg icon.txt icon.png; do
+    [[ -f $ROOT/$brand ]] || fail "omarchy-settings package() names a missing brand file" "$brand"
+    cp -a "$ROOT/$brand" "$dest/$brand"
+  done
 }
 
 packaged=$test_tmp/packaged-omarchy
 copy_packaged_omarchy "$packaged"
+[[ -f $packaged/default/rog-ally/powerbutton/PKGBUILD ]] || fail "the packaged tree omits the recipe settings copies with default/"
 [[ ! -e $packaged/packaging ]] || fail "the packaged tree contains packaging/"
+[[ ! -e $packaged/share ]] || fail "the packaged tree contains share/"
 
 packaged_stub=$test_tmp/packaged-stub
 mkdir -p "$packaged_stub"
 cat >"$packaged_stub/makepkg" <<'SH'
 #!/bin/bash
 printf 'makepkg %s\n' "$*" >>"$PKG_LOG"
-recipe=$OMARCHY_PATH/share/rog-ally/powerbutton
+recipe=$OMARCHY_PATH/default/rog-ally/powerbutton
 [[ -f PKGBUILD ]] || exit 1
 cmp -s PKGBUILD "$recipe/PKGBUILD" || exit 1
 cmp -s 70-omarchy-rog-ally-power-button.hwdb "$recipe/70-omarchy-rog-ally-power-button.hwdb" || exit 1
