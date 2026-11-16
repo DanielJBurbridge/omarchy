@@ -115,6 +115,8 @@ as_user env OMARCHY_HANDHELD_AUTOLOGIN_DIR=$user_dir OMARCHY_AUTOLOGIN_NOW=1 \
 [[ ! -e $user_dir/failures && ! -e $user_dir/stop ]] || fail "a desktop user does not create the counter"
 
 OMARCHY_AUTOLOGIN_NOW=1000 run_guard fail
+[[ ! -e $work/run/actions ]] || ! grep -q 'inputplumber-profile:load' "$work/run/actions" ||
+  fail "one failure does not load a profile" "$(cat "$work/run/actions" 2>/dev/null)"
 assert_root_file "$work/run/failures"
 dir_owner=$(stat -c '%u:%g:%a' -- "$work/run")
 [[ $dir_owner == 0:0:755 ]] || fail "the counter directory is root-owned mode 0755" "$dir_owner"
@@ -137,6 +139,12 @@ OMARCHY_AUTOLOGIN_NOW=2040 run_guard fail
 assert_root_file "$work/run/stop"
 grep -q '^Relogin=false$' "$dropin" || fail "a crash-loop stop sets Relogin=false" "$(cat "$dropin")"
 grep -qx 'sddm-restart' "$work/run/actions" || fail "a crash-loop stop restarts the greeter" "$(cat "$work/run/actions")"
+restart_line=$(grep -n '^sddm-restart$' "$work/run/actions" | head -1 | cut -d: -f1)
+pointer_line=$(grep -n '^inputplumber-profile:load pointer$' "$work/run/actions" | head -1 | cut -d: -f1)
+[[ -n $pointer_line && $restart_line -lt $pointer_line ]] ||
+  fail "a crash-loop stop loads the pointer profile after the greeter restart" "$(cat "$work/run/actions")"
+grep -Eq 'inputplumber-profile:load (desktop|gaming|osk|gamepad)' "$work/run/actions" &&
+  fail "a crash-loop stop does not load a session profile" "$(cat "$work/run/actions")"
 run_guard apply
 grep -q '^Relogin=false$' "$dropin" || fail "apply keeps Relogin=false while the stop file exists" "$(cat "$dropin")"
 cat > "$work/bin/omarchy-session-start" <<EOF

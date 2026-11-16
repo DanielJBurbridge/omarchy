@@ -1,0 +1,26 @@
+# InputPlumber DeviceProfile v1. Omarchy RC71L mapping.
+# Schema: https://raw.githubusercontent.com/ShadowBlip/InputPlumber/v0.84.0/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
+# Capability names are the schema's vocabulary. This file is not a copy of an upstream profile.
+version: 1
+kind: "DeviceProfile"
+name: "Omarchy Ally gaming"
+target_devices:
+  - "ds5-edge"
+  - "mouse"
+  - "keyboard"
+mapping:
+  - name: "Quick access on Armoury long"
+    source_event:
+      gamepad:
+        button: "QuickAccess2"
+    target_events:
+      - dbus: "omarchy_overlay"
+  - name: "Steam keyboard"
+    source_event:
+      gamepad:
+        button: "Keyboard"
+    target_events:
+      - gamepad:
+          button: "Guide"
+      - gamepad:
+          button: "West"
