@@ -43,6 +43,19 @@ if steam_tree_has_ui "$proc" 23; then
 fi
 pass "Steam is ready on another Xwayland, on Wayland, and not on an unrelated socket"
 
+# 205 sorts between the Steam parent (200) and steamwebhelper (210). Its
+# status is unreadable, the shape of a helper that exits after the glob.
+# One awk aborts there and never records the child that holds the display.
+race=$work/proc-race
+mkdir -p "$race/200" "$race/205" "$race/210/fd"
+printf 'Name:\tsteam\nPPid:\t1\n' > "$race/200/status"
+printf 'Name:\treaped\nPPid:\t200\n' > "$race/205/status"
+chmod 000 "$race/205/status"
+printf 'Name:\tsteamwebhelper\nPPid:\t200\n' > "$race/210/status"
+ln -s '/tmp/.X11-unix/X1' "$race/210/fd/4"
+steam_tree_has_ui "$race" 200 || fail "an unreadable status hides steamwebhelper's display"
+pass "an unreadable proc status is skipped and steamwebhelper's display still counts"
+
 state=$work/state
 mkdir -p "$state"
 gaming_state=$state
