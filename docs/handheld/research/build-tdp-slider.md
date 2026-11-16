@@ -8,7 +8,7 @@ The contract is already merged. [brief-tdp-limits.md](brief-tdp-limits.md) is th
 
 ## Recommendation
 
-Build an opt-in package, `omarchy-rog-ally-tdp`, in the same shape as [`packaging/rog-ally-powerbutton/PKGBUILD`](../../../packaging/rog-ally-powerbutton/PKGBUILD). Gate it on `omarchy-hw-rog-ally`. Laptops do not install it and keep `power-profiles-daemon`.
+Build an opt-in package, `omarchy-rog-ally-tdp`, in the same shape as [`share/rog-ally/powerbutton/PKGBUILD`](../../../share/rog-ally/powerbutton/PKGBUILD). Gate it on `omarchy-hw-rog-ally`. Laptops do not install it and keep `power-profiles-daemon`.
 
 The smallest reuse that Steam will actually talk to is two MIT pieces from [evlaV/steamos-manager](https://github.com/evlaV/steamos-manager) `85fbd8f97719277c4df326cf27e4803d4cb31ef9`, not the daemon:
 

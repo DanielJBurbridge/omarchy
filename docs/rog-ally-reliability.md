@@ -22,7 +22,7 @@ The rollout owner backs up that file before editing it and reloads Hyprland afte
 
 Use the maintained [Valve powerbuttond v4.2](https://gitlab.steamos.cloud/holo/powerbuttond/-/tree/v4.2), commit `9392e68883fdb0c40bc01ab39ae75c83a541e413`, under BSD-2-Clause. [CachyOS currently packages 4.2-1](https://packages.cachyos.org/package/cachyos/x86_64/steamos-powerbuttond). The upstream daemon reads input events and forwards Steam's short/long power-press URIs; Steam decides the gaming action. The unmodified daemon blocks waiting for input and does not poll hardware or suspend the system itself. No archived ShadowBlip power daemon is used.
 
-The reviewed companion recipe is `packaging/rog-ally-powerbutton/PKGBUILD`. It builds the pinned upstream source and installs only these files:
+The reviewed companion recipe is `share/rog-ally/powerbutton/PKGBUILD`. It builds the pinned upstream source and installs only these files:
 
 | Installed path | Purpose |
 | --- | --- |

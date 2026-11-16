@@ -4,7 +4,7 @@
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
-# Builds packaging/rog-ally-powerbutton unchanged. The recipe compiles Valve's
+# Builds share/rog-ally/powerbutton unchanged. The recipe compiles Valve's
 # powerbuttond v4.2 (9392e688, BSD-2-Clause, copyright 2023 Valve Software) and
 # installs that LICENSE with the binary. The C source stays out of this tree.
 # AUR and CachyOS steamos-powerbuttond use make install, which this recipe
@@ -49,7 +49,7 @@ for conflict in steamos-powerbuttond steam-powerbuttond steam-powerbuttond-git; 
   fi
 done
 
-recipe=$OMARCHY_PATH/packaging/rog-ally-powerbutton
+recipe=$OMARCHY_PATH/share/rog-ally/powerbutton
 if [[ ! -f $recipe/PKGBUILD ]]; then
   echo "Missing the RC71L power-button recipe at $recipe." >&2
   exit 1

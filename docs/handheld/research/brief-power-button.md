@@ -6,7 +6,7 @@ Short press in the gamescope session suspends. A one-second hold opens Steam's p
 
 ## Recommendation
 
-Build `omarchy-rog-ally-powerbutton` 4.2-1 from [`packaging/rog-ally-powerbutton/PKGBUILD`](../../../packaging/rog-ally-powerbutton/PKGBUILD). It compiles unmodified [powerbuttond v4.2](https://gitlab.steamos.cloud/holo/powerbuttond/-/tags/v4.2) (commit [`9392e688`](https://gitlab.steamos.cloud/holo/powerbuttond/-/commit/9392e68883fdb0c40bc01ab39ae75c83a541e413), which was also `main` on 16 Nov 2026) and installs only:
+Build `omarchy-rog-ally-powerbutton` 4.2-1 from [`share/rog-ally/powerbutton/PKGBUILD`](../../../share/rog-ally/powerbutton/PKGBUILD). It compiles unmodified [powerbuttond v4.2](https://gitlab.steamos.cloud/holo/powerbuttond/-/tags/v4.2) (commit [`9392e688`](https://gitlab.steamos.cloud/holo/powerbuttond/-/commit/9392e68883fdb0c40bc01ab39ae75c83a541e413), which was also `main` on 16 Nov 2026) and installs only:
 
 | Path | Role |
 |---|---|
