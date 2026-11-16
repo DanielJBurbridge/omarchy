@@ -137,27 +137,49 @@ source_install "$ROOT/install/hardware/asus-rog.sh" 1 1
 [[ ! -s $pkg_log ]] || fail "a non-ROG machine does not install asusctl" "$(cat "$pkg_log")"
 pass "a non-ROG machine does not install asusctl"
 
+power_stub="$test_tmp/power-stub"
+mkdir -p "$power_stub"
+cat >"$power_stub/omarchy-install-rog-ally-powerbutton" <<'SH'
+#!/bin/bash
+printf '%s\n' "install-powerbutton" >>"$PKG_LOG"
+exit "${FAKE_POWER_INSTALL:-0}"
+SH
+chmod +x "$power_stub/omarchy-install-rog-ally-powerbutton"
+
+run_ally_leaf() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${1:-0}" \
+    PATH="$power_stub:$ROOT/bin:$PATH" \
+    bash -eE -c 'source "$1"' bash "$ROOT/install/hardware/asus/rog-ally.sh" </dev/null
+}
+
+: >"$pkg_log"
 note=$(
   write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
-  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
-    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
-    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-    PATH="$ROOT/bin:$PATH" \
-    bash -eE -c 'source "$1"' bash "$ROOT/install/hardware/asus/rog-ally.sh" </dev/null
+  run_ally_leaf
 )
 [[ $note == *"RC71L"* && $note == *"asusctl"* ]] || fail "the Ally hardware leaf names the machine and the skipped package" "$note"
-pass "the Ally hardware leaf names the machine and the skipped package"
+[[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the Ally hardware leaf installs the power-button companion" "$(<"$pkg_log")"
+pass "the Ally hardware leaf names the machine and installs the power-button companion"
 
+: >"$pkg_log"
 note=$(
   write_dmi "$vendor" "ROG Ally X RC72LA_RC72LA" "RC72LA"
-  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
-    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
-    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-    PATH="$ROOT/bin:$PATH" \
-    bash -eE -c 'source "$1"' bash "$ROOT/install/hardware/asus/rog-ally.sh" </dev/null
+  run_ally_leaf
 )
 [[ -z $note ]] || fail "the Ally hardware leaf is silent on an Ally X" "$note"
+[[ ! -s $pkg_log ]] || fail "an Ally X does not install the power-button companion" "$(<"$pkg_log")"
 pass "the Ally hardware leaf is silent on an Ally X"
+
+: >"$pkg_log"
+write_dmi "$vendor" "ROG Ally" "RC71L"
+if ! err=$(run_ally_leaf 1 2>&1 >/dev/null); then
+  fail "a failed companion install does not abort the Ally hardware leaf"
+fi
+[[ $err == *"sudo omarchy-install-rog-ally-powerbutton"* ]] || fail "a failed companion install names the command to re-run" "$err"
+pass "a failed companion install does not stall the rest of hardware setup"
 
 # Laptop audio quirks must not run on the Ally. sudo is stubbed so a body that
 # does run cannot touch the machine.
@@ -642,3 +664,131 @@ run_gaming_menu 1 1 1
 [[ $(<"$menu_log") == *"$toggle_label"* && $(<"$menu_log") != *"$install_label"* ]] ||
   fail "RC71L with wvkbd offers the keyboard toggle" "$(<"$menu_log")"
 pass "gaming keyboard rows stay on RC71L"
+
+# The companion is built from the in-tree recipe and installed with pacman -U.
+# Stubs replace makepkg, pacman and udev so this never compiles or tags the host.
+build_stub="$test_tmp/power-build"
+mkdir -p "$build_stub"
+cat >"$build_stub/makepkg" <<'SH'
+#!/bin/bash
+printf 'makepkg %s\n' "$*" >>"$PKG_LOG"
+pwd >"$PKG_LOG.workdir"
+cmp -s PKGBUILD "$OMARCHY_PATH/packaging/rog-ally-powerbutton/PKGBUILD" || exit 1
+cmp -s 70-omarchy-rog-ally-power-button.hwdb "$OMARCHY_PATH/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.hwdb" || exit 1
+cmp -s 70-omarchy-rog-ally-power-button.rules "$OMARCHY_PATH/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.rules" || exit 1
+: >omarchy-rog-ally-powerbutton-4.2-1-x86_64.pkg.tar.zst
+SH
+cat >"$build_stub/pacman" <<'SH'
+#!/bin/bash
+if [[ $1 == -Q ]]; then
+  name=${!#}
+  [[ $name == omarchy-rog-ally-powerbutton && ${FAKE_POWER_PKG:-0} == 1 ]] && exit 0
+  [[ -n ${FAKE_CONFLICT:-} && $name == "$FAKE_CONFLICT" ]] && exit 0
+  exit 1
+fi
+printf 'pacman %s\n' "$*" >>"$PKG_LOG"
+SH
+cat >"$build_stub/sudo" <<'SH'
+#!/bin/bash
+printf 'sudo %s\n' "$*" >>"$PKG_LOG"
+"$@"
+SH
+cat >"$build_stub/systemd-hwdb" <<'SH'
+#!/bin/bash
+printf 'systemd-hwdb %s\n' "$*" >>"$PKG_LOG"
+SH
+cat >"$build_stub/udevadm" <<'SH'
+#!/bin/bash
+printf 'udevadm %s\n' "$*" >>"$PKG_LOG"
+SH
+cat >"$build_stub/yay" <<'SH'
+#!/bin/bash
+printf 'yay %s\n' "$*" >>"$PKG_LOG"
+exit 99
+SH
+chmod +x "$build_stub"/*
+
+power_migration=$ROOT/migrations/1795075200.sh
+[[ -x $ROOT/bin/omarchy-install-rog-ally-powerbutton ]] || fail "the power-button installer is executable"
+[[ $(stat -c %a -- "$power_migration") == 644 ]] || fail "the power-button migration is mode 0644"
+[[ $(head -1 "$power_migration") != '#!'* ]] || fail "the power-button migration has no shebang"
+grep -q 'pkexec\|NOPASSWD' "$power_migration" && fail "the power-button migration uses pkexec or NOPASSWD"
+grep -q 'pkexec\|NOPASSWD' "$ROOT/bin/omarchy-install-rog-ally-powerbutton" && fail "the power-button installer uses pkexec or NOPASSWD"
+pass "the power-button migration is a non-executable repair without a sudoers grant"
+
+run_power_install() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    OMARCHY_PATH="$ROOT" PKG_LOG="$pkg_log" \
+    FAKE_POWER_PKG="${FAKE_POWER_PKG:-0}" FAKE_CONFLICT="${FAKE_CONFLICT:-}" \
+    PATH="$build_stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-install-rog-ally-powerbutton"
+}
+
+udev_refreshed() {
+  [[ $(<"$pkg_log") == *"sudo systemd-hwdb update"* ]] || return 1
+  [[ $(<"$pkg_log") == *"sudo udevadm control --reload"* ]] || return 1
+  [[ $(<"$pkg_log") == *"sudo udevadm trigger --subsystem-match=input"* ]] || return 1
+}
+
+write_dmi "Dell Inc." "XPS 13" "0A1B"
+: >"$pkg_log"
+run_power_install
+[[ ! -s $pkg_log ]] || fail "a laptop does not build the RC71L power-button companion" "$(<"$pkg_log")"
+write_dmi "$vendor" "ROG Ally X RC72LA" "RC72LA"
+run_power_install
+[[ ! -s $pkg_log ]] || fail "Ally X does not build the RC71L power-button companion" "$(<"$pkg_log")"
+pass "the power-button installer stays closed off the original Ally"
+
+write_dmi "$vendor" "ROG Ally" "RC71L"
+for conflict in steamos-powerbuttond steam-powerbuttond steam-powerbuttond-git; do
+  : >"$pkg_log"
+  if note=$(FAKE_CONFLICT="$conflict" run_power_install 2>&1); then
+    fail "an installed $conflict is refused"
+  fi
+  [[ $note == *"$conflict"* ]] || fail "the refusal names $conflict" "$note"
+  [[ $(<"$pkg_log") != *makepkg* && $(<"$pkg_log") != *"pacman -U"* && $(<"$pkg_log") != *yay* ]] ||
+    fail "a conflicting handler is not replaced" "$(<"$pkg_log")"
+done
+pass "an already installed Steam power daemon is left in place"
+
+: >"$pkg_log"
+FAKE_POWER_PKG=1 run_power_install
+udev_refreshed || fail "an installed companion still reloads the input tags" "$(<"$pkg_log")"
+[[ $(<"$pkg_log") != *makepkg* && $(<"$pkg_log") != *"pacman -U"* ]] ||
+  fail "an installed companion is not built again" "$(<"$pkg_log")"
+pass "an installed companion only reloads udev"
+
+: >"$pkg_log"
+rm -f "$pkg_log.workdir"
+FAKE_POWER_PKG=0 FAKE_CONFLICT= run_power_install
+[[ $(<"$pkg_log") == *makepkg* ]] || fail "a missing companion is built" "$(<"$pkg_log")"
+[[ $(<"$pkg_log") == *"pacman -U --noconfirm --"* && $(<"$pkg_log") == *"omarchy-rog-ally-powerbutton-"*".pkg.tar.zst"* ]] ||
+  fail "the built package is installed with pacman -U" "$(<"$pkg_log")"
+udev_refreshed || fail "a new companion reloads the input tags" "$(<"$pkg_log")"
+[[ $(<"$pkg_log") != *yay* && $(<"$pkg_log") != *steamos-powerbuttond* ]] ||
+  fail "the installer does not take the AUR or CachyOS package" "$(<"$pkg_log")"
+[[ -f $pkg_log.workdir && ! -d $(<"$pkg_log.workdir") ]] || fail "the build directory is removed"
+[[ -z $(find "$ROOT/packaging/rog-ally-powerbutton" -name '*.pkg.tar.*' -print -quit) ]] ||
+  fail "the recipe directory is not the build directory"
+pass "the missing companion is built from the in-tree recipe and installed locally"
+
+: >"$pkg_log"
+write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
+FAKE_POWER_INSTALL=0 \
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  PKG_LOG="$pkg_log" PATH="$power_stub:$ROOT/bin:$PATH" \
+  bash -euo pipefail "$power_migration" >/dev/null
+[[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the migration installs the companion on an RC71L" "$(<"$pkg_log")"
+: >"$pkg_log"
+write_dmi "$vendor" "ROG Strix G16" "GU605CX"
+OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  PKG_LOG="$pkg_log" PATH="$power_stub:$ROOT/bin:$PATH" \
+  bash -euo pipefail "$power_migration" >/dev/null
+[[ ! -s $pkg_log ]] || fail "the migration does nothing on a ROG laptop" "$(<"$pkg_log")"
+pass "the migration installs the companion only on the original Ally"

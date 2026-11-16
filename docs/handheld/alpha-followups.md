@@ -315,3 +315,10 @@ How peers compare. Bazzite binds PCR 7+14 with the passphrase kept, and Secure B
 - It counts short sessions in `/tmp` and falls back to the desktop after 5, which L130 and L132 would match in spirit.
 - Its recovery re-extracts the Steam bootstrap, which can overwrite Steam settings ([bazzite#4045](https://github.com/ublue-os/bazzite/issues/4045)). Do not copy that part.
 - Neither peer offers a keyboard-free disk-unlock fallback.
+
+From the RC71L gaming power-button package, 16 Nov 2026. The companion is Valve's unmodified powerbuttond v4.2 (`9392e688`, BSD-2-Clause), built by the in-tree recipe. This range is L160–L169.
+
+- L160. **Open.** The brief's on-device power-button test was not run. No RC71L was available. Still to record: one short press suspends and resumes into the same game, a one-second hold opens Steam's power menu and the machine stays up, the desktop path is unchanged, and `HandlePowerKey` stays `ignore`. Source: power-button package. Owner: hardware.
+- L161. **Open.** `omarchy-rog-ally-powerbutton` is not in the omarchy package repository. The hardware leaf builds the recipe on the machine. An offline first boot warns and continues so later hardware setup is not stuck, and the migration retries on the next update. Source: power-button package. Owner: power.
+- L162. **Open.** An Ally that already has `omarchy-rog-ally-powerbutton` installed is left on that package. A later recipe bump does not rebuild it. Source: power-button package. Owner: power.
+- L163–L169. Held by the power-button package change. Do not file in this range.

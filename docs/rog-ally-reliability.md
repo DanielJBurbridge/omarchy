@@ -33,7 +33,7 @@ The reviewed companion recipe is `packaging/rog-ally-powerbutton/PKGBUILD`. It b
 
 It does not install upstream's global input access/scancode overrides or the `gamescope-session.service.wants` link. It conflicts with separately installed Steam power-button daemon packages; resolve an existing handler deliberately rather than enabling both. InputPlumber must leave the real power button to this owner; no KEY_POWER mapping to an additional suspend action. No input-group membership is required.
 
-Build in a disposable package directory as an ordinary user after reviewing the recipe and installing its build dependencies. The sole rollout owner installs the built main package with the usual reviewed local-package workflow (`sudo pacman -U /path/to/omarchy-rog-ally-powerbutton-4.2-1-x86_64.pkg.tar.zst`); no repository replacement is needed. Record the artifact hash and package version. After installing the coordinated Omarchy runtime helper and the companion, update/reload the udev database/rules and retrigger the existing input devices once so the active seat receives the access tag:
+On an RC71L, `install/hardware/asus/rog-ally.sh` and its migration run `omarchy-install-rog-ally-powerbutton`. That command builds this recipe in a disposable directory and installs it with `pacman -U`. No repository replacement is needed. A hand build is the same recipe: build as an ordinary user, then `sudo pacman -U /path/to/omarchy-rog-ally-powerbutton-4.2-1-x86_64.pkg.tar.zst`. Record the artifact hash and package version. The installer reloads the hwdb and retriggers input devices after `pacman -U`. A hand install still does that once so the active seat receives the access tag:
 
 ```bash
 sudo systemd-hwdb update
