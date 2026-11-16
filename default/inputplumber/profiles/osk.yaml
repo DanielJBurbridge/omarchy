@@ -1,7 +1,7 @@
 # InputPlumber DeviceProfile v1. Omarchy RC71L mapping.
 # Schema: https://raw.githubusercontent.com/ShadowBlip/InputPlumber/v0.84.0/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
 # desktop.yaml with East and West replaced. The name is distinct so ProfileName can tell them apart.
-# No grip targets. The bridge owns KeyLeftMeta and KeyLeftCtrl after OQ-17.
+# No grip targets. The session bridge owns KeyLeftMeta and KeyLeftCtrl.
 version: 1
 kind: "DeviceProfile"
 name: "Omarchy Ally osk"

@@ -88,6 +88,15 @@ install_user() {
 [Autologin]
 User=$username
 EOF
+  # The polkit rule names this user. Refresh it when the gaming session
+  # package is what installed the rule.
+  if omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session; then
+    if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+      printf 'inputplumber-profile:install-service\n' >> "$OMARCHY_HANDHELD_AUTOLOGIN_DIR/actions"
+    else
+      /usr/bin/omarchy-inputplumber-profile install-service || true
+    fi
+  fi
 }
 
 apply_dropin() {
