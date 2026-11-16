@@ -21,11 +21,23 @@ fi
 
 action=${1:-session}
 
+log_refuse() {
+  printf '%s\n' "omarchy-handheld-autologin: $1" >&2
+  logger -t omarchy-handheld-autologin -- "$1" 2>/dev/null || true
+  exit 1
+}
+
 if [[ $action == fail || $action == reset || $action == apply ]] && (( EUID != 0 )); then
   if [[ -z ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} && -x /usr/bin/omarchy-handheld-autologin ]] && sudo -n -l /usr/bin/omarchy-handheld-autologin "$action" >/dev/null 2>&1; then
     exec sudo -n -- /usr/bin/omarchy-handheld-autologin "$action"
   fi
-  exit 0
+  if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
+    log_refuse "$action needs root; not using sudo while OMARCHY_HANDHELD_AUTOLOGIN_DIR is set"
+  fi
+  if [[ ! -x /usr/bin/omarchy-handheld-autologin ]]; then
+    log_refuse "$action needs root; /usr/bin/omarchy-handheld-autologin is not installed"
+  fi
+  log_refuse "$action needs root; sudo -n -l refused a passwordless $action"
 fi
 
 refuse_symlink() {
@@ -65,6 +77,22 @@ now_s() {
 handheld_variant() {
   omarchy-cmd-present omarchy-hw-rog-ally omarchy-pkg-present &&
     omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session
+}
+
+# sudo strips the environment, so this is the default state home of SUDO_USER.
+# A relocated XDG_STATE_HOME is not visible here.
+caller_failure_count() {
+  local user home state file count
+  user=${SUDO_USER:-}
+  [[ $user =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || return 0
+  home=$(getent passwd -- "$user" 2>/dev/null | cut -d: -f6 || true)
+  [[ -n $home && $home == /* && ! -L $home && -d $home ]] || return 0
+  state=$home/.local/state/omarchy/gaming-session
+  file=$state/start-failures
+  [[ -d $state && ! -L $state && -f $file && ! -L $file ]] || return 0
+  IFS= read -r count < "$file" || return 0
+  [[ $count =~ ^[0-9]+$ ]] || return 0
+  printf '%s\n' "$count"
 }
 
 write_dropin() {
@@ -137,11 +165,9 @@ load_greeter_pointer() {
 case $action in
   session)
     refuse_symlink
-    # Stop means the greeter. Exiting 0 does not start the desktop, so a
-    # Relogin=false restart cannot come back as desktop() and loop.
-    if [[ -f $stop ]]; then
-      exit 0
-    fi
+    # Stop used to exit 0 and leave the greeter, which has no keyboard.
+    # The supervisor opens the Hyprland desktop once. Relogin is already
+    # false, so that desktop exiting does not start another session.
     exec omarchy-session-start relogin
     ;;
   install-user)
@@ -173,6 +199,7 @@ case $action in
     write_file "$failures" <<EOF
 $(printf '%s\n' "${kept[@]}")
 EOF
+    state_count=$(caller_failure_count)
     if (( ${#kept[@]} >= 3 )); then
       write_file "$stop" <<'EOF'
 stop
@@ -180,6 +207,13 @@ EOF
       apply_dropin
       restart_greeter
       load_greeter_pointer
+    elif [[ $state_count =~ ^[0-9]+$ ]] && (( state_count >= 3 )); then
+      # The persisted count already tripped. Pin Relogin off without
+      # restarting SDDM: this process is about to open the desktop.
+      write_file "$stop" <<'EOF'
+stop
+EOF
+      apply_dropin
     fi
     ;;
   tripped)

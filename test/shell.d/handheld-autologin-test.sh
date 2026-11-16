@@ -110,8 +110,11 @@ pass "Relogin consumes next=desktop once and otherwise stays on gaming"
 user_dir=$work/user-run
 mkdir -p "$user_dir"
 chown 1:1 "$user_dir"
-as_user env OMARCHY_HANDHELD_AUTOLOGIN_DIR=$user_dir OMARCHY_AUTOLOGIN_NOW=1 \
-  "$ROOT/bin/omarchy-handheld-autologin" fail
+if as_user env OMARCHY_HANDHELD_AUTOLOGIN_DIR="$user_dir" OMARCHY_AUTOLOGIN_NOW=1 \
+  "$ROOT/bin/omarchy-handheld-autologin" fail >"$work/user-out" 2>"$work/user-err"; then
+  fail "a desktop user fail without root is a silent success"
+fi
+grep -q 'needs root' "$work/user-err" || fail "a refused fail does not say why" "$(cat "$work/user-err" 2>/dev/null)"
 [[ ! -e $user_dir/failures && ! -e $user_dir/stop ]] || fail "a desktop user does not create the counter"
 
 OMARCHY_AUTOLOGIN_NOW=1000 run_guard fail
@@ -150,22 +153,20 @@ grep -q '^Relogin=false$' "$dropin" || fail "apply keeps Relogin=false while the
 cat > "$work/bin/omarchy-session-start" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$work/run/session-args"
-exit 10
+exit 0
 EOF
 chmod +x "$work/bin/omarchy-session-start"
-if run_guard session; then
-  :
-else
-  fail "a stopped session exits 0 and leaves SDDM on the greeter"
-fi
-if run_guard session; then
-  :
-else
-  fail "a second stopped session still exits 0"
-fi
-[[ ! -s $work/run/session-args ]] || fail "a crash-loop stop does not start the desktop session" "$(cat "$work/run/session-args")"
+rm -f "$work/run/session-args"
+restarts_before=$(grep -c '^sddm-restart$' "$work/run/actions")
+run_guard session || fail "a stopped session does not start the desktop supervisor"
+run_guard session || fail "a second stopped session does not start the desktop supervisor"
+[[ $(grep -c '^relogin$' "$work/run/session-args") == 2 ]] ||
+  fail "a stopped session starts the desktop supervisor once per entry" "$(cat "$work/run/session-args" 2>/dev/null)"
+restarts_after=$(grep -c '^sddm-restart$' "$work/run/actions")
+[[ $restarts_before == "$restarts_after" ]] ||
+  fail "opening the desktop after stop restarts SDDM again" "$(cat "$work/run/actions")"
 grep -q '^Relogin=false$' "$dropin" || fail "the greeter restart leaves Relogin=false" "$(cat "$dropin")"
-pass "three failure timestamps within 60s stop at the greeter and do not relog"
+pass "three failure timestamps within 60s pin Relogin off and the next session is the desktop"
 
 user_conf=$work/sddm/omarchy-handheld-user.conf
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"
@@ -265,3 +266,28 @@ PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm pre_remove
 [[ ! -e $user_conf ]] || fail "pre_remove leaves omarchy-handheld-user.conf"
 grep -q '^User=keep$' "$work/sddm/autologin.conf" || fail "pre_remove deletes autologin.conf"
 pass "laptops and a removed package leave no handheld User="
+
+# sudo strips the environment, so fail reads the default state home of
+# SUDO_USER. A count already at the limit pins Relogin off without restarting
+# SDDM: the session is about to open the desktop.
+fake_home=$work/fake-home
+mkdir -p "$fake_home/.local/state/omarchy/gaming-session"
+printf '3\n' > "$fake_home/.local/state/omarchy/gaming-session/start-failures"
+cat > "$work/bin/getent" <<'EOF'
+#!/bin/bash
+if [[ $1 == passwd ]]; then
+  printf 'ally:x:1000:1000:ally:%s:/bin/bash\n' "$AUTOLOGIN_FAKE_HOME"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$work/bin/getent"
+rm -f "$work/run/stop" "$work/run/failures" "$work/run/actions"
+export SUDO_USER=ally AUTOLOGIN_FAKE_HOME=$fake_home
+OMARCHY_AUTOLOGIN_NOW=9000 run_guard fail
+unset SUDO_USER AUTOLOGIN_FAKE_HOME
+rm -f "$work/bin/getent"
+[[ -f $work/run/stop ]] || fail "a persisted count of 3 writes the stop file"
+grep -q '^Relogin=false$' "$dropin" || fail "a persisted count of 3 sets Relogin=false" "$(cat "$dropin")"
+[[ ! -e $work/run/actions ]] || fail "a persisted count of 3 does not restart SDDM" "$(cat "$work/run/actions" 2>/dev/null)"
+pass "a persisted count of 3 pins Relogin off without restarting SDDM"

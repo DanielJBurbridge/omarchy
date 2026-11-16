@@ -145,13 +145,66 @@ gaming_docked() {
   command -v omarchy-display-rog-ally >/dev/null && omarchy-display-rog-ally docked
 }
 
+# Failed-start counter. The shape follows gamescope-session-plus (MIT,
+# Copyright 2020-2023 Joaquín Ignacio Aramendía,
+# https://github.com/ChimeraOS/gamescope-session): count failed gaming starts,
+# and once the count reaches the limit start the desktop instead of gamescope.
+# A healthy ready, or an explicit return to the desktop, clears the count.
+# The count lives in the gaming state directory so a relogin and a reboot
+# still see it. Steam's bootstrap re-extract is not used.
+# The same three-start limit as omarchy-handheld-autologin.
+gaming_failure_limit=3
+gaming_fail_limit_latch='Gaming failed repeatedly; desktop selected until an explicit gaming choice.'
+
+gaming_failure_count() {
+  local count=0
+  [[ -n ${gaming_state:-} && -f $gaming_state/start-failures && ! -L $gaming_state/start-failures ]] || {
+    printf '0\n'
+    return 0
+  }
+  IFS= read -r count < "$gaming_state/start-failures" || true
+  [[ $count =~ ^[0-9]+$ ]] || count=0
+  printf '%s\n' "$count"
+}
+
+gaming_failure_record() {
+  local count
+  count=$(gaming_failure_count)
+  gaming_save start-failures "$((count + 1))"
+}
+
+gaming_failure_reset() {
+  [[ -n ${gaming_state:-} && -f $gaming_state/start-failures && ! -L $gaming_state/start-failures ]] || return 0
+  rm -f -- "$gaming_state/start-failures"
+  printf '%s\n' 'cleared the gaming start failures' >> "$gaming_state/fallback.log"
+}
+
+gaming_fail_limit_reached() {
+  local count
+  count=$(gaming_failure_count)
+  (( count >= gaming_failure_limit ))
+}
+
+gaming_fail_limit_latched() {
+  local reason=''
+  [[ -n ${gaming_state:-} && -f $gaming_state/recovery && ! -L $gaming_state/recovery ]] || return 1
+  IFS= read -r reason < "$gaming_state/recovery" || true
+  [[ $reason == "$gaming_fail_limit_latch" ]]
+}
+
+# The ordinary recovery latch still lets Relogin try gaming again. This one
+# does not: the fail limit already tripped.
+gaming_fail_limit_blocked() {
+  gaming_fail_limit_latched || gaming_fail_limit_reached
+}
+
 # SDDM Relogin comes back to gaming. The recovery latch and a docked auto
 # preference decide a preferred login, not this return. The one exception is
 # next=desktop, the session user's one-shot at
 # ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next (mode 0600,
 # in the mode 0700 state directory). An explicit Switch to Desktop writes it.
 # This consumes that value once. Any other relogin stays on gaming and leaves
-# the file alone.
+# the file alone, unless the fail-limit latch is set.
 gaming_entry_selection() {
   local choice=''
   if [[ $1 == relogin ]]; then
@@ -162,6 +215,10 @@ gaming_entry_selection() {
         printf '%s\n' desktop
         return
       fi
+    fi
+    if gaming_fail_limit_latched; then
+      printf '%s\n' desktop
+      return
     fi
     printf '%s\n' gaming
     return

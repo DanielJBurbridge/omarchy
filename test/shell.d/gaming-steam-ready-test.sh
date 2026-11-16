@@ -24,13 +24,13 @@ trap cleanup EXIT
 proc=$work/proc
 mkdir -p "$proc/20" "$proc/21/fd" "$proc/net" "$proc/30/fd"
 printf 'PPid:\t1\n' > "$proc/20/status"
-printf 'PPid:\t20\n' > "$proc/21/status"
+printf 'Name:\tsteamwebhelper\nPPid:\t20\n' > "$proc/21/status"
 ln -s 'socket:[77]' "$proc/21/fd/4"
 printf 'ffff: 00000002 00000000 00010000 0001 01 77 /tmp/.X11-unix/X1\n' > "$proc/net/unix"
 DISPLAY=:0 steam_tree_has_ui "$proc" 20 || fail "a Steam child on Xwayland :1 counts as a UI"
 
 mkdir -p "$proc/22/fd"
-printf 'PPid:\t1\n' > "$proc/22/status"
+printf 'Name:\tsteamwebhelper\nPPid:\t1\n' > "$proc/22/status"
 ln -s '/run/user/1000/wayland-1' "$proc/22/fd/3"
 steam_tree_has_ui "$proc" 22 || fail "a Wayland socket counts as a UI"
 
@@ -42,6 +42,20 @@ if steam_tree_has_ui "$proc" 23; then
   fail "a pipe socket is not a display"
 fi
 pass "Steam is ready on another Xwayland, on Wayland, and not on an unrelated socket"
+
+# The steam client's own X window is the bootstrap, the updater, or the
+# offline error dialog. It is up before the gamepad UI. Counting it ready
+# clears the crash counter on a start that never reached Steam's UI.
+boot=$work/proc-boot
+mkdir -p "$boot/20" "$boot/21/fd" "$boot/net"
+printf 'Name:\tsteam\nPPid:\t1\n' > "$boot/20/status"
+printf 'Name:\tsteam\nPPid:\t20\n' > "$boot/21/status"
+ln -s 'socket:[77]' "$boot/21/fd/4"
+printf 'ffff: 00000002 00000000 00010000 0001 01 77 /tmp/.X11-unix/X1\n' > "$boot/net/unix"
+if steam_tree_has_ui "$boot" 20; then
+  fail "a steam bootstrap X client counts as ready"
+fi
+pass "a steam bootstrap X client does not mark ready"
 
 # 205 sorts between the Steam parent (200) and steamwebhelper (210). Its
 # status is unreadable, the shape of a helper that exits after the glob.
