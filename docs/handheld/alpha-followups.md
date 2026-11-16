@@ -315,3 +315,16 @@ How peers compare. Bazzite binds PCR 7+14 with the passphrase kept, and Secure B
 - It counts short sessions in `/tmp` and falls back to the desktop after 5, which L130 and L132 would match in spirit.
 - Its recovery re-extracts the Steam bootstrap, which can overwrite Steam settings ([bazzite#4045](https://github.com/ublue-os/bazzite/issues/4045)). Do not copy that part.
 - Neither peer offers a keyboard-free disk-unlock fallback.
+
+From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. L150–L169 belong to other PRs. This range is L170–L179.
+
+- L170. **Open.** Whether Steam draws the TDP slider on this RC71L with only `-steamos3 -steampal -steamdeck -gamepadui` is unverified. A further Deck-identity check was not found. Source: build-tdp-slider.md. Owner: hardware.
+- L171. **Open.** GitLab `holo/steamos-manager` `power.rs` was not re-diffed against evlaV `85fbd8f`. The port uses the evlaV pin. Source: build-tdp-slider.md. Owner: power.
+- L172. **Open.** Bazzite installs Terra rpm `steamos-manager-powerstation`. The spec was not opened, so what that rpm vendors is unverified. Source: build-tdp-slider.md. Owner: power.
+- L173. **Open.** HHD's `hhd.steamos` docstring says steamos-manager forwards TDP through it. evlaV `85fbd8f` has no `hhd.steamos` string, and the HHD pin has no `remotes.d`. Whether a later manager execs the stub is unverified. Source: build-tdp-slider.md. Owner: power.
+- L174. **Open.** asusd at `5346e184` saves and restores `asus-armoury` values. Whether that restore runs on this RC71L while the writer is installed is unverified. The writer refuses `--set` and `--reassert` while asusd is active. Source: build-tdp-slider.md. Owner: hardware.
+- L175. **Open.** The non-Extreme Z1, and whether `ppt_apu_sppt` and `ppt_platform_sppt` are absent, were not measured on this unit. Source: build-tdp-slider.md. Owner: hardware.
+- L176. **Open.** The dumped unit's MCU is below 319. Update it before treating a resume that sticks near 4–7 W as a writer bug. Source: build-tdp-slider.md, ally-hw-dump.md. Owner: hardware.
+- L177. **Open.** `BatteryChargeLimit1` stays out of the shim. Whether the QAM shows a charge limit on this RC71L is unverified. Source: build-tdp-slider.md. Owner: power.
+- L178. D1's `allow_active=yes` on `org.omarchy.ally.set-tdp` is still outstanding. The build records the action and does not treat it as signed off. Already L106. Source: build-tdp-slider.md. Owner: dev-red.
+- L179. **Open.** Whether the RC71L EC swaps the live PPT limit on plug without a userspace write is unverified. The udev path still runs `--reassert`. Source: build-tdp-slider.md. Owner: hardware.

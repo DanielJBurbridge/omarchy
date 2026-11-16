@@ -1,0 +1,111 @@
+# Build the Steam TDP slider on the RC71L
+
+16 Nov 2026. Build brief for dev-blue. Rank 1 in [parity-gaps-ranked.md](parity-gaps-ranked.md): Steam's TDP slider in the gamescope session, with a separate battery limit and AC limit, reapplied after resume and after unplug. Docs only. Nothing here was run on the device.
+
+The contract is already merged. [brief-tdp-limits.md](brief-tdp-limits.md) is the research. [04-quick-access-overlay.md](../04-quick-access-overlay.md) §5.1 is the apply rule. [tdp-decision-review.md](../tdp-decision-review.md) still says: do not ship stock or forked steamos-manager. This note names the smallest code to reuse and the files to add. It does not change those three.
+
+[`bin/omarchy-session-start`](../../../bin/omarchy-session-start) already installs [`10-gaming-session.conf`](../../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf) and, at lines 236–238, restarts `omarchy-ally-tdp-shim.service` when that unit exists, immediately before the gamescope scope. The unit, the writer and the shim are not in the tree. [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam) already launches `steam -steamos3 -steampal -steamdeck -gamepadui`.
+
+## Recommendation
+
+Build an opt-in package, `omarchy-rog-ally-tdp`, in the same shape as [`packaging/rog-ally-powerbutton/PKGBUILD`](../../../packaging/rog-ally-powerbutton/PKGBUILD). Gate it on `omarchy-hw-rog-ally`. Laptops do not install it and keep `power-profiles-daemon`.
+
+The smallest reuse that Steam will actually talk to is two MIT pieces from [evlaV/steamos-manager](https://github.com/evlaV/steamos-manager) `85fbd8f97719277c4df326cf27e4803d4cb31ef9`, not the daemon:
+
+- Vendor the `TdpLimit1` interface, lines 705–730 of [`com.steampowered.SteamOSManager1.xml`](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/data/interfaces/com.steampowered.SteamOSManager1.xml), with the copyright and permission notice from that repo's `LICENSE` (Collabora, Valve, Igalia, SPDX `MIT`). Do not vendor the other interfaces.
+- Port the write order of `FirmwareAttributeLimitManager::set_tdp_limit`, lines 530–572 of [`power.rs`](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/steamos-manager/src/power.rs) (43 lines). That function checks `is_active`, rejects a limit outside the live SPL `min_value`..`max_value`, reads SPPT and FPPT `min_value`, then writes SPL, SPPT and FPPT `current_value` in that order. `current_value` is the getter. Keep the MIT notice beside the port. Do not copy the Rust.
+
+The watts are §5.1, not `max(limit, min)` alone. Read `min_value`, `max_value` and `default_value` live from `/sys/class/firmware-attributes/asus-armoury/attributes/`. The ratio is `anchor` and `round_div` in [`ally_tdp.py`](https://github.com/DanielJBurbridge/omarchy/blob/b91c2943dfcd3abd93ef3a12d6dfcf0bb1bbad2c/default/handheld/ally_tdp.py) on `cursor/ally-tdp-spike-1843` at `b91c2943` (`anchor` returns `default` when it is greater than zero, else `max`; `round_div` is half-up integer division). §5.1 says that spike is the rule except the battery clamp. Do not copy `BATTERY_CAP = 25` from that file. The policy ceiling is battery 20/20/25 and AC slider 30. On the stock tables, battery `--set 25` and `--set 20` apply 20/20/25, and AC `--set 30` applies 30/43/53. Unplug of a stored 30 applies 20/20/25 and keeps 30. Plugging back in restores 30/43/53.
+
+The writer is bash: `bin/omarchy-ally-tdp-apply`. The shim is `bin/omarchy-ally-tdp-shim`, a `bin/` script that owns the session name the way [`bin/omarchy-inputplumber-profile`](../../../bin/omarchy-inputplumber-profile) already does, with `Gio` (`python3`, `python-gobject`). That is the bus owner this tree already has. A bash loop cannot emit `PropertiesChanged` and hold the name. Do not add a Rust crate.
+
+This is the shape that can land in Omarchy: one opt-in package, `omarchy-*` names, a shell writer, two oneshots and one user unit, polkit with no `NOPASSWD` and an explicit `sddm` denial, no GPL or LGPL in the tree, and no daemon on a laptop.
+
+## What was compared
+
+Sizes are `wc -l` of the file at the pin, read on 16 Nov 2026. "Steam drives it" means Steam's Quick Access slider calls that code on a machine that is not a Steam Deck. The client is proprietary. A Deck-identity check beyond the four flags already set is **unverified** on this Ally.
+
+| Source | Pin and paths | SPDX | LOC | Runtime | Steam's slider on non-Deck hardware |
+|---|---|---|---|---|---|
+| steamos-manager | [evlaV/steamos-manager](https://github.com/evlaV/steamos-manager) `85fbd8f`. XML above. `steamos-manager/src/power.rs`. Ally table [`rog-ally-series.toml`](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/data/devices/rog-ally-series.toml) (42 lines) | `MIT` | XML 982. `TdpLimit1` 26. `power.rs` 2031. The firmware `set_tdp_limit` 43. The crate's `.rs` files are 20656 | The pin's `steamos-manager/Cargo.toml` links `gio`, `zbus`, `speech-dispatcher`, `udev`, `tokio`. CachyOS's package, below, also depends on `steamos-networking-tools` and `wireless_tools`. User activation is [`com.steampowered.SteamOSManager1.service`](https://github.com/evlaV/steamos-manager/blob/85fbd8f97719277c4df326cf27e4803d4cb31ef9/data/user/com.steampowered.SteamOSManager1.service): `Exec=/bin/false`, `SystemdService=steamos-manager.service` | This is the API the slider calls: session bus `com.steampowered.SteamOSManager1`, object `/com/steampowered/SteamOSManager1`, property `TdpLimit1.TdpLimit`. The Ally toml matches `ASUSTeK COMPUTER INC.` and board `RC71L`, method `firmware_attribute` on `asus-armoury`. Whether the slider is drawn on this Omarchy unit is **unverified** |
+| HHD steam stub | [hhd-dev/hhd](https://github.com/hhd-dev/hhd) `180f0cd8515787789ce82a8d8a116076c36c98a6`. [`src/hhd/http/steamos.py`](https://github.com/hhd-dev/hhd/blob/180f0cd8515787789ce82a8d8a116076c36c98a6/src/hhd/http/steamos.py). Entry point `hhd.steamos` in `pyproject.toml` | `LGPL-2.1-or-later` in `pyproject.toml`. The `LICENSE` file is the LGPLv2.1 text. No SPDX line in this file | 201 | The package depends on `evdev`, `PyYAML`, `rich`, `python-xlib`, `pyserial`, `pyroute2`, `PyGObject`, `dbus-python`, Python `>=3.10`. This file talks to the HHD socket `/run/hhd/api` | The docstring says it is for steamos-manager to forward TDP. The evlaV pin contains no `hhd.steamos` string, and this HHD pin has no `remotes.d` file. Steam does not call this stub. Whether a later manager execs it is **unverified** |
+| HHD PPD shim | Same pin. [`src/adjustor/drivers/gpu/ppd.py`](https://github.com/hhd-dev/hhd/blob/180f0cd8515787789ce82a8d8a116076c36c98a6/src/adjustor/drivers/gpu/ppd.py) and `power-profiles-daemon.dbus.xml.in` (147 lines) | Same package licence. No SPDX line in `ppd.py` | 203 | `dbus` and `gi.repository.GLib` | It claims `org.freedesktop.UPower.PowerProfiles` and `net.hadess.PowerProfiles`. That is not `TdpLimit1`. Steam's slider does not drive it |
+| HHD Asus writer | Same pin. `set_tdp` at lines 69–77 of [`src/adjustor/drivers/asus/__init__.py`](https://github.com/hhd-dev/hhd/blob/180f0cd8515787789ce82a8d8a116076c36c98a6/src/adjustor/drivers/asus/__init__.py) | Same package licence. No SPDX line in the file | Function 9. File 553 | Writes `/sys/devices/platform/asus-nb-wmi/ppt_fppt`, `ppt_pl2_sppt`, `ppt_pl1_spl` | Those are the deprecated platform files. [brief-tdp-limits.md](brief-tdp-limits.md) says not to write them. Steam does not call this function |
+| InputPlumber | [ShadowBlip/InputPlumber](https://github.com/ShadowBlip/InputPlumber) tag `v0.84.0` (`117cb04`). `Cargo.toml` `license` | `GPL-3.0-or-later`. The `LICENSE` file is the GPLv3 text | No `tdp`, `ppt_pl` or `SteamOSManager` hit in the tree | Input daemon. The deb comment names libudev. It is not a power writer | Steam's slider does not drive it. There is nothing to port |
+| PowerStation | [ShadowBlip/PowerStation](https://github.com/ShadowBlip/PowerStation) `9799ca99cc2bc87aaeb66f63f326eae8c2eb1aa5`. [`src/performance/gpu/asus/asus_wmi.rs`](https://github.com/ShadowBlip/PowerStation/blob/9799ca99cc2bc87aaeb66f63f326eae8c2eb1aa5/src/performance/gpu/asus/asus_wmi.rs) `set_tdp` at line 66, `set_boost` at line 149 | `GPL-3.0-or-later` in `Cargo.toml`. The `LICENSE` file is the GPLv3 text | 187 | Rust daemon. The rpm metadata requires `dbus` and `pciutils`. System bus `org.shadowblip.PowerStation` | `set_tdp` writes `ppt_pl1_spl`, then `set_boost` writes `ppt_platform_sppt`. On RC71L that attribute's max is 0 ([brief-tdp-limits.md](brief-tdp-limits.md)). Bazzite's [`powerstation-hardware`](https://github.com/ublue-os/bazzite/blob/e13f4fdade42f9de66567b3b60f589860feb9781/system_files/desktop/shared/usr/libexec/hwsupport/powerstation-hardware) (65 lines) says PowerStation is for devices with no firmware-attributes driver, and it does not match a ROG Ally. Steam talks to steamos-manager, which may fall back to this bus. It does not do that for the Ally |
+| Bazzite | [ublue-os/bazzite](https://github.com/ublue-os/bazzite) `e13f4fdade42f9de66567b3b60f589860feb9781`. [`steamos-manager-hardware`](https://github.com/ublue-os/bazzite/blob/e13f4fdade42f9de66567b3b60f589860feb9781/system_files/desktop/shared/usr/libexec/hwsupport/steamos-manager-hardware) (46 lines) returns success for `ROG Ally*`. [`03-install-packages.sh`](https://github.com/ublue-os/bazzite/blob/e13f4fdade42f9de66567b3b60f589860feb9781/build_files/bazzite-deck/03-install-packages.sh) installs `steamos-manager-powerstation` from Terra. [`05-finalize.sh`](https://github.com/ublue-os/bazzite/blob/e13f4fdade42f9de66567b3b60f589860feb9781/build_files/bazzite-deck/05-finalize.sh) enables `steamos-manager.service` | Repo `Apache-2.0`. The daemon source is not in this git tree | The selector is 46. The install line is one package name | The Terra rpm `steamos-manager-powerstation`. Its spec was not opened. What it vendors is **unverified** | On an Ally, Bazzite selects steamos-manager, not PowerStation and not HHD. Deck 44 removed HHD ([announcement](https://universal-blue.discourse.group/t/bazzites-biggest-update-deck-44-has-launched-happy-birthday-to-universal-blue/12373)). `plasma-applet-tdp-control` in the same install script is the KDE applet, not Steam's slider |
+| CachyOS | [CachyOS/chwd](https://github.com/CachyOS/chwd) `b5278a3aa999c5ea243a67e4416257406a5fe57c`, [`profiles/pci/handhelds/profiles.toml`](https://github.com/CachyOS/chwd/blob/b5278a3aa999c5ea243a67e4416257406a5fe57c/profiles/pci/handhelds/profiles.toml) (88 lines). `[handheld]` installs `steamos-manager`. [CachyOS-PKGBUILDS](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/ab15ca2048159897015eb0ac90eac8c756b86e7a/handheld/steamos-manager/PKGBUILD) `ab15ca20`, `steamos-manager` 26.4.1-3 | chwd `Cargo.toml` is `GPL-3.0-only`. The PKGBUILD's `license` is `MIT` because the upstream daemon is MIT. [CachyOS-Handheld](https://github.com/CachyOS/CachyOS-Handheld) has no GitHub licence | PKGBUILD `prepare` cherry-picks `7de5caad` and applies `support-gamescope-session-steam.patch`. The patch diff was not opened | `depends` on that PKGBUILD: `dbus`, `gcc-libs`, `glibc`, `speech-dispatcher`, `steamos-networking-tools`, `systemd`, `systemd-libs`, `wireless_tools`. Build needs `cargo` and `clang` | They install stock Manager, plus a patch whose body is **unverified**. We do not |
+| RyzenAdj | [FlyGoat/RyzenAdj](https://github.com/FlyGoat/RyzenAdj) `5775fc3e6dbb25c7030ee2d100a1bdd6e8bf2d0a`, `main.c` | `LGPL-3.0` (GitHub licence API) | 346 | Root. The README tries `ryzen_smu` then `/dev/mem`, and says device power management overwrites values. No RC71 AC/DC table ([brief-tdp-limits.md](brief-tdp-limits.md)) | Steam does not call it. The kernel attributes already publish min and max and reject a store outside them |
+| asusctl / asusd | [flukejones/asusctl](https://github.com/flukejones/asusctl) `5346e184d09c5ed46e5dd16cdecedb7608393502`. [`rog-platform/src/asus_armoury.rs`](https://github.com/flukejones/asusctl/blob/5346e184d09c5ed46e5dd16cdecedb7608393502/rog-platform/src/asus_armoury.rs). `asusd/src/asus_armoury.rs` restores saved firmware-attribute values | `MPL-2.0` | `rog-platform` `asus_armoury.rs` is 569. It names `ppt_pl1_spl`, `ppt_pl2_sppt`, `ppt_pl3_fppt` | A daemon plus `asusctl armoury`, which sets one attribute. The README ties TDP to `asus-armoury` and kernel 6.19+ | Steam does not talk to asusctl. asusd is a second writer: it stores and restores armoury values, including on the path that removes a missing attribute. The writer refuses `--set` and `--reassert` while asusd is active. Do not depend on it and do not vendor it |
+
+## Files to add
+
+The drop-in `default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf` stays as it is.
+
+| Path | Role |
+|---|---|
+| `packaging/rog-ally-tdp/PKGBUILD` | `pkgname=omarchy-rog-ally-tdp`. `license=('MIT')`. `depends=('omarchy' 'python-gobject' 'polkit' 'systemd')`. `conflicts=('steamos-manager')`. Installs the rows below and the MIT notice under `/usr/share/licenses/omarchy-rog-ally-tdp/`. Not listed in `install/omarchy-base.packages` |
+| `packaging/rog-ally-tdp/omarchy-rog-ally-tdp.install` | `post_install` and `post_remove`, below |
+| `packaging/rog-ally-tdp/NOTICE.steamos-manager` | The MIT copyright and permission notice, next to the vendored interface |
+| `packaging/rog-ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml` | The vendored `TdpLimit1` interface only |
+| `bin/omarchy-ally-tdp-apply` | `#!/bin/bash`. The writer. Installed at `/usr/bin/omarchy-ally-tdp-apply` |
+| `bin/omarchy-ally-tdp-shim` | `#!/usr/bin/python3`. The session-bus owner. Installed at `/usr/bin/omarchy-ally-tdp-shim` |
+| `default/systemd/user/omarchy-ally-tdp-shim.service` | `Type=dbus`, `BusName=com.steampowered.SteamOSManager1`, `ExecStart=/usr/bin/omarchy-ally-tdp-shim`. `PartOf=` and `WantedBy=` `graphical-session.target` and `omarchy-gaming-session.target`. `ExecCondition=/usr/bin/omarchy-hw-rog-ally` |
+| `default/systemd/system/omarchy-ally-tdp-resume.service` | Oneshot, `WantedBy=` `suspend.target` `hibernate.target` `hybrid-sleep.target` `suspend-then-hibernate.target`. `ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert`. `ExecCondition=/usr/bin/omarchy-hw-rog-ally` |
+| `default/systemd/system/omarchy-ally-tdp-source.service` | Oneshot. Same `--reassert`. Pulled by udev |
+| `default/udev/99-omarchy-ally-tdp.rules` | `ACTION=="change"`, `SUBSYSTEM=="power_supply"`, `PROGRAM=="/usr/bin/omarchy-hw-rog-ally"`, `TAG+="systemd"`, `ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"` |
+| `default/polkit/org.omarchy.ally.set-tdp.policy` | Action `org.omarchy.ally.set-tdp`. `allow_any=no`, `allow_inactive=no`, `allow_active=yes`. The only exec path is `/usr/bin/omarchy-ally-tdp-apply`. D1's sign-off of `allow_active=yes` is still outstanding (L106) |
+| `default/polkit/50-omarchy-ally-set-tdp.rules` | NO when `subject.user` is `sddm`. No `wheel` grant. YES only for the handheld user recorded in `omarchy-handheld-user.conf`, when `subject.active` and `subject.local` are both true. Same shape as the InputPlumber rule in [inputplumber-profiles-brief.md](inputplumber-profiles-brief.md) |
+| `default/dbus/com.steampowered.SteamOSManager1.service` | Session activation. `Name=com.steampowered.SteamOSManager1`, `SystemdService=omarchy-ally-tdp-shim.service`. Do not copy evlaV's file. Its `SystemdService` is `steamos-manager.service` |
+
+Do not add `/usr/share/dbus-1/system.d/com.steampowered.SteamOSManager1.conf`. The name is session-bus only. A system policy that allows every sender is the stock daemon's shape, and it stays out.
+
+## Writer
+
+`omarchy-ally-tdp-apply` calls `omarchy-hw-rog-ally` and exits unless it succeeds and `ppt_pl1_spl`, `ppt_pl2_sppt` and `ppt_pl3_fppt` exist. Verbs are `--show`, `--snapshot`, `--set WATTS`, `--reassert`. Watts are a canonical whole number (`15` is accepted; `15.5`, `1e1`, `+15` and `015` are not). Anything else writes nothing. `--show` is unprivileged. `--set` and `--reassert` are the polkit exec, via `pkexec`. No sudoers `NOPASSWD`. The caller does not pass SPPT or FPPT.
+
+On startup of a source, snapshot `default_value`, `min_value` and `max_value` for that boot. The ratio anchor is the boot-captured `default_value` when it is greater than zero, otherwise `max_value`. AC sysfs `default_value` is 30/43/53 because the struct leaves `_def` unset ([brief-tdp-limits.md](brief-tdp-limits.md)). Derive SPPT and FPPT with the spike's half-up ratio, then clamp each value to its live min, its live max, the boot-captured max, and the policy ceiling. On battery, SPPT is clamped to 20 and FPPT to 25, and SPPT's floor is `max(SPL, sppt_min)`. `--set` stores the number the user asked for. `--set 5` stores 5 and writes SPL 7, then the same derive-and-clamp. `--reassert` clamps the stored request into the current source and does not change the stored number.
+
+Write order, after that clamp: SPL `current_value`, then SPPT, then FPPT. Keep SPL ≤ SPPT ≤ FPPT after the write and read them back. A tuple that would break that order writes nothing. AC is a `Mains` or `USB` supply with `online` 1. Do not write `platform_profile` or the deprecated `asus-nb-wmi` files.
+
+Refuse `--set` and `--reassert` while any of these is active: `power-profiles-daemon` (when it is not the mask below), `powerstation`, `hhd`, `adjustor`, `asusd`, `tlp`, `auto-cpufreq`, `tuned`, `gamemoded`. That is the overlay conflict list.
+
+## Shim
+
+The shim claims `com.steampowered.SteamOSManager1` before Steam, which the session restart above already does when the unit is installed. It exports `TdpLimit1` from the vendored XML. `TdpLimitMin` and `TdpLimitMax` follow the live window and the policy ceiling: 20 on battery, 30 on AC, also bounded by the live max and the boot-captured max. `PerformanceProfile1` advertises only `performance`, and a set of that string succeeds without writing `platform_profile`. `GpuPerformanceLevel1` advertises only `auto`. `ManualGpuClock` returns `NotSupported`. `DeviceModel` is `("rog_ally", "RC71L")`. No factory-reset, storage, Wi-Fi, session or BIOS methods. `PropertiesChanged` only after the writer readback, including min and max when the source changes the window.
+
+The shim never writes sysfs. It `pkexec`s only `--set` and `--reassert`. On logind `PrepareForSleep(false)` it calls `--reassert`. A second `--reassert` from the resume unit is idempotent.
+
+## Install and removal
+
+The package is opt-in. `install/hardware/asus/` does not gain a `omarchy-pkg-add` of it. An Ally owner installs `omarchy-rog-ally-tdp` on purpose.
+
+`post_install` reloads systemd. It masks `power-profiles-daemon` only when `omarchy-hw-rog-ally` succeeds, `omarchy-gaming-session` is installed, and `/usr/bin/omarchy-ally-tdp-apply` exists. It records the previous unit state under `/var/lib/omarchy/handheld/`. While the mask is on, a desktop profile switch calls this writer, not `powerprofilesctl`.
+
+`post_remove` stops and disables the user shim and the two system oneshots, removes the udev rule, the polkit files and the session service, reloads systemd and the D-Bus config, and unmasks `power-profiles-daemon` back to the recorded state. The session script already skips the restart when the unit is gone.
+
+## Test plan on the RC71L
+
+Read package power under load. These tuples are the acceptance, on the stock tables:
+
+1. The QAM slider appears once the shim owns the name, including after desktop-to-gaming. Max 20 on battery and 30 on AC.
+2. Battery `--set 20` and `--set 25` apply 20/20/25. AC `--set 30` applies 30/43/53. Each readback is inside the live min and max.
+3. Unplug after a stored 30: the applied tuple is 20/20/25 and the stored request stays 30. Plug in: 30/43/53 returns.
+4. Suspend and resume: `--reassert` holds the limit under load. If it sticks near 4–7 W, record the MCU before calling it a writer bug ([SteamOS #2790](https://github.com/ValveSoftware/SteamOS/issues/2790)).
+5. With the mask on, `powerprofilesctl` is not the writer. After removal, `powerprofilesctl` works. Gaming had one PPT writer.
+6. A non-RC71L, a missing armoury class, an inactive session, and user `sddm` write nothing.
+
+## Failure modes
+
+- Steam never calls the shim. The name was claimed after Steam's startup check, or `TdpLimit1` is missing, so the client treats the feature as unsupported. The session restart is before the gamescope scope. Confirm the name is owned before `steam` starts. A Deck-identity check beyond the four flags is **unverified**. There is no second slider implementation if Steam ignores the name.
+- `asus-armoury` is missing. The writer exits. The shim does not advertise a writable `TdpLimit`. Do not fall through to RyzenAdj, the deprecated platform files, or `ppt_platform_sppt`.
+- Resume. Both the logind signal and `omarchy-ally-tdp-resume.service` call `--reassert`. The dumped unit's MCU is below 319 ([ally-hw-dump.md](ally-hw-dump.md)). Update it before treating a stuck wattage as this package.
+- AC replug. The udev oneshot runs `--reassert`. A stored 30 comes back as 30/43/53. If the EC has already changed the live value, the readback still has to match that tuple. Whether the EC swaps the limit by itself is **unverified**.
+
+## Licences
+
+This note and the new scripts are MIT, like Omarchy. The vendored interface and the ported write order are MIT and ship with the notice, inside `omarchy-rog-ally-tdp` only. HHD is `LGPL-2.1-or-later`. InputPlumber and PowerStation are `GPL-3.0-or-later`. chwd is `GPL-3.0-only`. RyzenAdj is `LGPL-3.0`. asusctl is `MPL-2.0`. Bazzite's scripts are `Apache-2.0`. None of those are copied.
+
+## Follow-ups
+
+L170–L179 in [alpha-followups.md](../alpha-followups.md).
