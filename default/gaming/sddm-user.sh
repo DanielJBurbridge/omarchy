@@ -1,9 +1,11 @@
 #!/bin/bash
 # Adapted from Pizzarchy deck_autologin.py parse_autologin, commit
 # daa9376ab733880e612569467164754096a5f0f4. A User= outside [Autologin] does
-# not count. This writer owns /etc/sddm.conf.d/omarchy-handheld-user.conf and
-# no other SDDM file. It does not set Session= or Relogin=, and it does not
-# guess a username.
+# not count. This writer creates /etc/sddm.conf.d/omarchy-handheld-user.conf
+# and no other SDDM file. The username is the account the installer created,
+# so the file is not a package payload. apply rewrites zz-omarchy-handheld.conf
+# and does not put User= there. It does not set Session= or Relogin=, and it
+# does not guess a username.
 #
 # Copyright (c) 2026 Diego Huyke
 #

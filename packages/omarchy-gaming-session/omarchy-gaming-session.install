@@ -2,17 +2,27 @@ sddm_handheld_user_file() {
   printf '%s\n' "${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}/omarchy-handheld-user.conf"
 }
 
+# Pacman keeps going when a scriptlet returns 0. A failed profile step has
+# to say which step failed and the command that repeats it.
+warn_profile_step() {
+  local step=$1
+  shift
+  if ! "$@"; then
+    printf 'warning: %s failed; re-run: %s\n' "$step" "$*" >&2
+  fi
+}
+
 post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
   if command -v omarchy-inputplumber-profile >/dev/null; then
-    omarchy-inputplumber-profile install-service || true
+    warn_profile_step "InputPlumber profile service install" omarchy-inputplumber-profile install-service
   fi
-  # One owner for /etc/sddm.conf.d/omarchy-handheld-user.conf. A counted
-  # User= is left in place. The name comes from the installer record, not
-  # from the account that ran pacman. No second file, no Session=, no sudoers.
-  # The package is present because this scriptlet is that package.
+  # Fill an empty User= from the installer record. A counted User= is
+  # left in place. The name is not the account that ran pacman. No second
+  # file, no Session=, no sudoers. The package is present because this
+  # scriptlet is that package. The file itself stays unpackaged.
   if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
     if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
       OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded
@@ -24,13 +34,26 @@ post_upgrade() {
   post_install
 }
 
-post_remove() {
-  if command -v omarchy-inputplumber-profile >/dev/null; then
-    omarchy-inputplumber-profile remove-service || true
-  fi
+# /etc/sddm.conf.d/omarchy-handheld-user.conf is not a package file. The
+# username is the account the installer created, so the bytes differ per
+# machine and pacman cannot own them. pre_remove and post_remove both
+# delete it. apply also deletes it when the machine is not the handheld
+# variant, which is the desktop-mode cleanup.
+remove_handheld_user_file() {
   local file
   file=$(sddm_handheld_user_file)
   if [[ -L $file || -e $file ]]; then
     rm -f -- "$file"
   fi
+}
+
+pre_remove() {
+  remove_handheld_user_file
+}
+
+post_remove() {
+  if command -v omarchy-inputplumber-profile >/dev/null; then
+    warn_profile_step "InputPlumber profile service removal" omarchy-inputplumber-profile remove-service
+  fi
+  remove_handheld_user_file
 }

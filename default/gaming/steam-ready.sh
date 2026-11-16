@@ -53,24 +53,26 @@ steam_tree_has_ui_from() {
 }
 
 # root is a /proc-shaped directory. pid is the Steam parent.
+# A helper can exit between the glob and the open. One awk over every status
+# aborts on that file and drops every PPid after it, so the display held by
+# steamwebhelper is never seen. Read each status and skip a miss.
 steam_tree_has_ui() {
-  local root=$1 pid=$2 entry parent
+  local root=$1 pid=$2 entry name parent
   local -A steam_ppid_of=()
   steam_collect_ui_inodes "$root"
-  local statuses=()
   for entry in "$root"/[0-9]*; do
-    [[ -f $entry/status ]] || continue
-    statuses+=("$entry/status")
+    [[ -d $entry ]] || continue
+    name=${entry##*/}
+    parent=''
+    while IFS=$' \t' read -r key value _; do
+      if [[ $key == "PPid:" ]]; then
+        parent=$value
+        break
+      fi
+    done 2>/dev/null < "$entry/status" || true
+    [[ $parent =~ ^[0-9]+$ ]] || continue
+    steam_ppid_of[$name]=$parent
   done
-  if (( ${#statuses[@]} )); then
-    while read -r entry parent; do
-      [[ $parent =~ ^[0-9]+$ ]] || continue
-      steam_ppid_of[$entry]=$parent
-    done < <(awk '/^PPid:/ {
-      n = split(FILENAME, parts, "/")
-      print parts[n - 1], $2
-    }' "${statuses[@]}")
-  fi
   steam_tree_has_ui_from "$root" "$pid"
 }
 
