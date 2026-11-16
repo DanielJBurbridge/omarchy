@@ -14,7 +14,7 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$here/base-test.sh"
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" ${user_bin:-}' EXIT
 mkdir -p "$work/bin" "$work/run" "$work/sddm" "$work/state" "$work/home"
 cat > "$work/bin/omarchy-hw-rog-ally" <<'EOF'
 #!/bin/bash
@@ -110,11 +110,18 @@ pass "Relogin consumes next=desktop once and otherwise stays on gaming"
 user_dir=$work/user-run
 mkdir -p "$user_dir"
 chown 1:1 "$user_dir"
+# The checkout can be mode 0700, so uid 1 cannot exec the script there. The
+# copy is what the desktop user runs, and a refused fail still has to say why.
+user_bin=$(mktemp -d)
+chmod 755 "$user_bin"
+cp "$ROOT/bin/omarchy-handheld-autologin" "$user_bin/omarchy-handheld-autologin"
+chmod 755 "$user_bin/omarchy-handheld-autologin"
 if as_user env OMARCHY_HANDHELD_AUTOLOGIN_DIR="$user_dir" OMARCHY_AUTOLOGIN_NOW=1 \
-  "$ROOT/bin/omarchy-handheld-autologin" fail >"$work/user-out" 2>"$work/user-err"; then
+  "$user_bin/omarchy-handheld-autologin" fail >"$work/user-out" 2>"$work/user-err"; then
   fail "a desktop user fail without root is a silent success"
 fi
 grep -q 'needs root' "$work/user-err" || fail "a refused fail does not say why" "$(cat "$work/user-err" 2>/dev/null)"
+rm -rf "$user_bin"
 [[ ! -e $user_dir/failures && ! -e $user_dir/stop ]] || fail "a desktop user does not create the counter"
 
 OMARCHY_AUTOLOGIN_NOW=1000 run_guard fail
