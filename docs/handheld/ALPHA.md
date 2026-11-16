@@ -70,7 +70,7 @@ The greeter keypad has backspace, space and enter. Qt Virtual Keyboard is `Greet
 
 Automatic unlock did not unseal the disk. Plymouth is asking for the recovery passphrase. Touch and the built-in pad do not type it. Plug in a USB or 2.4 GHz keyboard and type the passphrase. Bluetooth will not do it. SSH cannot help at this prompt: the session is not up.
 
-When the session is up, enrol the TPM slot again. This asks for that passphrase, removes only TPM slots, and writes a new one bound to PCR 7. The passphrase slot stays.
+When the session is up, enrol the TPM slot again. This asks for that passphrase, removes only TPM slots, and writes a new one bound to PCR 7. The passphrase slot stays. A token sealed on the busybox initrd misses os-separator and never unseals. This session, once the hooks are the systemd initrd, is the boot to enrol from. `--wipe-slot=tpm2` is in the same call.
 
 ```bash
 ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
@@ -81,18 +81,27 @@ sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 "$LUK
 
 `LUKS_DEV` is the path `cryptsetup status` prints. Do not pass `--wipe-slot=password`. The rest of the procedure, including the hook and cmdline this command expects, is [tpm-unlock.md](tpm-unlock.md).
 
-If the new image will not boot at all, a Limine snapshot entry still takes the passphrase. That boot is a read-only snapshot. Writes go to tmpfs and do not last, so restoring files there does not fix the next boot. The repair that lasts is an Arch or Omarchy live ISO. Find the locked partition (`lsblk -f`, `FSTYPE` `crypto_LUKS`) and the ESP (`vfat`). Type the passphrase at `cryptsetup open`.
+If the new image will not boot at all, a Limine snapshot entry still takes the passphrase. That boot is a read-only snapshot. Writes go to tmpfs and do not last, so restoring files there does not fix the next boot. The repair that lasts is an Arch or Omarchy live ISO. `findmnt /` there is the live system, and `LUKS_DEV` from another shell is unset. `lsblk -f` lists the Ally: `FSTYPE` `crypto_LUKS` is the locked partition, and `vfat` on the internal disk is the ESP. Set the three variables from those lines. `backup` is the header file from the runbook, on a drive that is not the Ally's internal disk. Type the passphrase at `cryptsetup open`.
 
 ```bash
-sudo cryptsetup open "$LUKS_DEV" root
-sudo mount -o subvol=@ /dev/mapper/root /mnt
-sudo mount "$ESP" /mnt/boot
-sudo rm -f /mnt/etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf
-sudo cp -a /mnt/etc/default/limine.pre-tpm2 /mnt/etc/default/limine
-sudo arch-chroot /mnt limine-update
+lsblk -f
+LUKS_DEV=/dev/REPLACE_WITH_CRYPTO_LUKS
+ESP=/dev/REPLACE_WITH_ESP
+backup=/REPLACE_WITH_HEADER_BACKUP_PATH
+printf 'device=%s\nesp=%s\nbackup=%s\n' "$LUKS_DEV" "$ESP" "$backup"
+if [[ ! -b $LUKS_DEV || ! -b $ESP ]]; then
+  echo "stop: set LUKS_DEV to the crypto_LUKS partition and ESP to the vfat EFI partition that lsblk printed"
+else
+  sudo cryptsetup open "$LUKS_DEV" root
+  sudo mount -o subvol=@ /dev/mapper/root /mnt
+  sudo mount "$ESP" /mnt/boot
+  sudo rm -f /mnt/etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf
+  sudo cp -a /mnt/etc/default/limine.pre-tpm2 /mnt/etc/default/limine
+  sudo arch-chroot /mnt limine-update
+fi
 ```
 
-`$ESP` is the EFI partition you found. `/etc/default/limine.pre-tpm2` is the copy taken before the cmdline edit. If that file is missing, do not invent a cmdline. Stay on the snapshot entry. A header backup taken with `cryptsetup luksHeaderBackup` restores a damaged header with `luksHeaderRestore`. That file belongs on removable media, not on this disk.
+`/etc/default/limine.pre-tpm2` is the copy taken before the cmdline edit. If that file is missing, do not invent a cmdline. Stay on the snapshot entry. A damaged header is `cryptsetup luksHeaderRestore`, with this `LUKS_DEV` and this `backup`, and only when `backup` is a non-empty file on the removable drive. The ESP and any other partition of the internal disk are the wrong place for that file. The runbook's section 13 is the full restore.
 
 Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
 
