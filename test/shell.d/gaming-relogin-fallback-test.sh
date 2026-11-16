@@ -242,3 +242,93 @@ fi
 grep -q '^osk:show:fallback:wayland-1$' "$HANDHELD_LOG" ||
   fail "the fail limit after SIGKILL does not show the on-screen keyboard" "$(detail "$work/killed-limit-err")"
 pass "a SIGKILLed supervisor counts, and the third start is the desktop"
+
+# desktop-lock on, no physical keyboard. The fail-limit path must not open an
+# unlocked Hyprland. It logs, pins Relogin off, and exits to the greeter.
+# The lock file is root-owned; a user-owned copy is not the setting.
+reset_case
+cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+printf 'steam\n' >> "$HANDHELD_ACTIONS"
+exit 1
+EOF
+cat > "$HANDHELD_STUB/omarchy-hw-physical-keyboard" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat > "$HANDHELD_STUB/getent" <<'EOF'
+#!/bin/bash
+if [[ $1 == passwd ]]; then
+  printf 'ally:x:1000:1000:ally:%s:/bin/bash\n' "$AUTOLOGIN_FAKE_HOME"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/omarchy-hw-physical-keyboard" \
+  "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/getent"
+sed -i "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock|" \
+  "$HANDHELD_TREE/default/gaming/session.sh"
+sed -i "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
+  "$HANDHELD_TREE/default/gaming/session.sh"
+mkdir -p "$state" "$work/sddm" "$work/run"
+printf '2\n' > "$failures"
+: > "$HANDHELD_LOG"
+export SUDO_USER=ally AUTOLOGIN_FAKE_HOME=$HANDHELD_HOME
+export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
+cat > "$work/lock-case.sh" <<EOF
+#!/bin/bash
+set -uo pipefail
+printf 'on\n' > "$work/desktop-lock"
+chmod 644 "$work/desktop-lock"
+owner=\$(stat -c %u -- "$work/desktop-lock")
+if [[ \$owner != 0 ]]; then
+  printf 'lock owner %s\n' "\$owner" > "$work/lock-err"
+  exit 99
+fi
+rm -rf "$HANDHELD_RUNTIME/hypr"
+rm -f "$HANDHELD_RUNTIME"/wayland-*
+setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" relogin >"$work/lock-out" 2>"$work/lock-err"
+printf '%s\n' "\$?" > "$work/lock-status"
+EOF
+if (( EUID == 0 )); then
+  bash "$work/lock-case.sh" || true
+else
+  unshare --user --map-root-user --map-auto bash "$work/lock-case.sh" || true
+fi
+lock_status=$(cat "$work/lock-status" 2>/dev/null || true)
+lock_detail=$(
+  echo "status=$lock_status"
+  echo '--- actions ---'
+  cat "$HANDHELD_LOG" 2>/dev/null || true
+  echo '--- session ---'
+  cat "$state/session.log" 2>/dev/null || true
+  echo '--- stderr ---'
+  cat "$work/lock-err" 2>/dev/null || true
+  echo '--- drop-in ---'
+  cat "$work/sddm/zz-omarchy-handheld.conf" 2>/dev/null || true
+)
+[[ $lock_status == 99 ]] && fail "the desktop-lock file is not root-owned" "$lock_detail"
+[[ -n $lock_status && $lock_status != 0 && $lock_status != 124 ]] ||
+  fail "a locked fail-limit desktop does not exit to the greeter" "$lock_detail"
+if grep -q '^uwsm:' "$HANDHELD_LOG"; then
+  fail "desktop-lock on with no keyboard starts an unlocked Hyprland" "$lock_detail"
+fi
+if grep -q '^osk:' "$HANDHELD_LOG"; then
+  fail "the refused fail-limit desktop starts the on-screen keyboard" "$lock_detail"
+fi
+if grep -q '^gamescope$' "$HANDHELD_LOG"; then
+  fail "the refused fail-limit desktop starts Gamescope" "$lock_detail"
+fi
+grep -q 'not starting the fail-limit desktop' "$state/session.log" ||
+  fail "the refused fail-limit desktop does not say the lock stopped it" "$lock_detail"
+grep -q '^Relogin=false$' "$work/sddm/zz-omarchy-handheld.conf" ||
+  fail "the refused fail-limit desktop does not pin Relogin off" "$lock_detail"
+[[ -f $work/run/stop ]] || fail "the refused fail-limit desktop does not write the autologin stop"
+[[ ! -e $work/run/actions ]] || ! grep -q 'sddm-restart' "$work/run/actions" ||
+  fail "pinning Relogin off restarts SDDM" "$(cat "$work/run/actions" 2>/dev/null)"
+unset SUDO_USER AUTOLOGIN_FAKE_HOME OMARCHY_HANDHELD_AUTOLOGIN_DIR OMARCHY_SDDM_CONF_DIR
+pass "desktop-lock on with no keyboard leaves the greeter instead of an unlocked desktop"

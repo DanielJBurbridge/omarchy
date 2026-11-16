@@ -181,17 +181,30 @@ gaming_start_osk() {
 # One desktop, with the keyboard. Does not return to gaming, and does not
 # count this start as another failure. Relogin is pinned off when the root
 # helper can act, so a desktop that exits is not started again.
+# desktop() is the only way in. A required lock with no physical keyboard
+# stays at the greeter instead of opening an unlocked session.
 gaming_fail_limit_fallback() {
   local status=0 osk_pid='' spins=0 decision
   gaming_fallback=1
   if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
     gaming_save recovery "$gaming_fail_limit_latch" || true
-    printf '%s\n' 'Gaming failed repeatedly; starting the Hyprland desktop with the on-screen keyboard.' >> "$gaming_state/fallback.log"
-  else
-    printf '%s\n' 'Omarchy Gaming: fail limit tripped and the state directory is not writable; starting the desktop.' >&2
   fi
   if ! handheld_autologin_stopped; then
     note_root_failure
+  fi
+  decision=$(gaming_lock_decision 2>/dev/null || true)
+  if [[ $decision == return ]]; then
+    if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
+      printf '%s\n' 'Desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >> "$gaming_state/session.log"
+    else
+      printf '%s\n' 'Omarchy Gaming: desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >&2
+    fi
+    exit 1
+  fi
+  if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
+    printf '%s\n' 'Gaming failed repeatedly; starting the Hyprland desktop with the on-screen keyboard.' >> "$gaming_state/fallback.log"
+  else
+    printf '%s\n' 'Omarchy Gaming: fail limit tripped and the state directory is not writable; starting the desktop.' >&2
   fi
   if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
     # Snapshot the sockets before this compositor starts. The waiter can be
@@ -199,15 +212,7 @@ gaming_fail_limit_fallback() {
     gaming_start_osk "$(existing_hypr_sockets)" &
     osk_pid=$!
   fi
-  decision=$(gaming_lock_decision 2>/dev/null || true)
-  if [[ $decision == return ]]; then
-    if [[ -n ${gaming_state:-} && -d $gaming_state ]]; then
-      printf '%s\n' 'No physical keyboard; the fail-limit desktop starts unlocked with the on-screen keyboard.' >> "$gaming_state/session.log"
-    fi
-    start_hyprland || status=$?
-  else
-    desktop || status=$?
-  fi
+  desktop || status=$?
   if [[ -n $osk_pid ]]; then
     while kill -0 "$osk_pid" 2>/dev/null && (( spins < 20 )); do
       read -r -t 0.1 _ </dev/zero || true

@@ -324,8 +324,12 @@ From the relogin fail-limit fallback. This range is L140–L149.
 - L141. **Open.** A second login that loses the session flock increments the same `start-failures` count. Three of those can latch the desktop while a healthy gaming session is still up. Owner: session.
 - L142. **Open.** The in-process retry still uses the ordinary recovery latch and `desktop()`, with no on-screen keyboard. The keyboard starts only when the count reaches 3. An offline Steam dialog that returns before that still lands on the earlier desktop. Owner: session.
 - L143. **Open.** The on-screen keyboard waiter gives up after 60 s if no Hyprland socket appears. A missing `wvkbd` (L61) is logged and the desktop still starts. Owner: session.
+- L144. **Open.** Medium. Switch to Gaming from the fail-limit desktop is ignored. The fallback exits without reading `runtime/switch`, and the latch clears only when the SDDM gaming entry is chosen. The next relogin returns to the fallback. With Relogin pinned, the keyboard-free way back is the greeter's Gaming session and the password on the L25 touch grid. Source: PR #70, review 5922156206. Owner: session.
+- L145. **Open.** Without the root grant, Relogin stays on. A crashing fallback Hyprland relogs with no limit, because the fallback does not count as another failure. Source: PR #70, review 5922156206. Owner: session.
+- L146. **Open.** `caller_failure_count` runs as root and then reads a user-owned path. A file swapped for a FIFO after the `-f` check blocks that read, and the parent directories are not symlink-checked. Only digits are used. Source: PR #70, review 5922156206. Owner: session.
+- L147. **Open.** The fallback's own `fail` can be the third stamp inside 60 s. That restarts SDDM and leaves the greeter instead of the desktop. Source: PR #70, review 5922156206. Owner: session.
 
-From the PASS review of [PR #65](https://github.com/DanielJBurbridge/omarchy/pull/65) at `00aecbec`, [review 5921631571](https://github.com/DanielJBurbridge/omarchy/pull/65#pullrequestreview-5921631571). This range is L150–L156. L150 and L151 are fixed here. L152–L156 stay open.
+From the PASS review of [PR #65](https://github.com/DanielJBurbridge/omarchy/pull/65) at `00aecbec`, [review 5921631571](https://github.com/DanielJBurbridge/omarchy/pull/65#pullrequestreview-5921631571). This range is L150–L159. L150 and L151 are fixed here. L152–L157 stay open. L158–L159 are held.
 
 - L150. **Fixed.** Ready fired on any Steam X client, including the bootstrap, the updater, and the offline error dialog. A fast failure was counted as a healthy start and `reset` cleared the crash counter. Ready now requires `steamwebhelper` to hold the display socket.
 - L151. **Fixed.** The ready scan was about 109 ms on a 167-process tree, against about 23 ms before the abstract-socket peer walk. `ss -p` walked every process fd, and the status read continued past `Uid`. The scan now uses `ss -Hxn`, stops the status read at `Uid`, and runs `ss` only when a `steamwebhelper` in the session holds an inode the unix table did not name.
@@ -334,8 +338,9 @@ From the PASS review of [PR #65](https://github.com/DanielJBurbridge/omarchy/pul
 - L154. **Open.** A process that exits between the glob and the open writes "No such file" into `session.log`. The status and cgroup reads want `2>/dev/null`. Owner: session.
 - L155. **Open.** `iproute2` is not named in the package lists. It arrives through the Arch base today. Owner: packaging.
 - L156. **Open.** The status read keeps only the first word of `Name:`, so a comm of `steam foo` matches `steam`. Owner: session.
+- L157. **Open.** The 60 s ready-waiter timeout still marks ready when any `steam` process is alive, including an offline dialog, and that clears the failure count. The session stays up, so this is not another loop. Source: PR #70, review 5922156206. Owner: session.
 
-From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. L157–L169 belong to other PRs. This range is L170–L179. Review [5921621153](https://github.com/DanielJBurbridge/omarchy/pull/66#pullrequestreview-5921621153) M1 is on L176, M2 is on L179, and M3 is on L174.
+From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. This range is L170–L179. Review [5921621153](https://github.com/DanielJBurbridge/omarchy/pull/66#pullrequestreview-5921621153) M1 is on L176, M2 is on L179, and M3 is on L174.
 
 - L170. **Open.** Whether Steam draws the TDP slider on this RC71L with only `-steamos3 -steampal -steamdeck -gamepadui` is unverified. A further Deck-identity check was not found. Source: build-tdp-slider.md. Owner: hardware.
 - L171. **Open.** GitLab `holo/steamos-manager` `power.rs` was not re-diffed against evlaV `85fbd8f`. The port uses the evlaV pin. Source: build-tdp-slider.md. Owner: power.
