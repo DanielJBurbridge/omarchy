@@ -128,7 +128,9 @@ load_greeter_pointer() {
   if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
     printf 'inputplumber-profile:load pointer\n' >> "$OMARCHY_HANDHELD_AUTOLOGIN_DIR/actions"
   else
-    /usr/bin/omarchy-inputplumber-profile load pointer || true
+    if ! /usr/bin/omarchy-inputplumber-profile load pointer; then
+      printf 'warning: greeter pointer profile load failed; re-run: omarchy-inputplumber-profile load pointer\n' >&2
+    fi
   fi
 }
 
