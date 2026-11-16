@@ -328,3 +328,12 @@ From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov
 - L177. **Open.** `BatteryChargeLimit1` stays out of the shim. Whether the QAM shows a charge limit on this RC71L is unverified. Source: build-tdp-slider.md. Owner: power.
 - L178. D1's `allow_active=yes` on `org.omarchy.ally.set-tdp` is still outstanding. The build records the action and does not treat it as signed off. Already L106. Source: build-tdp-slider.md. Owner: dev-red.
 - L179. **Open.** Whether the RC71L EC swaps the live PPT limit on plug without a userspace write is unverified. M2: the udev rule matches only a `Mains` or `USB` supply with `POWER_SUPPLY_ONLINE` of 0 or 1, and that path still runs `--reassert`. Source: build-tdp-slider.md, review 5921621153. Owner: hardware.
+
+From the TDP slider build on 16 Nov 2026. L170–L179 stay as they are. This range is L180–L189.
+
+- L180. **Open.** The udev rule matches `POWER_SUPPLY_TYPE` `Mains` and `POWER_SUPPLY_ONLINE` of 0 or 1. A USB supply does not start the source oneshot. The writer still treats a USB supply with `online` 1 as AC, so a later `--reassert` uses the AC ceiling. Whether this RC71L's charger enumerates as USB is unverified. Source: this build. Owner: hardware.
+- L181. **Open.** Upstream `set_tdp_limit` refuses the write unless the asus-wmi platform profile is `performance`. This writer does not. It must not write `platform_profile`, and the stock profile may not be `performance`. Source: evlaV `85fbd8f` `power.rs` `is_active`, this build. Owner: power.
+- L182. **Open.** `--set` and `--reassert` take `flock -w 5` on `/run/omarchy-ally-tdp.lock`. The 5 s is the acquire wait from L20. A timeout is logged and the command exits non-zero without writing. Whether 5 s is enough when resume, logind and udev coincide was not measured on the device. Source: this build. Owner: hardware.
+- L183. **Open.** Nothing in this build was run on an RC71L. The acceptance tuples are fixture tests against the stock AC and DC tables. Source: this build. Owner: hardware.
+- L184. **Open.** D1's `allow_active=yes` is still unsigned (L106, L178). The generated rule returns NO for every user except the recorded handheld user, so the policy default cannot authorize a different active session. `sddm` is NO and there is no `wheel` grant. Source: this build. Owner: dev-red.
+- L185. **Open.** `ManualGpuClock` is rejected by the property setter. Whether Steam sees that failure as `NotSupported`, or only as a generic property error, was not checked against the client. Source: this build. Owner: power.

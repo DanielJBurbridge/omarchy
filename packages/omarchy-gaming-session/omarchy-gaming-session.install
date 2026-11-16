@@ -19,6 +19,9 @@ post_install() {
   if command -v omarchy-inputplumber-profile >/dev/null; then
     warn_profile_step "InputPlumber profile service install" omarchy-inputplumber-profile install-service
   fi
+  if command -v omarchy-ally-tdp-install >/dev/null; then
+    warn_profile_step "Ally TDP session install" omarchy-ally-tdp-install session
+  fi
   # Fill an empty User= from the installer record. A counted User= is
   # left in place. The name is not the account that ran pacman. No second
   # file, no Session=, no sudoers. The package is present because this
@@ -54,6 +57,9 @@ pre_remove() {
 post_remove() {
   if command -v omarchy-inputplumber-profile >/dev/null; then
     warn_profile_step "InputPlumber profile service removal" omarchy-inputplumber-profile remove-service
+  fi
+  if command -v omarchy-ally-tdp-install >/dev/null; then
+    warn_profile_step "Ally TDP session removal" omarchy-ally-tdp-install remove-session
   fi
   remove_handheld_user_file
 }

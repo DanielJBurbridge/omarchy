@@ -1,0 +1,254 @@
+#!/usr/bin/python3
+"""Session bus owner for Steam's TDP slider on the ROG Ally RC71L.
+
+TdpLimit1 is loaded from the vendored MIT interface (evlaV/steamos-manager
+85fbd8f, Collabora, Valve, Igalia). The notice sits beside that file. The
+other properties are the public names Steam reads. Their XML text is ours.
+This process never writes sysfs. It pkexecs omarchy-ally-tdp-apply for
+--set and --reassert only.
+"""
+
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+BUS = "com.steampowered.SteamOSManager1"
+OBJECT = "/com/steampowered/SteamOSManager1"
+TDP = BUS + ".TdpLimit1"
+PROFILE = BUS + ".PerformanceProfile1"
+GPU = BUS + ".GpuPerformanceLevel1"
+MANAGER = BUS + ".Manager2"
+PROPS = "org.freedesktop.DBus.Properties"
+NOT_SUPPORTED = "org.freedesktop.DBus.Error.NotSupported"
+
+# Property names match the public SteamOS Manager API. The text is ours.
+OTHER_XML = """<node>
+  <interface name="com.steampowered.SteamOSManager1.PerformanceProfile1">
+    <property name="AvailablePerformanceProfiles" type="as" access="read"/>
+    <property name="PerformanceProfile" type="s" access="readwrite"/>
+    <property name="SuggestedDefaultPerformanceProfile" type="s" access="read"/>
+  </interface>
+  <interface name="com.steampowered.SteamOSManager1.GpuPerformanceLevel1">
+    <property name="AvailableGpuPerformanceLevels" type="as" access="read"/>
+    <property name="GpuPerformanceLevel" type="s" access="readwrite"/>
+    <property name="ManualGpuClock" type="u" access="readwrite"/>
+    <property name="ManualGpuClockMin" type="u" access="read"/>
+    <property name="ManualGpuClockMax" type="u" access="read"/>
+  </interface>
+  <interface name="com.steampowered.SteamOSManager1.Manager2">
+    <property name="DeviceModel" type="(ss)" access="read"/>
+  </interface>
+</node>
+"""
+
+
+def apply_bin():
+    override = os.environ.get("OMARCHY_ALLY_TDP_APPLY")
+    if override:
+        return override
+    return "/usr/bin/omarchy-ally-tdp-apply"
+
+
+def use_pkexec():
+    return os.environ.get("OMARCHY_ALLY_TDP_NO_PKEXEC") != "1"
+
+
+def interface_xml():
+    root = os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")
+    path = Path(root) / "default/ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml"
+    return path.read_text(encoding="utf-8")
+
+
+def run_apply(args):
+    command = [apply_bin(), *args]
+    if use_pkexec() and args and args[0] in {"--set", "--reassert"}:
+        command = ["pkexec", apply_bin(), *args]
+    return subprocess.run(command, check=False, text=True, capture_output=True)
+
+
+def parse_show(stdout):
+    data = {}
+    for line in stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key] = value
+    needed = ("source", "limit", "min", "max", "writable")
+    if any(key not in data for key in needed):
+        return None
+    return data
+
+
+def show():
+    proc = run_apply(["--show"])
+    if proc.returncode != 0:
+        return None
+    return parse_show(proc.stdout)
+
+
+def ally():
+    proc = subprocess.run(["omarchy-hw-rog-ally"], check=False)
+    return proc.returncode == 0
+
+
+def main():
+    if not ally():
+        return 0
+
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    try:
+        tdp_xml = interface_xml()
+    except OSError as exc:
+        print(f"omarchy-ally-tdp-shim: {exc}", file=sys.stderr)
+        return 1
+
+    loop = GLib.MainLoop()
+    state = {"failed": False, "stopping": False, "session": None, "last": None}
+
+    def stop():
+        state["stopping"] = True
+        loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    def emit_tdp(info):
+        connection = state["session"]
+        if connection is None or info is None:
+            return
+        changed = {
+            "TdpLimit": GLib.Variant("u", int(info["limit"])),
+            "TdpLimitMin": GLib.Variant("u", int(info["min"])),
+            "TdpLimitMax": GLib.Variant("u", int(info["max"])),
+        }
+        connection.emit_signal(
+            None,
+            OBJECT,
+            PROPS,
+            "PropertiesChanged",
+            GLib.Variant.new_tuple(
+                GLib.Variant("s", TDP),
+                GLib.Variant("a{sv}", changed),
+                GLib.Variant("as", []),
+            ),
+        )
+        state["last"] = info
+
+    def current():
+        info = show()
+        state["last"] = info
+        return info
+
+    def on_method(_connection, _sender, _path, _interface, method, _params, invocation):
+        invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
+
+    def on_get(_connection, _sender, _path, interface, name):
+        info = state["last"] if state["last"] is not None else current()
+        if interface == TDP:
+            if info is None:
+                return None
+            if name == "TdpLimit":
+                return GLib.Variant("u", int(info["limit"]))
+            if name == "TdpLimitMin":
+                return GLib.Variant("u", int(info["min"]))
+            if name == "TdpLimitMax":
+                return GLib.Variant("u", int(info["max"]))
+        if interface == PROFILE:
+            if name == "AvailablePerformanceProfiles":
+                return GLib.Variant("as", ["performance"])
+            if name in {"PerformanceProfile", "SuggestedDefaultPerformanceProfile"}:
+                return GLib.Variant("s", "performance")
+        if interface == GPU:
+            if name == "AvailableGpuPerformanceLevels":
+                return GLib.Variant("as", ["auto"])
+            if name == "GpuPerformanceLevel":
+                return GLib.Variant("s", "auto")
+            if name in {"ManualGpuClock", "ManualGpuClockMin", "ManualGpuClockMax"}:
+                return None
+        if interface == MANAGER and name == "DeviceModel":
+            return GLib.Variant("(ss)", ("rog_ally", "RC71L"))
+        return None
+
+    def on_set(_connection, _sender, _path, interface, name, value):
+        if interface == GPU and name == "ManualGpuClock":
+            return False
+        if interface == PROFILE and name == "PerformanceProfile":
+            return value.get_string() == "performance"
+        if interface == GPU and name == "GpuPerformanceLevel":
+            return value.get_string() == "auto"
+        if interface == TDP and name == "TdpLimit":
+            watts = value.get_uint32()
+            proc = run_apply(["--set", str(watts)])
+            if proc.returncode != 0:
+                return False
+            info = parse_show(proc.stdout)
+            if info is None:
+                info = show()
+            if info is None:
+                return False
+            emit_tdp(info)
+            return True
+        return False
+
+    def on_sleep(_connection, _sender, _path, _interface, _signal, parameters):
+        sleeping = parameters.unpack()[0]
+        if sleeping:
+            return
+        proc = run_apply(["--reassert"])
+        if proc.returncode != 0:
+            print("omarchy-ally-tdp-shim: reassert after wake failed", file=sys.stderr)
+            return
+        info = parse_show(proc.stdout)
+        if info is None:
+            info = show()
+        emit_tdp(info)
+
+    def on_bus(connection, _name):
+        state["session"] = connection
+        info = current()
+        nodes = [Gio.DBusNodeInfo.new_for_xml(OTHER_XML)]
+        if info is not None:
+            nodes.append(Gio.DBusNodeInfo.new_for_xml(tdp_xml))
+        for node in nodes:
+            for interface in node.interfaces:
+                connection.register_object(OBJECT, interface, on_method, on_get, on_set)
+
+    def on_lost(_connection, _name):
+        if not state["stopping"]:
+            state["failed"] = True
+            loop.quit()
+
+    try:
+        system = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        system.signal_subscribe(
+            "org.freedesktop.login1",
+            "org.freedesktop.login1.Manager",
+            "PrepareForSleep",
+            "/org/freedesktop/login1",
+            None,
+            Gio.DBusSignalFlags.NONE,
+            on_sleep,
+        )
+    except GLib.Error as exc:
+        print(f"omarchy-ally-tdp-shim: logind is unavailable: {exc}", file=sys.stderr)
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)
+    Gio.bus_own_name(
+        Gio.BusType.SESSION,
+        BUS,
+        Gio.BusNameOwnerFlags.NONE,
+        on_bus,
+        None,
+        on_lost,
+    )
+    loop.run()
+    return 1 if state["failed"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
