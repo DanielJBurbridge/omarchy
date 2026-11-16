@@ -90,17 +90,19 @@ No code in this change. The commands are the ones in [tpm-unlock.md](tpm-unlock.
 
 ### Hooks, owned by the install
 
-On an installed RC71L the image is the busybox line in `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf` (`udev`, `plymouth`, `encrypt`, and `btrfs-overlayfs`). `/etc/mkinitcpio.conf` can still contain an older `HOOKS=(base systemd ...)` line without `plymouth` and without `sd-encrypt`. That line is not the image: `00-omarchy-hooks.conf` assigns `HOOKS` again. `omarchy_resume.conf` appends the busybox `resume` hook when hibernation was set up.
+On an installed RC71L the image is the busybox line in `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf` (`udev`, `plymouth`, `encrypt`, and `btrfs-overlayfs`). `/etc/mkinitcpio.conf` can still contain an older `HOOKS=(base systemd ...)` line without `plymouth` and without `sd-encrypt`. That line is not the image: `00-omarchy-hooks.conf` assigns `HOOKS` again. `omarchy_resume.conf` appends the busybox `resume` hook when hibernation was set up. `omarchy_hooks.conf` strips `kms` only on an NVIDIA-only machine, and its `FILES` addition is not a hook. `omarchy_vconsole.conf` wraps `add_file` and does not assign `HOOKS`. Neither is cleared by replacing `HOOKS`.
 
 The runbook writes `/etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf` so a later assignment wins on a machine the person is editing by hand:
 
 ```text
-HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck btrfs-overlayfs)
+HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck sd-btrfs-overlayfs)
 ```
 
 `systemd` replaces `udev`. `sd-vconsole` replaces `keymap` and `consolefont`. `sd-encrypt` replaces `encrypt`. `plymouth` and `kms` stay. There is no `resume` hook: the systemd hook honours `resume=` and `resume_offset=` on the cmdline. The cmdline drop-in that carries those parameters stays.
 
-The installer does not leave the handheld on a `zz-` file. A later drop-in that sorts after `zz-` would put the busybox line back, and a settings update already rewrites `00-omarchy-hooks.conf`. The installer writes the systemd line as the hook line for the handheld TPM path: either a branch inside `00-omarchy-hooks.conf` when `omarchy-hw-rog-ally` (or the later handheld detector) is the machine and this choice was automatic unlock, or a drop-in the package owns and sorts so that it is the assignment mkinitcpio keeps. The `zz-` file remains the documented manual override, not the install path.
+The overlay hook is `sd-btrfs-overlayfs`, not `btrfs-overlayfs`. The busybox hook is `run_latehook` only, so it does not run in a systemd initramfs, and a read-only snapshot boot from that UKI would not mount the overlay. `limine-mkinitcpio-hook` ships `sd-btrfs-overlayfs`, which installs `overlayfs-setup.service` and requires the `systemd` hook. The package-owned hook line uses `sd-btrfs-overlayfs`. The installer checks that `/usr/lib/initcpio/install/sd-btrfs-overlayfs` exists before it writes the line, and the UKI check requires `overlayfs-setup.service` in the initrd.
+
+The installer does not leave the handheld on a `zz-` file. A later drop-in that sorts after `zz-` would put the busybox line back, and a settings update already rewrites `00-omarchy-hooks.conf`. The installer writes the systemd line as the hook line for the handheld TPM path: either a branch inside `00-omarchy-hooks.conf` when `omarchy-hw-rog-ally` (or the later handheld detector) is the machine and this choice was automatic unlock, or a drop-in the package owns and sorts so that it is the assignment mkinitcpio keeps. That line is the one above, including `sd-btrfs-overlayfs`. The `zz-` file remains the documented manual override, not the install path.
 
 Passphrase every boot does not change the hooks. It keeps `encrypt` and `cryptdevice=`.
 
@@ -116,7 +118,7 @@ Edit `/etc/default/limine`, which is where the ISO's `KERNEL_CMDLINE[default]+=`
 
 Rebuild with `limine-update`. The boot file is the Limine UKI under `/boot/EFI/Linux/`. There is no loose initramfs image. Do not pass `-h` or `--help` to `limine-update` or `limine-mkinitcpio`. On the checked machine those flags start a rebuild.
 
-Verify before enrol, and before reboot. `ukify inspect` on the UKI, or `objcopy` of the `.initrd` section into `lsinitcpio`. The hooks in that initrd include `systemd`, `plymouth` and `sd-encrypt`. They do not include busybox `encrypt` as the unlock hook. `libtss2` is present. The UKI cmdline contains `tpm2-device=auto` and does not contain `cryptdevice=`.
+Verify before enrol, and before reboot. `ukify inspect` on the UKI, or `objcopy` of the `.initrd` section into `lsinitcpio`. The hooks in that initrd include `systemd`, `plymouth`, `sd-encrypt` and `sd-btrfs-overlayfs`. They do not include busybox `encrypt` as the unlock hook, and they do not include `btrfs-overlayfs`. `libtss2` is present. `overlayfs-setup.service` is present. The UKI cmdline contains `tpm2-device=auto` and does not contain `cryptdevice=`. Snapshot entries keep booting the UKIs archived under `limine_history`, with the cmdline saved for each one, so they stay a passphrase rollback.
 
 Enrol with the recovery passphrase the user just set:
 

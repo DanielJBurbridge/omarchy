@@ -21,7 +21,8 @@ PCR 7 only. Do not bind PCR 0, and do not bind PCR 11. The reasons are in [Secur
 Read on 16 November 2026. Yours is the same shape when the commands below print the same kinds of lines. The ids are different; the commands print them.
 
 - The disk is LUKS2. One passphrase slot, no token. `/etc/crypttab` is comments only, so nothing in it unlocks the disk.
-- The image that actually boots is built from `/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`, the busybox line (`udev`, `plymouth`, `encrypt`). `/etc/mkinitcpio.conf` still has an old systemd line, without `plymouth` and without `sd-encrypt`. That line is not the image. `00-omarchy-hooks.conf` assigns `HOOKS` again on every build. `omarchy_resume.conf` then does `HOOKS+=(resume)`.
+- The image that actually boots is built from `/etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`, the busybox line (`udev`, `plymouth`, `encrypt`, `btrfs-overlayfs`). `/etc/mkinitcpio.conf` still has an old systemd line, without `plymouth` and without `sd-encrypt`. That line is not the image. `00-omarchy-hooks.conf` assigns `HOOKS` again on every build. `omarchy_resume.conf` then does `HOOKS+=(resume)`.
+- `btrfs-overlayfs` is a busybox late hook (`run_latehook` only). A systemd initramfs does not run it, so a read-only snapshot boot from the new UKI would not mount the overlay. `limine-mkinitcpio-hook` ships `sd-btrfs-overlayfs` instead. That hook installs `overlayfs-setup.service` and requires the `systemd` hook. The zz line uses `sd-btrfs-overlayfs`.
 - The busybox `encrypt` hook unlocks through `cryptdevice=`. It does not read `rd.luks.*`, and it does not use a TPM token. `sd-encrypt` is the hook that does. It cannot parse `cryptdevice=`.
 - Both parameters are already on the cmdline. They live in `/etc/default/limine` (`KERNEL_CMDLINE[default]+=...`). Limine writes `/boot/limine.conf` from that. Do not edit `/boot/limine.conf`.
 - The boot file is a UKI under `/boot/EFI/Linux/`. There is no loose `/boot/*.img` to rebuild. `sudo limine-update` rebuilds the UKI.
@@ -33,7 +34,7 @@ Read on 16 November 2026. Yours is the same shape when the commands below print 
 
 ## Before you start
 
-A USB or 2.4 GHz keyboard is required for this sitting. Bluetooth does not type the passphrase. The touchscreen and the built-in pad do not type it either. If the new image fails, that keyboard is how you open Limine (the menu waits 1 second: `timeout: 1` in `default/limine/limine.conf`) and how you type the passphrase.
+A USB or 2.4 GHz keyboard is required for this sitting. It works at the passphrase prompt: on the omarchy kernel, `usbhid`, `hid-generic`, `atkbd` and `xhci` are built in, so they do not have to be listed in `MODULES`. Bluetooth does not type the passphrase. The touchscreen and the built-in pad do not type it either. If the new image fails, that keyboard is how you open Limine (the menu waits 1 second: `timeout: 1` in `default/limine/limine.conf`) and how you type the passphrase.
 
 Do not pass `-h` or `--help` to `limine-update` or `limine-mkinitcpio`. On this machine those flags start a UKI rebuild. They do not print help.
 
@@ -73,7 +74,8 @@ Stop if any of these is true:
 - `systemd-cryptenroll --tpm2-device=list` prints no device.
 - A live line in `/etc/crypttab` names this volume. This runbook does not edit a live crypttab. Comments only is the line this Ally is on, and that file stays as it is.
 - `cryptdevice=` or `rd.luks.` shows up in a file other than `/etc/default/limine`. Look with `grep -nE 'cryptdevice=|rd\.luks\.' /etc/limine-entry-tool.d/*.conf /usr/share/limine-entry-tool.d/*.conf`. Leave `omarchy-defaults.conf`, `resume.conf` and `rtc-alarm.conf` alone. They add splash, `resume=` and the RTC alarm. They are not where `cryptdevice=` is edited.
-- `/etc/vconsole.conf` sets `XKBLAYOUT` to a layout that does not type Latin letters (`af`, `am`, `ara`, `bd`, `bg`, `by`, `et`, `ge`, `gr`, `il`, `in`, `iq`, `ir`, `kg`, `kh`, `kz`, `la`, `lk`, `mk`, `mm`, `mn`, `mv`, `np`, `rs`, `ru`, `sy`, `th`, `tj`, `ua`). `etc/mkinitcpio.conf.d/omarchy_hooks.conf` refuses to bundle that layout for the Plymouth prompt, because the passphrase you know would not be typeable. Switching on `sd-vconsole` must not undo that. Stop and keep the current image.
+- `/etc/vconsole.conf` sets `XKBLAYOUT` to a layout that does not type Latin letters (`af`, `am`, `ara`, `bd`, `bg`, `by`, `et`, `ge`, `gr`, `il`, `in`, `iq`, `ir`, `kg`, `kh`, `kz`, `la`, `lk`, `mk`, `mm`, `mn`, `mv`, `np`, `rs`, `ru`, `sy`, `th`, `tj`, `ua`). `omarchy_hooks.conf` leaves that layout out of `FILES`, and `omarchy_vconsole.conf` refuses the copy in `add_file`, because the passphrase you know would not be typeable. Switching on `sd-vconsole` must not undo that. Stop and keep the current image.
+- `/usr/lib/initcpio/install/sd-btrfs-overlayfs` is missing. Do not switch hooks without it. The busybox `btrfs-overlayfs` hook is not a substitute.
 
 `bootctl status` prints `Secure Boot: enabled` or `Secure Boot: disabled`. This Ally prints disabled. PCR 7 is still the register either way. The difference is what that register is worth, and it is spelled out below.
 
@@ -81,7 +83,7 @@ The hook line that matters is the one in `00-omarchy-hooks.conf`, plus `HOOKS+=(
 
 ## 2. Take a snapshot
 
-Snapper's config on an Omarchy install is `root` (`install/config/snapper.sh`). Limine lists the snapshot (`limine-snapper-sync`). That entry keeps the previous UKI and the previous cmdline, including `cryptdevice=`, so the passphrase still opens it.
+Snapper's config on an Omarchy install is `root` (`install/config/snapper.sh`). `limine-snapper-sync` adds a Limine entry for it. That entry does not boot the UKI you are about to build. It boots the UKI archived for that snapshot under `limine_history` on the ESP, with the cmdline saved beside it. After this change those entries still have `cryptdevice=` and do not have `tpm2-device=auto`. They are the busybox `encrypt` image, and the passphrase still opens them. That is the rollback if the new UKI will not boot.
 
 ```bash
 sudo snapper -c root create --description "before TPM unlock"
@@ -105,20 +107,38 @@ omarchy-pkg-add tpm2-tss
 
 Do this when the built image uses `encrypt` and not `sd-encrypt`, which is the stock line in `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`. If a UKI you already boot contains the `systemd` and `sd-encrypt` hooks, skip this section and go to the cmdline.
 
-Write a drop-in that sorts after `00-omarchy-hooks.conf` and after `omarchy_resume.conf`. Assigning `HOOKS` replaces the array, so the busybox line and the appended `resume` hook are not what gets built.
+The systemd overlay hook has to be on disk before the drop-in is written. `limine-mkinitcpio-hook` ships it. Stop if this prints nothing:
 
-`resume` is not in this line on purpose. The busybox `resume` hook is how that initramfs honours `resume=`. The systemd hook honours `resume=` and `resume_offset=` from the cmdline itself. Leave `/etc/limine-entry-tool.d/resume.conf` in place so those parameters stay.
+```bash
+[[ -f /usr/lib/initcpio/install/sd-btrfs-overlayfs ]] && echo "sd-btrfs-overlayfs present"
+```
 
-`systemd` replaces `udev`. `sd-vconsole` replaces `keymap` and `consolefont`. `sd-encrypt` replaces `encrypt`. `plymouth` and `kms` stay. `btrfs-overlayfs` stays, because the stock line has it.
+`/usr/lib/initcpio/install/btrfs-overlayfs` only adds a runscript, and `/usr/lib/initcpio/hooks/btrfs-overlayfs` only defines `run_latehook`. That is how a busybox initramfs mounts the overlay for a read-only snapshot. A systemd initramfs does not run late hooks, so leaving `btrfs-overlayfs` on the line would build an image whose snapshot boot does not set the overlay up. `sd-btrfs-overlayfs` installs `/usr/lib/limine/overlayfs-setup` and `overlayfs-setup.service`, and it refuses the build when the `systemd` hook is absent.
+
+Read the other drop-ins before writing. They sort before `zz-`:
+
+```bash
+grep -nE 'HOOKS|FILES|MODULES|kms|add_file' /etc/mkinitcpio.conf.d/*.conf
+```
+
+- `omarchy_hooks.conf` strips `kms` only when `MODULES` contains `nvidia_drm` and every display controller is NVIDIA. An Ally is not that machine (`MODULES` is empty), so the `kms` in the line below stays. The same file adds `/etc/vconsole.conf` to `FILES` for a Latin layout. `FILES` is not `HOOKS`. Assigning `HOOKS` does not clear it.
+- `omarchy_vconsole.conf` wraps `add_file` so a non-Latin layout is not copied in. It does not assign `HOOKS`. `sd-vconsole` still goes through that wrap. On this Ally `vconsole.conf` is a US keymap, so the file is included.
+- `omarchy_resume.conf` does `HOOKS+=(resume)`. The assignment below replaces the array, so that append is dropped. That is intentional: the systemd hook ships `systemd-hibernate-resume` and reads `resume=` and `resume_offset=` from the cmdline. Leave `/etc/limine-entry-tool.d/resume.conf` in place so those parameters stay.
+- `omarchy_compression.conf` sets the compressor. A thunderbolt drop-in may append to `MODULES`. Neither changes the hook line you are about to check.
+
+Write a drop-in that sorts after `00-omarchy-hooks.conf` and after `omarchy_resume.conf`.
+
+`systemd` replaces `udev`. `sd-vconsole` replaces `keymap` and `consolefont`. `sd-encrypt` replaces `encrypt`. `plymouth` and `kms` stay. `sd-btrfs-overlayfs` replaces `btrfs-overlayfs`.
 
 ```bash
 sudo tee /etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf >/dev/null <<'EOF'
 # Handheld TPM unlock. Sorts after 00-omarchy-hooks.conf and
 # omarchy_resume.conf, so this assignment is the one mkinitcpio builds.
 # systemd reads resume= from the cmdline; the busybox resume hook is not
-# copied here. Do not edit 00-omarchy-hooks.conf: a settings update
-# overwrites it.
-HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck btrfs-overlayfs)
+# copied here. sd-btrfs-overlayfs replaces btrfs-overlayfs: the busybox
+# hook is run_latehook only and does not run in this image.
+# Do not edit 00-omarchy-hooks.conf: a settings update overwrites it.
+HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck sd-btrfs-overlayfs)
 EOF
 ```
 
@@ -142,10 +162,10 @@ printf "%s\n" "${HOOKS[*]}"
 Stop, and delete `zz-tpm-sd-encrypt.conf`, unless that line is exactly:
 
 ```text
-base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck btrfs-overlayfs
+base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck sd-btrfs-overlayfs
 ```
 
-`resume`, `udev`, `keymap` or `consolefont` in that line means another file assigned `HOOKS` after `zz-tpm-sd-encrypt.conf`. Do not rebuild.
+`resume`, `udev`, `keymap`, `consolefont` or `btrfs-overlayfs` (the busybox name, not `sd-btrfs-overlayfs`) in that line means another file assigned `HOOKS` after `zz-tpm-sd-encrypt.conf`. Do not rebuild.
 
 ## 5. Edit `/etc/default/limine`
 
@@ -265,11 +285,11 @@ if command -v ukify >/dev/null; then
 fi
 sudo objcopy -O binary --only-section=.initrd "$UKI" /tmp/omarchy-uki.initrd
 sudo lsinitcpio -a /tmp/omarchy-uki.initrd
-sudo lsinitcpio /tmp/omarchy-uki.initrd | grep -E 'libtss2|systemd-cryptsetup|plymouth' || true
+sudo lsinitcpio /tmp/omarchy-uki.initrd | grep -E 'libtss2|systemd-cryptsetup|plymouth|overlayfs-setup.service' || true
 sudo rm -f /tmp/omarchy-uki.initrd
 ```
 
-Stop if the `Hooks:` line from `lsinitcpio -a` does not contain `systemd`, `plymouth` and `sd-encrypt`. Stop if it contains `udev` or `resume`, or a hook that is the word `encrypt` rather than `sd-encrypt`. Stop if `libtss2` is missing: the TPM token cannot be read. Restore the backup and rebuild before you reboot:
+Stop if the `Hooks:` line from `lsinitcpio -a` does not contain `systemd`, `plymouth`, `sd-encrypt` and `sd-btrfs-overlayfs`. Stop if it contains `udev` or `resume`, or a hook that is the word `encrypt` rather than `sd-encrypt`, or `btrfs-overlayfs` without the `sd-` prefix. Stop if `libtss2` is missing: the TPM token cannot be read. Stop if `overlayfs-setup.service` is missing: snapshot boot will not mount the overlay. On the checked Ally that unit was in the initrd, with `/usr/lib/limine/overlayfs-setup`. Restore the backup and rebuild before you reboot:
 
 ```bash
 sudo cp -a /etc/default/limine.bak.tpm /etc/default/limine
@@ -345,7 +365,7 @@ The first boot after a hook change is the one that proves the passphrase still w
 
 ## 12. The TPM did not unlock
 
-The passphrase prompt still appears, because the passphrase slot was kept. Plymouth is doing that with the bullets it already draws. Type the passphrase with the USB or 2.4 GHz keyboard.
+The passphrase prompt still appears, because the passphrase slot was kept. Plymouth is doing that with the bullets it already draws. Type the passphrase with the USB or 2.4 GHz keyboard. That keyboard does not depend on a module in the UKI: `usbhid`, `hid-generic`, `atkbd` and `xhci` are built into the omarchy kernel.
 
 That prompt is expected when PCR 7 changed, and it is expected when the token is missing. It is not expected on every boot of option 1. If it appears on every boot, the UKI cmdline does not contain `tpm2-device=auto`, or the image is still the `encrypt` hook. Section 7 is how you look.
 
@@ -369,7 +389,7 @@ sudo limine-update
 
 `--wipe-slot=tpm2` removes TPM slots only. The passphrase slot stays, so the disk still opens even before the old hooks are restored.
 
-If the new UKI will not boot, do not repair it from that image. At the Limine menu (key during the 1 second timeout), pick the snapshot from section 2. Those entries still have the old UKI and the old `cryptdevice=` cmdline, and they unlock with the passphrase. Restoring the files above still has to be done once that snapshot has booted, or the next normal entry will rebuild the same broken UKI.
+If the new UKI will not boot, do not repair it from that image. At the Limine menu (key during the 1 second timeout), pick the snapshot from section 2. Each snapshot entry boots the UKI stored for it under `limine_history`, with that entry's saved cmdline. Those UKIs are still the busybox `encrypt` image: `cryptdevice=` is on the cmdline, `tpm2-device=auto` is not, and the passphrase unlocks them. Restoring the files above still has to be done once that snapshot has booted, or the next normal entry will rebuild the same broken UKI.
 
 ## 14. Re-enrol after a firmware or Secure Boot change
 
@@ -407,7 +427,7 @@ Do not delete that slot to "finish" the enrolment.
 
 ## Sources
 
-- This tree: `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`, `etc/mkinitcpio.conf.d/omarchy_hooks.conf`, `etc/limine-entry-tool.d/omarchy-defaults.conf`, `etc/limine-entry-tool.d/omarchy-uki.conf`, `default/limine/limine.conf`, `default/limine/default.conf`, `default/plymouth/omarchy.script`, `install/config/snapper.sh`, `bin/omarchy-hibernation-setup` (the `resume.conf` cmdline drop-in), `bin/omarchy-upgrade-to-quattro` (why `/etc/default/limine` holds `root=` and the unlock parameters once a `+=` drop-in exists).
-- Checked on the RC71L, 16 November 2026: busybox `encrypt` is the image, `/etc/mkinitcpio.conf`'s systemd line is not, `/etc/crypttab` has no live entries, Secure Boot is disabled, the UKI is under `/boot/EFI/Linux/`, `limine-update` rebuilds it, `-h` on `limine-update` and `limine-mkinitcpio` starts that rebuild.
+- This tree: `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`, `etc/mkinitcpio.conf.d/omarchy_hooks.conf`, `etc/mkinitcpio.conf.d/omarchy_vconsole.conf`, `etc/limine-entry-tool.d/omarchy-defaults.conf`, `etc/limine-entry-tool.d/omarchy-uki.conf`, `default/limine/limine.conf`, `default/limine/default.conf`, `default/plymouth/omarchy.script`, `install/config/snapper.sh`, `bin/omarchy-hibernation-setup` (the `resume.conf` cmdline drop-in), `bin/omarchy-upgrade-to-quattro` (why `/etc/default/limine` holds `root=` and the unlock parameters once a `+=` drop-in exists).
+- Checked on the RC71L, 16 November 2026: busybox `encrypt` is the image, `/etc/mkinitcpio.conf`'s systemd line is not, `/etc/crypttab` has no live entries, Secure Boot is disabled, the UKI is under `/boot/EFI/Linux/`, `limine-update` rebuilds it, `-h` on `limine-update` and `limine-mkinitcpio` starts that rebuild. `btrfs-overlayfs` is `run_latehook` only. `sd-btrfs-overlayfs` from `limine-mkinitcpio-hook` put `overlayfs-setup.service` in the rebuilt initrd. Snapshot entries boot archived UKIs from `limine_history` with the old cmdline. `usbhid`, `hid-generic`, `atkbd` and `xhci` are built into the omarchy kernel. `omarchy_hooks.conf` did not strip `kms` (no NVIDIA). `omarchy_vconsole.conf` and `FILES` were unchanged by the hook assignment.
 - [systemd-cryptenroll(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html), [systemd-ask-password(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-ask-password.html), [Arch Wiki: systemd-cryptenroll](https://wiki.archlinux.org/title/Systemd-cryptenroll).
 - Pad: [research/ally-hw-dump.md](research/ally-hw-dump.md). Touch path, not installed here: [buffybox](https://gitlab.postmarketos.org/postmarketOS/buffybox), [AUR buffybox](https://aur.archlinux.org/packages/buffybox). Retired: [Osk-sdl](https://wiki.postmarketos.org/wiki/Osk-sdl).
