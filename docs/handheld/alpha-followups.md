@@ -151,3 +151,14 @@ From dev-red's PASS on [PR #56](https://github.com/DanielJBurbridge/omarchy/pull
 - L126. **Open.** The production scriptlet and `default/gaming/sddm-user.sh` honour `OMARCHY_SDDM_CONF_DIR` and `OMARCHY_SDDM_STATE`. Those overrides are for tests. A root shell with them set writes or deletes the wrong path. Ignore them unless a test flag is set. Source: PR #56, review 5920790949. Owner: session.
 - L127. **Open.** #56's PR body says 1.0.0-2 had no `post_upgrade` and no `remove-service`. It had both. The pkgrel bump is still right because the scriptlet changed. Correct the body. Source: PR #56, review 5920790949.
 - L128. **Open.** The attribution headers in `default/gaming/sddm-user.sh`, `steam-path.sh` and `steamos-update` say Pizzarchy and the commit `daa9376a`, and do not name the repo `https://github.com/villenull/Pizzarchy`. The MIT notice stays. Source: PR #56, review 5920790949.
+
+From the re-check of [PR #61](https://github.com/DanielJBurbridge/omarchy/pull/61), [review 5920915276](https://github.com/DanielJBurbridge/omarchy/pull/61#pullrequestreview-5920915276), and the #60 notes folded into [brief-power-button.md](research/brief-power-button.md). L77–L103 are claimed by other open PRs. This range is L104–L111.
+
+- L104. B1. The TDP brief now follows overlay §5.1. Battery `--set 25` applies 20/20/25, AC `--set 30` applies 30/43/53, and replug restores 30/43/53. The writer reads live `min_value`, `max_value` and `default_value` and clamps to those. Left here so the re-check can see the review item. Source: PR #61, review 5920915276, B1.
+- L105. F1. The writer gates on `omarchy-hw-rog-ally`. Recorded in the brief. Source: PR #61, review 5920915276, F1.
+- L106. F2. The polkit rule denies `sddm` and adds no `wheel` grant. The shim only pkexecs `--set` and `--reassert`. D1's `allow_active=yes` sign-off is still outstanding. Source: PR #61, review 5920915276, F2. Owner: dev-red.
+- L107. F3. AC sysfs `default_value` is 30/43/53, because the struct leaves `_def` unset and the driver reports the max. Recorded. Source: PR #61, review 5920915276, F3.
+- L108. F4. `set_tdp_limit` checks `is_active`, then the live SPL range, then SPPT and FPPT `min_value`, then writes SPL, SPPT, FPPT. `current_value` is the getter. Recorded. Source: PR #61, review 5920915276, F4.
+- L109. **Open.** No fallback is built if Steam ignores `steam://shortpowerpress` and `steam://longpowerpress`. The proposed wrapper fallback is in the power-button brief. Source: PR #60, review 5920908119. Owner: power.
+- L110. **Open.** Measure the RC71L firmware long-hold force-off time. It is the only escape outside gamescope (spec 09 OQ-7). Do not invent the duration. Source: PR #60, review 5920908119. Owner: hardware.
+- L111. AUR `steamos-powerbuttond` 4.2-3 `make install` paths are recorded. Do not take Bazzite's 4.2-2 debounce patch ([bazzite#6180](https://github.com/ublue-os/bazzite/issues/6180)). Source: PR #60, review 5920908119.
