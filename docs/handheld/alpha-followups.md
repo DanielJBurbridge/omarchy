@@ -20,7 +20,7 @@ From [PR #34](https://github.com/DanielJBurbridge/omarchy/pull/34). The FAIL is 
 - L23. The 2 s uinput held-key fallback stays with the input PR. Source: PR #34, reviews 5870592622 and 5870966296. Owner: input.
 - L24. A wheel user can call `reset` or `fail` through the NOPASSWD grant. `reset` clears the failure list and does not clear `stop`. `fail` can trip the guard and restart SDDM. The greeter stays available. Source: PR #34, review 5870966296.
 - L25. The greeter grid in `default/sddm/omarchy/Main.qml` has no backspace, shift, enter, or symbols, and it is shown on every machine's greeter. #39 / AUTH still own a complete VKB (AC 59). Source: PR #34, review 5870966296. Owner: AUTH.
-- L26. After `stop` is written, choosing the handheld session entry exits 0 immediately. The regular desktop session is the way back in. Source: PR #34, review 5870966296.
+- L26. After `stop` is written, choosing the handheld session entry exits 0 immediately. The regular desktop session is the way back in. Source: PR #34, review 5870966296. Fixed with L130: that entry now starts the Hyprland desktop once, with Relogin already false.
 - L27. There is no migration that enables `omarchy-handheld-autologin.service` and runs `apply` on an existing Ally install. A new install that runs the hardware leaf is fine. An Ally that is already installed has to do that apply step itself ([ALPHA.md](ALPHA.md)). Source: PR #34, review 5870966296. Owner: install.
 - L28. `test/handheld/power-rollback-test.sh` still loads `bin/omarchy-setup-rog-ally-power` from `c88d5344` (`HANDHELD_RELEASE_SHA` in `test/handheld/gaming-fixture.sh`). The test stays skipped while power is on hold. Source: PR #34, review 5870592622. The PASS review did not close it.
 
@@ -183,7 +183,7 @@ These are already filed and are not repeated:
 
 No new root-service, udev or polkit grant was found. Ranked by severity. Nothing here is a blocker on integ as it stands.
 
-- L130. **HIGH.** The crash-loop stop does not see every failed start. If the supervisor exits before it arms the trap, is killed, or calls `fail` as a no-op, SDDM `Relogin=true` restarts the session with no limit, and the screen stays black or flickers. Source: dev-red boot-path review, `a5593dac`. Owner: session.
+- L130. **Fixed.** The crash-loop stop does not see every failed start. If the supervisor exits before it arms the trap, is killed, or calls `fail` as a no-op, SDDM `Relogin=true` restarts the session with no limit, and the screen stays black or flickers. Source: dev-red boot-path review, `a5593dac`. Owner: session.
 
   Where. `bin/omarchy-session-start:164` sets `trap cleanup EXIT`, and `cleanup` is the only caller of `omarchy-handheld-autologin fail` (`:158-161`). Two earlier exits skip it: `:111` (`gaming_state_init && gaming_runtime_init || exit 1`) and `:114` (flock busy). SIGKILL of the supervisor skips it too. `bin/omarchy-handheld-autologin:24-29` turns `fail` into a silent `exit 0` when `sudo -n -l` refuses, for example when `/etc/sudoers.d/omarchy-handheld-autologin` is missing or a later sudoers rule overrides it.
 
@@ -206,6 +206,8 @@ No new root-service, udev or polkit grant was found. Ranked by severity. Nothing
   - Record the attempt first and clear it on ready. Have the `session` action call `fail` before the `exec`, and keep `reset` on the ready read. Early exits and SIGKILL then count.
   - Make the non-root `fail` path log to the journal (`logger -t omarchy-handheld-autologin`) when the grant is missing, instead of exiting 0 silently.
   - Add a test that kills the supervisor before the trap and expects `stop` after three runs.
+
+  Fixed. The attempt is recorded in the gaming state directory before Gamescope starts, so an early exit and a SIGKILL still count across relogin and reboot. Three failures start the Hyprland desktop with the on-screen keyboard and pin Relogin off. A `fail` that cannot become root is logged and returns non-zero. Ready and an explicit Switch to Desktop clear the count.
 
 - L131. **HIGH.** Daniel decides; no code change yet. On an unencrypted handheld, the gaming package makes autologin permanent. Upstream removes `autologin.conf` after the first boot, so later boots ask for the SDDM password. Here, the `User=` file and `Relogin=true` keep the autologin, and with `desktop-lock` `default-off`, Switch to Desktop is an unlocked desktop on an unencrypted disk. L129 names only the TPM case. This is the same exposure with no disk encryption at all. Source: dev-red boot-path review, `a5593dac`. Sits with L129. Owner: Daniel.
 
@@ -316,6 +318,28 @@ How peers compare. Bazzite binds PCR 7+14 with the passphrase kept, and Secure B
 - Its recovery re-extracts the Steam bootstrap, which can overwrite Steam settings ([bazzite#4045](https://github.com/ublue-os/bazzite/issues/4045)). Do not copy that part.
 - Neither peer offers a keyboard-free disk-unlock fallback.
 
+From the relogin fail-limit fallback. This range is L140–L149.
+
+- L140. **Open.** `fail` as root reads `~/.local/state/omarchy/gaming-session/start-failures` through `SUDO_USER`, because sudo strips the environment. A relocated `XDG_STATE_HOME` still falls back to the desktop in the session, but this `fail` does not see that count, so it may leave Relogin on and a crashing desktop can start again. Owner: session.
+- L141. **Open.** A second login that loses the session flock increments the same `start-failures` count. Three of those can latch the desktop while a healthy gaming session is still up. Owner: session.
+- L142. **Open.** The in-process retry still uses the ordinary recovery latch and `desktop()`, with no on-screen keyboard. The keyboard starts only when the count reaches 3. An offline Steam dialog that returns before that still lands on the earlier desktop. Owner: session.
+- L143. **Open.** The on-screen keyboard waiter gives up after 60 s if no Hyprland socket appears. A missing `wvkbd` (L61) is logged and the desktop still starts. Owner: session.
+- L144. **Open.** Medium. Switch to Gaming from the fail-limit desktop is ignored. The fallback exits without reading `runtime/switch`, and the latch clears only when the SDDM gaming entry is chosen. The next relogin returns to the fallback. With Relogin pinned, the keyboard-free way back is the greeter's Gaming session and the password on the L25 touch grid. Source: PR #70, review 5922156206. Owner: session.
+- L145. **Open.** Without the root grant, Relogin stays on. A crashing fallback Hyprland relogs with no limit, because the fallback does not count as another failure. Source: PR #70, review 5922156206. Owner: session.
+- L146. **Open.** `caller_failure_count` runs as root and then reads a user-owned path. A file swapped for a FIFO after the `-f` check blocks that read, and the parent directories are not symlink-checked. Only digits are used. Source: PR #70, review 5922156206. Owner: session.
+- L147. **Open.** The fallback's own `fail` can be the third stamp inside 60 s. That restarts SDDM and leaves the greeter instead of the desktop. Source: PR #70, review 5922156206. Owner: session.
+
+From the PASS review of [PR #65](https://github.com/DanielJBurbridge/omarchy/pull/65) at `00aecbec`, [review 5921631571](https://github.com/DanielJBurbridge/omarchy/pull/65#pullrequestreview-5921631571). This range is L150–L159. L150 and L151 are fixed here. L152–L157 stay open. L158–L159 are held.
+
+- L150. **Fixed.** Ready fired on any Steam X client, including the bootstrap, the updater, and the offline error dialog. A fast failure was counted as a healthy start and `reset` cleared the crash counter. Ready now requires `steamwebhelper` to hold the display socket.
+- L151. **Fixed.** The ready scan was about 109 ms on a 167-process tree, against about 23 ms before the abstract-socket peer walk. `ss -p` walked every process fd, and the status read continued past `Uid`. The scan now uses `ss -Hxn`, stops the status read at `Uid`, and runs `ss` only when a `steamwebhelper` in the session holds an inode the unix table did not name.
+- L152. **Open.** Without `unix_diag`, `ss` prints peer inode 0 and the abstract-socket check becomes a silent no-op. Log that. Owner: session.
+- L153. **Open.** The cgroup match is exact, so a client in a sub-cgroup of the gamescope scope (`$scope` against `$scope/*`) is missed. Owner: session.
+- L154. **Open.** A process that exits between the glob and the open writes "No such file" into `session.log`. The status and cgroup reads want `2>/dev/null`. Owner: session.
+- L155. **Open.** `iproute2` is not named in the package lists. It arrives through the Arch base today. Owner: packaging.
+- L156. **Open.** The status read keeps only the first word of `Name:`, so a comm of `steam foo` matches `steam`. Owner: session.
+- L157. **Open.** The 60 s ready-waiter timeout still marks ready when any `steam` process is alive, including an offline dialog, and that clears the failure count. The session stays up, so this is not another loop. Source: PR #70, review 5922156206. Owner: session.
+
 From the RC71L gaming power-button package, 16 Nov 2026. The companion is Valve's unmodified powerbuttond v4.2 (`9392e688`, BSD-2-Clause), built by the in-tree recipe. This range is L160–L169.
 
 - L160. **Open.** The brief's on-device power-button test was not run. No RC71L was available. Still to record: one short press suspends and resumes into the same game, a one-second hold opens Steam's power menu and the machine stays up, the desktop path is unchanged, and `HandlePowerKey` stays `ignore`. Source: power-button package, review 5921761248. Owner: hardware.
@@ -329,7 +353,7 @@ From the RC71L gaming power-button package, 16 Nov 2026. The companion is Valve'
 - L168. **Open.** `steamos-powerbuttond` returns 0 and writes nothing when it can open no device. `posix_spawn` of `steam -ifrunning` inherits the launcher's flock fd 9 because it is not close-on-exec, so a lingering Steam child can hold the lock and the next session's `flock -n` exits 0 without starting the daemon. The launcher should log an immediate exit and hold the lock so Steam's children do not inherit it (the `flock` command form, after checking the fd is close-on-exec). Source: review 5921761248. Owner: power.
 - L169. **Open.** `refresh_input_devices` runs `udevadm trigger --subsystem-match=input` on every hardware re-run even when the package did not change. The first version of this change was one commit. The empty `FAKE_CONFLICT=` assignment in the shell test (SC1007) is fixed here. Source: review 5921761248. Owner: power.
 
-From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. L150–L169 belong to other PRs. This range is L170–L179. Review [5921621153](https://github.com/DanielJBurbridge/omarchy/pull/66#pullrequestreview-5921621153) M1 is on L176, M2 is on L179, and M3 is on L174.
+From the build brief [build-tdp-slider.md](research/build-tdp-slider.md), 16 Nov 2026. This range is L170–L179. Review [5921621153](https://github.com/DanielJBurbridge/omarchy/pull/66#pullrequestreview-5921621153) M1 is on L176, M2 is on L179, and M3 is on L174.
 
 - L170. **Open.** Whether Steam draws the TDP slider on this RC71L with only `-steamos3 -steampal -steamdeck -gamepadui` is unverified. A further Deck-identity check was not found. Source: build-tdp-slider.md. Owner: hardware.
 - L171. **Open.** GitLab `holo/steamos-manager` `power.rs` was not re-diffed against evlaV `85fbd8f`. The port uses the evlaV pin. Source: build-tdp-slider.md. Owner: power.
