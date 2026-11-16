@@ -1,0 +1,8 @@
+[Unit]
+Description=Reapply the ROG Ally TDP limit after mains power changes
+DefaultDependencies=no
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert

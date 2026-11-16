@@ -1,0 +1,14 @@
+[Unit]
+Description=ROG Ally Steam TDP slider
+PartOf=graphical-session.target
+PartOf=omarchy-gaming-session.target
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
+
+[Service]
+Type=dbus
+BusName=com.steampowered.SteamOSManager1
+ExecStart=/usr/bin/omarchy-ally-tdp-shim
+
+[Install]
+WantedBy=graphical-session.target
+WantedBy=omarchy-gaming-session.target

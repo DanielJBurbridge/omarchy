@@ -1,0 +1,4 @@
+# Mains online only. A battery capacity event does not match. The Ally
+# check runs after the supply matches, then the source oneshot reasserts.
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="0", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", TAG+="systemd", ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="1", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", TAG+="systemd", ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"

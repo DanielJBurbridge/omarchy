@@ -1,0 +1,22 @@
+# shellcheck shell=bash
+post_install() {
+  if [[ -x /usr/bin/omarchy-ally-tdp-install ]]; then
+    if ! /usr/bin/omarchy-ally-tdp-install hardware; then
+      printf 'warning: Ally TDP hardware install failed; re-run: sudo omarchy-ally-tdp-install hardware\n' >&2
+    fi
+    if /usr/bin/omarchy-pkg-present omarchy-gaming-session && ! /usr/bin/omarchy-ally-tdp-install session; then
+      printf 'warning: Ally TDP session install failed; re-run: sudo omarchy-ally-tdp-install session\n' >&2
+    fi
+  fi
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_remove() {
+  if [[ -x /usr/bin/omarchy-ally-tdp-install ]]; then
+    /usr/bin/omarchy-ally-tdp-install remove || \
+      printf 'warning: Ally TDP removal failed; re-run: sudo omarchy-ally-tdp-install remove\n' >&2
+  fi
+}
