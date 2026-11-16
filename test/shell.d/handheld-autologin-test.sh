@@ -189,26 +189,13 @@ HW=ally PKG=absent run_guard install-user daniel
 [[ ! -e $user_conf ]] || fail "install-user writes User= without the gaming session package"
 pass "User= stays in its own file and apply never writes it"
 
-stub=$work/steamos-update
-rm -f "$stub"
-OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
-[[ -x $stub ]] || fail "install-stub copies the SteamOS update stub"
-[[ $(stat -c %a -- "$stub") == 755 ]] || fail "the update stub is mode 0755" "$(stat -c %a -- "$stub")"
-"$stub" check
-[[ $? == 7 ]] || fail "the installed stub check exits 7"
-printf 'custom\n' > "$stub"
-OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
-[[ $(cat "$stub") == custom ]] || fail "install-stub replaces a stub that is already installed" "$(cat "$stub")"
-rm -f "$stub"
-ln -s "$work/elsewhere" "$stub"
-if OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub; then
-  fail "install-stub follows a symlink"
-fi
-[[ -L $stub ]] || fail "install-stub removed the symlink it refused"
-rm -f "$stub"
-HW=laptop OMARCHY_STEAMOS_UPDATE_PATH=$stub run_guard install-stub
-[[ ! -e $stub ]] || fail "a laptop install-stub writes the update stub"
-pass "the update stub is installed once, on the Ally gaming session"
+rm -f "$user_conf"
+env -i PATH="$work/bin:$ROOT/bin:/usr/bin:/bin" HW=ally PKG=present \
+  OMARCHY_SDDM_CONF_DIR="$work/sddm" \
+  OMARCHY_HANDHELD_AUTOLOGIN_DIR="$work/run" \
+  "$ROOT/bin/omarchy-handheld-autologin" install-user daniel
+grep -q '^User=daniel$' "$user_conf" || fail "install-user under env -i writes User=" "$(cat "$user_conf" 2>/dev/null)"
+pass "install-user does not need the caller's OMARCHY_PATH"
 
 rm -f "$user_conf"
 printf '[General]\nUser=other\n[Autologin]\nUser=daniel\n' > "$work/sddm/autologin.conf"
@@ -247,9 +234,23 @@ OMARCHY_AUTOLOGIN_NOW=3120 run_guard fail
 [[ -f $work/run/stop ]] || fail "the third timestamp still inside the window trips"
 pass "failures older than 60s are pruned and the third one left trips"
 
-printf 'stale\n' > "$dropin"
+rm -f "$work/sddm/"*
+printf '[Autologin]\nUser=daniel\n' > "$user_conf"
+printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
 HW=laptop run_guard apply
-[[ ! -e $dropin ]] || fail "a laptop loses the handheld drop-in" "$(cat "$dropin")"
+[[ ! -e $dropin && ! -e $user_conf ]] || fail "a laptop apply leaves a handheld SDDM file"
+grep -Rqs 'User=' "$work/sddm" && fail "a laptop apply leaves User= under sddm.conf.d"
+printf '[Autologin]\nUser=daniel\n' > "$user_conf"
+printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
 HW=ally PKG=absent run_guard apply
-[[ ! -e $dropin ]] || fail "removing the gaming package removes autologin"
-pass "laptops and a removed variant get no autologin drop-in"
+[[ ! -e $dropin && ! -e $user_conf ]] || fail "removing the gaming package leaves a handheld SDDM file"
+grep -Rqs 'User=' "$work/sddm" && fail "removing the gaming package leaves User= under sddm.conf.d"
+# shellcheck source=/dev/null
+source "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
+printf '[Autologin]\nUser=daniel\n' > "$user_conf"
+OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
+[[ ! -e $user_conf ]] || fail "post_remove leaves a file whose only key is User="
+printf '[Autologin]\nUser=daniel\nSession=omarchy.desktop\n' > "$user_conf"
+OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
+grep -q '^Session=omarchy.desktop$' "$user_conf" || fail "post_remove deletes a file that also sets Session="
+pass "laptops and a removed variant leave no User= under sddm.conf.d"

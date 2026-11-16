@@ -1,8 +1,9 @@
-echo "Install the SteamOS update stub and the handheld SDDM User= drop-in on an Ally with the gaming session package"
+echo "Record the handheld SDDM User= on an Ally that already has the gaming session helper"
 
 # Same path #48 already writes: /etc/sddm.conf.d/omarchy-handheld-user.conf.
-# Nothing moves, and a second drop-in is not created. apply still does not
-# write User=. The stub is copied only when Steam's absolute path is empty.
+# Nothing moves. The package owns /usr/bin/steamos-polkit-helpers/steamos-update.
+# This step does not copy that stub. An older package has no helper yet, and
+# its upgrade writes User= from the installer record.
 
 if ! omarchy-hw-rog-ally; then
   exit 0
@@ -10,9 +11,7 @@ fi
 if ! omarchy-pkg-present omarchy-gaming-session; then
   exit 0
 fi
-
-sudo "$OMARCHY_PATH/default/gaming/sddm-user.sh" install-stub
-sudo "$OMARCHY_PATH/default/gaming/sddm-user.sh" install-recorded
-if [[ ${USER:-} != root && ${USER:-} =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
-  sudo "$OMARCHY_PATH/bin/omarchy-handheld-autologin" install-user "$USER"
+if [[ ! -x /usr/lib/omarchy-gaming-session/sddm-user.sh || -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
+  exit 0
 fi
+sudo /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded

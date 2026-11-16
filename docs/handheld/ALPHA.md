@@ -30,7 +30,7 @@ From another machine, `ssh rog-ally` (or `ssh $USER@<ally-host>`) must log in be
 
 ## Install
 
-`omarchy-handheld-autologin apply` writes `/etc/sddm.conf.d/zz-omarchy-handheld.conf` only when `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` both succeed. Otherwise it deletes that file. The drop-in is `Session=omarchy-handheld.desktop` and `Relogin=true`, with no `User=`. `User=` is `/etc/sddm.conf.d/omarchy-handheld-user.conf`, the same file #48 writes. The gaming-session package owns it. `omarchy-handheld-autologin install-user` writes it only on an Ally with that package installed, and it does not replace a `User=` that already sits inside `[Autologin]`. apply never rewrites that file. The session runs `omarchy-handheld-autologin`, which starts `omarchy-session-start relogin`. The boot unit is `omarchy-handheld-autologin.service` (`Before=sddm.service`, `ExecStart=/usr/bin/omarchy-handheld-autologin apply`). Install Gamescope, Steam, and the session package ([gaming session note](../rog-ally-gaming-session.md)) before apply. The command has to be `/usr/bin/omarchy-handheld-autologin`. The package also installs `/usr/bin/steamos-polkit-helpers/steamos-update`, a stub that updates nothing, so Gaming Mode setup does not stop on a missing SteamOS updater.
+`omarchy-handheld-autologin apply` writes `/etc/sddm.conf.d/zz-omarchy-handheld.conf` only when `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` both succeed. Otherwise it deletes that file. The drop-in is `Session=omarchy-handheld.desktop` and `Relogin=true`, with no `User=`. `User=` is `/etc/sddm.conf.d/omarchy-handheld-user.conf`, the same file #48 writes. The gaming-session package owns it. `omarchy-handheld-autologin install-user` writes it only on an Ally with that package installed, and it does not replace a `User=` that already sits inside `[Autologin]`. apply does not rewrite that file while the variant is installed, and deletes it together with `zz-omarchy-handheld.conf` when the variant is gone. Removing the package deletes it when `[Autologin]` holds only `User=`. The session runs `omarchy-handheld-autologin`, which starts `omarchy-session-start relogin`. The boot unit is `omarchy-handheld-autologin.service` (`Before=sddm.service`, `ExecStart=/usr/bin/omarchy-handheld-autologin apply`). Install Gamescope, Steam, and the session package ([gaming session note](../rog-ally-gaming-session.md)) before apply. The command has to be `/usr/bin/omarchy-handheld-autologin`. The package also installs `/usr/bin/steamos-polkit-helpers/steamos-update`, a stub that updates nothing, so Gaming Mode setup does not stop on a missing SteamOS updater.
 
 On a fresh install, `install/hardware/all.sh` runs `install/hardware/handheld-autologin.sh`, which enables the unit and applies. That first apply finds no gaming package and leaves no drop-in. After the package is installed, run apply again (a reboot does the same, because the unit runs before SDDM):
 
@@ -70,6 +70,7 @@ Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/
 
 ```bash
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
+sudo rm -f /etc/sddm.conf.d/omarchy-handheld-user.conf
 sudo systemctl restart sddm
 ```
 
@@ -93,6 +94,7 @@ That restart kills the current graphical session. Reboot instead if you want to 
 sudo systemctl disable --now omarchy-handheld-autologin.service
 sudo rm -f /etc/systemd/system/omarchy-handheld-autologin.service
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
+sudo rm -f /etc/sddm.conf.d/omarchy-handheld-user.conf
 sudo systemctl daemon-reload
 omarchy-setup-gaming-session reset
 systemctl --user stop omarchy-gaming-session.target || true

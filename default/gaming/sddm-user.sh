@@ -29,7 +29,6 @@ sddm_conf_dir=${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}
 sddm_user_dropin=$sddm_conf_dir/omarchy-handheld-user.conf
 sddm_autologin_conf=$sddm_conf_dir/autologin.conf
 sddm_state_conf=${OMARCHY_SDDM_STATE:-/var/lib/sddm/state.conf}
-sddm_update_stub=${OMARCHY_STEAMOS_UPDATE_PATH:-/usr/bin/steamos-polkit-helpers/steamos-update}
 sddm_parse_section_name="[Autologin]"
 
 sddm_parse_autologin() {
@@ -161,24 +160,6 @@ sddm_install_recorded() {
   sddm_write_user "$user"
 }
 
-# The package owns the absolute path Steam calls. Copy it only when that
-# path is absent, and only for the Ally gaming-session pair. Never replace
-# a file the package already installed, and never follow a symlink.
-gaming_install_update_stub() {
-  local src=${OMARCHY_PATH:-}/default/gaming/steamos-update
-  sddm_handheld_variant || return 0
-  if [[ -L $sddm_update_stub ]]; then
-    echo "omarchy gaming session: refusing a symlink at $sddm_update_stub" >&2
-    return 1
-  fi
-  if [[ -e $sddm_update_stub ]]; then
-    return 0
-  fi
-  [[ -f $src && ! -L $src ]] || return 1
-  (( EUID == 0 )) || return 1
-  install -D -o root -g root -m 0755 "$src" "$sddm_update_stub"
-}
-
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   set -euo pipefail
   case ${1:-} in
@@ -188,11 +169,8 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     install-user)
       sddm_install_user "${2:-}"
       ;;
-    install-stub)
-      gaming_install_update_stub
-      ;;
     *)
-      echo "usage: sddm-user.sh install-recorded|install-user|install-stub" >&2
+      echo "usage: sddm-user.sh install-recorded|install-user" >&2
       exit 2
       ;;
   esac

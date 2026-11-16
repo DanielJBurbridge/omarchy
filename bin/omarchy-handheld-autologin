@@ -79,16 +79,45 @@ EOF
 
 # User= is owned by the gaming-session helper. apply never writes it.
 # A User= outside [Autologin] does not count, so a misplaced line is rewritten.
+# sudo clears the caller's environment, so this does not read a passed-in
+# OMARCHY_PATH. The package helper is the fixed path. Otherwise the same
+# bootstrap session-start uses, then the copy beside this command.
 install_user() {
+  local helper="" packaged bootstrap sibling_dir
+  packaged=/usr/lib/omarchy-gaming-session/sddm-user.sh
+  bootstrap=/usr/share/omarchy/default/bash/env-bootstrap
+  if [[ -f $packaged && ! -L $packaged ]]; then
+    helper=$packaged
+  elif [[ -f $bootstrap && ! -L $bootstrap ]]; then
+    set +u
+    # shellcheck source=/dev/null
+    source "$bootstrap"
+    set -u
+    if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/sddm-user.sh && ! -L $OMARCHY_PATH/default/gaming/sddm-user.sh ]]; then
+      helper=$OMARCHY_PATH/default/gaming/sddm-user.sh
+    fi
+  fi
+  if [[ -z $helper ]]; then
+    sibling_dir=$(dirname -- "${BASH_SOURCE[0]}")/../default/gaming
+    if [[ -f $sibling_dir/sddm-user.sh && ! -L $sibling_dir/sddm-user.sh ]]; then
+      helper=$sibling_dir/sddm-user.sh
+    fi
+  fi
+  if [[ -z $helper ]]; then
+    echo "omarchy-handheld-autologin: missing gaming session user helper" >&2
+    exit 1
+  fi
   # shellcheck source=/dev/null
-  source "$OMARCHY_PATH/default/gaming/sddm-user.sh"
+  source "$helper"
   sddm_install_user "$1"
 }
 
 apply_dropin() {
   refuse_symlink
   if ! handheld_variant; then
-    rm -f -- "$dropin"
+    # A User= left behind with no Session= makes SDDM autologin into the last
+    # desktop. Drop both files together.
+    rm -f -- "$dropin" "$user_dropin"
     return 0
   fi
   # A crash-loop stop shows the greeter. A boot with no stop file autologins.
@@ -119,11 +148,6 @@ case $action in
     ;;
   install-user)
     install_user "${2:-}"
-    ;;
-  install-stub)
-    # shellcheck source=/dev/null
-    source "$OMARCHY_PATH/default/gaming/sddm-user.sh"
-    gaming_install_update_stub
     ;;
   apply)
     apply_dropin
