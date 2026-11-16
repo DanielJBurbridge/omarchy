@@ -1,6 +1,6 @@
 # InputPlumber profiles: implementation brief
 
-16 Nov 2026. For dev-blue. Docs only: the YAML below is the file to put in the companion package, not a file this MIT tree ships.
+16 Nov 2026, revised after the dev-red review on PR #51. For dev-blue. Docs only. The profile YAML below is ours and lives next to the pointer profile #48 already ships. The upstream composite file stays out of this MIT tree.
 
 The button map is [spec 01](../01-controller-button-map.md) (revision 4, decisions D1–D7, map §5, contexts §6, chords §7, gaming profile §12, sketch in Appendix A). This brief implements that spec. A capability the daemon does not have is a finding at the end. It does not change the decision.
 
@@ -45,11 +45,13 @@ Search order for devices ([`path.rs`](https://github.com/ShadowBlip/InputPlumber
 
 Capability maps load the other way round in the code. `get_base_path()` is the first existing XDG data directory for `inputplumber`, and `/usr/share/inputplumber` when none exist. On a stock install that is the package directory, and it is listed before `/etc/inputplumber/capability_maps.d`. The doc comment's example lists `/etc` first. Ignore the comment. The loader inserts by id into a `HashMap`, so a later file with the same id wins. An `/etc` file named `ally_type1.yaml` overrides the packaged map. Do not add one unless a press test forces a label change. A new label is still OQ-1, not a decision this brief makes.
 
-Profiles are not picked up from a directory. `LoadProfilePath` takes an absolute path (§3). Put ours in the companion at `/usr/share/omarchy-rog-ally-input/profiles/`, which is where `bridge.py` on that branch already looks (`PROFILE_DIR`). Do not drop them into `/usr/share/inputplumber/profiles/`.
+Profiles are not picked up from a directory. `LoadProfilePath` opens whatever path the caller sends ([`DeviceProfile::from_yaml_file`](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/config/mod.rs#L56-L68) at `117cb04`, a 512 KiB cap and no directory check). The session never passes that path. One directory holds every Omarchy profile, the directory #48 already uses: repo `default/inputplumber/profiles/`, installed as `/usr/share/omarchy/default/inputplumber/profiles/`. That directory is root-owned on an install. Do not add a second directory such as `/usr/share/omarchy/inputplumber/profiles/` beside it, and do not drop files into `/usr/share/inputplumber/profiles/`. The helper in §3 hardcodes the installed prefix. It does not read `$OMARCHY_PATH`, because a checkout is writable by the user who has it.
 
-Upstream udev hwdb [`60-inputplumber-autostart.hwdb`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/lib/udev/hwdb.d/60-inputplumber-autostart.hwdb) sets `USE_INPUTPLUMBER=1` for `dmi:*svnASUSTeKCOMPUTERINC.:*rnRC71L:*`. The unit is `WantedBy=multi-user.target`, so it can be up before SDDM. The companion drop-in `90-omarchy-rc71l.conf` adds `ConditionPathExists=/etc/omarchy/rog-ally-input-enabled` and `ExecCondition=/usr/bin/omarchy-hw-rog-ally`. Keep that guard.
+`default/inputplumber/profiles/omarchy-ally-pointer.yaml` is already that directory's greeter profile (name `Omarchy Ally pointer`). Left stick moves the pointer, South clicks, and the file sets no `target_devices`. Keep it. `desktop.yaml` is the Hyprland profile from §2 and does not replace it at the greeter.
 
-`gaming.yaml` is not in this tree. [`bin/omarchy-gaming-input-profile`](../../../bin/omarchy-gaming-input-profile) looks for `$OMARCHY_PATH/default/rog-ally-input/profiles/gaming.yaml` and exits 0 when the file or the daemon is missing. Point that oneshot at the companion path when the file exists. Until then the exit 0 is the right behaviour.
+Upstream udev hwdb [`60-inputplumber-autostart.hwdb`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/lib/udev/hwdb.d/60-inputplumber-autostart.hwdb) sets `USE_INPUTPLUMBER=1` for `dmi:*svnASUSTeKCOMPUTERINC.:*rnRC71L:*`. The unit is `WantedBy=multi-user.target`, so it can be up before SDDM. The companion drop-in `90-omarchy-rc71l.conf` adds `ConditionPathExists=/etc/omarchy/rog-ally-input-enabled` and `ExecCondition=/usr/bin/omarchy-hw-rog-ally`. Keep that guard. [`install/hardware/asus/inputplumber.sh`](../../../install/hardware/asus/inputplumber.sh) on this branch installs InputPlumber and enables `omarchy-ally-pointer.service` when `omarchy-hw-rog-ally` succeeds. The migration in §3 keeps that enable and changes what the unit runs.
+
+`gaming.yaml` is not in this tree. [`bin/omarchy-gaming-input-profile`](../../../bin/omarchy-gaming-input-profile) looks for `$OMARCHY_PATH/default/rog-ally-input/profiles/gaming.yaml` and exits 0 when the file or the daemon is missing. That oneshot stops calling `LoadProfilePath`. It asks the helper for the name `gaming`. Until `gaming.yaml` exists, the exit 0 stays.
 
 ## 2. Profile schema, and the YAML to write
 
@@ -321,7 +323,7 @@ A copy of `desktop.yaml` with the East and West mappings replaced. Do not leave 
       - keyboard: "KeySpace"
 ```
 
-`KeyBackspace` and `KeySpace` are in the keyboard enum. The bridge loads `osk` only from `desktop`, when wvkbd is shown. It remembers the profile that was current and loads that profile again when the helper hides, when it is stopped, and when the wvkbd process exits for any other reason (spec §6). Watch the process. Do not poll.
+`KeyBackspace` and `KeySpace` are in the keyboard enum. Set this file's `name` to `Omarchy Ally osk`. A copy that keeps `Omarchy Ally desktop` cannot be told apart by `ProfileName`, so the skip in §3 would treat the two files as one profile. The helper loads the name `osk` only from `desktop`, when wvkbd is shown. It remembers the profile that was current and loads that name again when wvkbd hides, when it is stopped, and when the wvkbd process exits for any other reason (spec §6). Watch the process. Do not poll.
 
 ### What stays out
 
@@ -329,75 +331,86 @@ A copy of `desktop.yaml` with the East and West mappings replaced. Do not leave 
 
 The bridge on `95a0992ce5` has `MODES = ("desktop", "gamepad", "dualsense")`. `omarchy-hw-rog-ally-input gaming` prints `Ally input: unknown action; use --help` and exits non-zero. Add `gaming` and `osk` to `MODES`. `run_gaming` calls `gaming` when the package is installed, and on that unknown-action error calls `gamepad` and still starts Gamescope (spec §12.3). Any other error still aborts.
 
-## 3. Switching: the bridge loads the profile
+## 3. Switching: one root helper loads a name
 
-One daemon, the one Arch ships. System bus name `org.shadowblip.InputPlumber` ([`constants.rs`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/constants.rs)). Only root may own it ([dbus policy](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/dbus-1/system.d/org.shadowblip.InputPlumber.conf)). The default policy allows `send_destination` to that name. The unit has no `User=`, so the process is root.
+One daemon, the one Arch ships. System bus name `org.shadowblip.InputPlumber` ([`constants.rs`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/constants.rs)). Only root may own it ([dbus policy](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/dbus-1/system.d/org.shadowblip.InputPlumber.conf)). The default policy allows `send_destination` to that name. The unit has no `User=`, so the process is root. Pin for the load path below: tag `v0.84.0`, commit [`117cb04e949f842397b96178bcc0d7fc7ba23acf`](https://github.com/ShadowBlip/InputPlumber/commit/117cb04e949f842397b96178bcc0d7fc7ba23acf).
 
-Composite object paths are assigned at runtime (`/org/shadowblip/InputPlumber/CompositeDevice0` is the example in the manager comments, not a promise). A dock or a USB pad can take a lower index. Discover the path. Interface `org.shadowblip.Input.CompositeDevice` ([`composite_device.rs`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/dbus/interface/composite_device.rs)). Manager object: `/org/shadowblip/InputPlumber/Manager`, interface `org.shadowblip.InputManager`.
+One Omarchy program talks to that daemon: `/usr/bin/omarchy-inputplumber-profile`, running as root. It accepts a profile name from a fixed allowlist and builds the path itself. The session never receives polkit for `LoadProfilePath`, `LoadProfileFromYaml`, `SetTargetDevices` or `SetInterceptMode`, and it never passes a path. #48's [`bin/omarchy-ally-pointer-load`](../../../bin/omarchy-ally-pointer-load) and [`bin/omarchy-gaming-input-profile`](../../../bin/omarchy-gaming-input-profile) both call `LoadProfilePath` today. They stop doing that. The pointer unit becomes a root call of this helper. The gaming oneshot asks it for a name.
 
-`busctl` talks to the system bus by default.
+Allowlist, and the file each name opens. The prefix is hardcoded to `/usr/share/omarchy/default/inputplumber/profiles`. A name that is not in this table is an error. The file must be a regular file, owned by root, and not a symlink.
 
-```bash
-busctl tree org.shadowblip.InputPlumber
-# Replace the path. Do not hardcode CompositeDevice0.
-busctl get-property org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice Name
-busctl call org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice \
-  LoadProfilePath s \
-  /usr/share/omarchy-rog-ally-input/profiles/gaming.yaml
-busctl get-property org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice ProfilePath
-busctl get-property org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice TargetDevices
-```
+| Name | File | `name` in the YAML | When |
+|---|---|---|---|
+| `pointer` | `omarchy-ally-pointer.yaml` (the #48 file) | `Omarchy Ally pointer` | Before the greeter, and again when the greeter comes back after the 3-in-60 s stop |
+| `desktop` | `desktop.yaml` | `Omarchy Ally desktop` | Hyprland active and unlocked |
+| `osk` | `osk.yaml` | `Omarchy Ally osk` | wvkbd shown, and only as a change from `desktop` |
+| `gamepad` | `gamepad.yaml` | `Omarchy Ally gamepad` | Hyprland locked, inactive, or unknown (C7). Also the desktop-session Steam toggle (C5) |
+| `gaming` | `gaming.yaml` | `Omarchy Ally gaming` | `run_gaming`, before Gamescope |
+| `dualsense` | `dualsense.yaml` | `Omarchy Ally dualsense` | A menu or CLI choice in the desktop session (C5). Not the boot profile |
 
-`LoadProfilePath` is the switch. When the profile sets `target_devices`, the load path sends `SetTargetDevices` ([`mod.rs` around the profile apply](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/input/composite_device/mod.rs)). The D-Bus method's contract is to stop the current virtual devices and create new ones. There is no equality check on that send. C4 still stands: the first load, from Xbox Elite to `ds5-edge`, happens in `run_gaming` before Gamescope, and a later reload with the same target list must not reconnect the pad. Implement that in the bridge: if `ProfilePath` and `TargetDevices` already match the file, do not call `LoadProfilePath` again. A direct `SetTargetDevices` is the same reconnect. Signature `as`:
+`pointer` sets no `target_devices`. A load of it replaces mappings and does not send `SetTargetDevices`, so the composite keeps the targets it already has (the stock default is `xbox-elite`, `mouse`, `keyboard`). `desktop` sets `mouse` and `keyboard` only. Loading `desktop` over `pointer` stops `xbox-elite` and keeps `mouse` and `keyboard`. They are two profiles and one loader. The greeter does not run `desktop.yaml`.
 
-```bash
-busctl call org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice \
-  SetTargetDevices as 3 ds5-edge mouse keyboard
-```
+### Which composite
 
-Do not call it from session scripts. The profile's `target_devices` is the list.
+Do not use `CompositeDevice0`. #48's loader hardcodes that path ([`omarchy-ally-pointer-load`](../../../bin/omarchy-ally-pointer-load) lines 14–18). The gaming oneshot walks every `CompositeDevice*`. A dock can take index 0, and a USB pad must keep its own profile (acceptance 17).
 
-`InterceptMode` is a `u32` property. `0` none (pass everything), `1` pass except Guide, `2` always (send nothing to the targets), `3` gamepad only (gamepad events go out over D-Bus). Any other value is stored as none. Spec 04 sets `2` while the overlay is open and restores `0` on close, crash and session exit (C8). That is not part of a profile load.
+The helper lists `/org/shadowblip/InputPlumber/CompositeDevice[0-9]*` and reads `org.shadowblip.Input.CompositeDevice.Name`. The Ally composite's name is `ASUS ROG Ally`, from `50-rog_ally.yaml`. It then reads `SourceDevicePaths` and requires one source whose vendor/product is `0b05`/`1abe`: hidraw `org.shadowblip.Input.Source.HIDRawDevice` `IdVendor` and `IdProduct` (lowercase hex, no `0x` prefix; [`hidraw.rs`](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/dbus/interface/source/hidraw.rs#L48-L75)), or evdev `org.shadowblip.Input.Source.EventDevice` with the same properties. Zero matches, or more than one: do not load. The greeter oneshot keeps today's bound (40 tries, 0.25 s apart, then exit 0) so a missing daemon does not hold SDDM.
 
-```bash
-busctl set-property org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice InterceptMode u 2
-busctl set-property org.shadowblip.InputPlumber \
-  /org/shadowblip/InputPlumber/CompositeDevice0 \
-  org.shadowblip.Input.CompositeDevice InterceptMode u 0
-```
+### What a load does to the virtual devices
 
-Select the RC71L composite (name `ASUS ROG Ally`, or the object whose sources are the `0b05:1abe` nodes). The oneshot in this tree calls `LoadProfilePath` on every `CompositeDevice*` it finds. A dock or a USB pad on that list would take the Ally profile (acceptance 17). The bridge should load the Ally object only.
+`LoadProfilePath` replaces the mapping and stores the path ([`load_device_profile`](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/composite_device/mod.rs#L1882-L1903)). If the profile has `target_devices`, that function then sends `SetTargetDevices` ([same file, L1931–L1953](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/composite_device/mod.rs#L1931-L1956)) and always calls `schedule_clear_state` (L1956), which recenters sticks and releases buttons on every target that is still attached ([`targets.rs` L431–L443](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/composite_device/targets.rs#L431-L443)).
 
-### Who calls it
+The D-Bus comment on `set_target_devices` says the call stops every current virtual device and creates new ones ([`composite_device.rs` L191–L193](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/dbus/interface/composite_device.rs#L191-L194)). The function that runs is [`set_devices`](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/composite_device/targets.rs#L128-L183). It asks each running target for its type id and:
 
-| When | Who | Profile |
+- leaves a type that is already running (`Target device {kind} already running, nothing to do.`, L163)
+- stops a running type that the new list does not contain (L170–L207)
+- creates a type that is not running (L213–L268)
+
+`ds5-edge` and `xbox-elite` are different type ids, so the first gaming load stops the Xbox node and creates the Edge node. `mouse` and `keyboard`, present in both lists, stay up. A second load of the same list does not destroy those nodes. It still clears their state, because `schedule_clear_state` runs on every successful load. C4's "must not reconnect" is the helper skipping that second call, not a comparison the daemon makes.
+
+The `TargetDevices` property is not that type list. It returns `get_target_device_paths()` ([`composite_device.rs` L552–L571](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/dbus/interface/composite_device.rs#L552-L571)), object paths. Comparing those paths to `ds5-edge` never matches. The type string is `org.shadowblip.Input.Target.DeviceType` on each of those paths ([`target/mod.rs` L42–L45](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/dbus/interface/target/mod.rs#L31-L45)), the id the target was created with. `ProfileName` is the loaded profile's `name` field ([`composite_device.rs` L85–L104](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/dbus/interface/composite_device.rs#L85-L104)), empty when nothing is loaded. `ProfilePath` is the path string that was passed in.
+
+Skip `LoadProfilePath` only when all of these hold:
+
+1. `ProfileName` equals the `name` field of the allowlisted file.
+2. The Ally composite from the lookup above is still that object.
+3. If the file sets `target_devices`, every one of those strings is a `DeviceType` on a path in `TargetDevices`. If the file sets none (`pointer`), `TargetDevices` is non-empty.
+
+A composite that was recreated has an empty `ProfileName` and fails the check, so the helper loads again. Skipping on a remembered path after the targets are gone would leave the new composite with no profile. Do not call `SetTargetDevices` from Omarchy. The profile's own list is the delta `set_devices` applies.
+
+`InterceptMode` is a `u32` property on the same interface. `0` none, `1` pass except Guide, `2` always, `3` gamepad only. Any other value is stored as none. Spec 04 uses `2` while the overlay is open and `0` on close, crash and session exit (C8). The helper accepts only `0` and `2`. The session does not set the property itself.
+
+### Who calls the helper
+
+The session-facing entry is a root system service on our bus name, method `Load` with a name string and method `SetIntercept` with `0` or `2`. The service checks the allowlist, then the binary does the InputPlumber call as root. Root is the caller InputPlumber's polkit sees. We do not add a YES rule for any `org.shadowblip.Input*` action. Confirm on the device that this root call is authorized without a prompt. If it is not, fix the helper's identity. Still no session grant.
+
+| When | Call | Name |
 |---|---|---|
-| `run_gaming`, before Gamescope | `omarchy-hw-rog-ally-input gaming`, and the oneshot [`omarchy-gaming-input-profile.service`](../../../default/systemd/user/omarchy-gaming-input-profile.service) which `omarchy-gaming-session.target` already `Wants=` | `gaming.yaml`. On companion 1.0.3-1, `gamepad.yaml`, and Gamescope still starts (§12.3). |
-| Gaming session in progress | The bridge holds it | Lock, unlock, login1 and a bridge restart do not load `desktop` or `gamepad` over it (§12.2). `omarchy_mode` while gaming is ignored. |
-| Hyprland active and unlocked | The bridge | `desktop.yaml`, or `osk.yaml` while wvkbd is shown. |
-| Hyprland locked, inactive, or unknown | The bridge | `gamepad.yaml` (C7). |
-| AC long on the desktop | The profile emits `omarchy_mode`; the bridge toggles | `desktop` ⇄ `gamepad`, with the notification. Not `gaming` (C5). |
-| Leave gaming back to Hyprland | The bridge, after the §8.1 key-ups | `desktop` if unlocked, otherwise `gamepad`. |
+| Boot, before SDDM | [`omarchy-ally-pointer.service`](../../../default/systemd/system/omarchy-ally-pointer.service) stays `Before=display-manager.service` and runs the binary as root | `pointer` |
+| Crash-loop stop, greeter shown | [`omarchy-handheld-autologin`](../../../bin/omarchy-handheld-autologin) `fail` already restarts SDDM. After that restart, the same binary runs as root | `pointer`. `graphical.target` is already up, so the oneshot does not run again by itself |
+| `run_gaming`, before Gamescope | The gaming oneshot, through the service | `gaming`. On companion 1.0.3-1, which has no `gaming` name, `gamepad`, and Gamescope still starts (§12.3) |
+| Gaming session in progress | The service holds it | Lock, unlock, login1 and a bridge restart do not load `desktop`, `gamepad` or `pointer` over it (§12.2). `omarchy_mode` while gaming is ignored |
+| Hyprland active and unlocked | The service | `desktop`, or `osk` while wvkbd is shown |
+| Hyprland locked, inactive, or unknown | The service | `gamepad` (C7) |
+| AC long on the desktop | The profile emits `omarchy_mode`; the service toggles | `desktop` ⇄ `gamepad`, with the notification. Not `gaming` (C5) |
+| Leave gaming back to Hyprland | The service, after the §8.1 key-ups | `desktop` if unlocked, otherwise `gamepad` |
 
 [`bin/omarchy-session-start`](../../../bin/omarchy-session-start) `run_gaming` still calls `omarchy-hw-rog-ally-input gamepad` when the package is installed, and aborts on a non-zero status. Spec §12.3 replaces that with `gaming`, then `gamepad` only on the unknown-action error. Key-ups (§8.1) happen before every load, on the device that pressed the key. Grip Super and Ctrl, once OQ-17 is closed, are the bridge uinput keyboard. InputPlumber does not emit those two keys.
 
+### Migration off the #48 loader
+
+1. Add `omarchy-inputplumber-profile` and the system service. The binary is the only `LoadProfilePath` caller.
+2. Change `omarchy-ally-pointer.service` so `ExecStart` is `/usr/bin/omarchy-inputplumber-profile load pointer`. Keep `After=inputplumber.service`, `Before=display-manager.service`, and `WantedBy=graphical.target`. Delete the `CompositeDevice0` call in `omarchy-ally-pointer-load`, or make that binary exec the helper. Do not leave both calling the daemon.
+3. Teach `omarchy-handheld-autologin fail`, after `restart_greeter`, to run the same root `load pointer`. A crash-loop stop onto the greeter must not keep `desktop` loaded.
+4. Change `omarchy-gaming-input-profile` to ask the service for `gaming`. It no longer loops `CompositeDevice*`.
+5. Add `desktop.yaml`, `gaming.yaml`, `osk.yaml` and, when the companion profiles move, `gamepad.yaml` and `dualsense.yaml` in `default/inputplumber/profiles/`. Leave `omarchy-ally-pointer.yaml` as the `pointer` file.
+6. The Hyprland side calls `Load` with a name. It does not call `LoadProfilePath`. Companion 1.0.3-1's bridge still does, and that remains the fallback §12.3 describes until this helper is what `run_gaming` calls.
+
 ### Permissions
 
-No `NOPASSWD` sudo. Polkit is the gate. [`org.shadowblip.InputPlumber.policy`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/polkit-1/actions/org.shadowblip.InputPlumber.policy) sets `allow_any` no, `allow_inactive` `auth_admin`, and `allow_active` `auth_admin` for `LoadProfilePath`, `LoadProfileFromYaml`, `SetTargetDevices`, `SetInterceptMode`, `Stop`, `SendEvent` and `SendButtonChord`. A session `busctl` today asks for an admin password or fails. The shipped [`rules` file](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/polkit-1/rules.d/org.shadowblip.InputPlumber.rules) returns `YES` for a subject in group `inputplumber` or `wheel`, for every `org.shadowblip.Input*` and `org.shadowblip.Output*` action, including `Stop` and `SendEvent`. The companion PKGBUILD does not install a rule. Whether the Arch package creates the `inputplumber` group was not checked.
+No `NOPASSWD` sudo, and no YES rule for InputPlumber. [`org.shadowblip.InputPlumber.policy`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/polkit-1/actions/org.shadowblip.InputPlumber.policy) sets `allow_any` no and `allow_active` `auth_admin` for `LoadProfilePath`, `LoadProfileFromYaml`, `SetTargetDevices`, `SetInterceptMode`, `Stop`, `SendEvent` and `SendButtonChord`. `from_yaml_file` will open any path the caller names, up to 512 KiB. A session grant on `LoadProfilePath` with no path allowlist would let any process in that session, including the SDDM greeter user `sddm`, point the root daemon at `/tmp/evil.yaml`. Do not ship that grant. The shipped [`rules` file](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/rootfs/usr/share/polkit-1/rules.d/org.shadowblip.InputPlumber.rules) returns YES for group `inputplumber` or `wheel` on every `org.shadowblip.Input*` and `Output*` action, including `Stop` and `SendEvent`. Do not add the session user to either group. Whether the Arch package creates the `inputplumber` group was not checked.
 
-Ship a narrow rule with the companion: `YES` for the active local session, and only for `LoadProfilePath` and `SetInterceptMode` on this Ally. Do not add the session user to `wheel`. Do not grant `Stop` or `SendEvent`. Installing the rule is the package's root action. The running session does not call sudo.
+The polkit rule we do ship is on our own actions (`Load` and `SetIntercept`), not on InputPlumber's. YES only when `subject.active` and `subject.local` are both true and `subject.user` is the handheld user the installer wrote into `omarchy-handheld-user.conf`. An explicit NO when `subject.user` is `sddm`. The greeter load does not use this rule: the system unit runs the binary as root before `display-manager.service`, and the crash-loop path does the same. Polkit cannot see "this Ally composite". The helper's name lookup is that scope. `SetIntercept` is the same subject check and only accepts `0` and `2`. There is no helper command for `LoadProfileFromYaml`.
 
 ## 4. Button table
 
@@ -432,7 +445,7 @@ Three statements, left as they are:
 - GitHub's licence API, fetched 16 Nov 2026, reports SPDX `GPL-3.0` for [`LICENSE`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/LICENSE) (blob `53d1f3d01864c35841739c55aeba9700657627b7`, same at the tag and at `main`).
 - The Arch extra package page for `inputplumber` 0.84.0-1 lists `GPL-3.0-only` ([package JSON](https://archlinux.org/packages/extra/x86_64/inputplumber/json/), `licenses: ["GPL-3.0-only"]`).
 
-Do not collapse those. None of them allows pasting the upstream YAML into this MIT tree. The profiles in §2 are new text written against the schema. The capability names are the schema's vocabulary. They are not a copy of `mouse_keyboard_wasd.yaml` or of `ally_type1.yaml`. Ship them in the companion, next to the derived composite, which that package already marks `license=('MIT' 'GPL-3.0-or-later')` and installs `LICENSE.inputplumber` beside the MIT licence. Keep that split. A citation of the schema URL in a comment is the notice the new files need.
+Do not collapse those. None of them allows pasting the upstream YAML into this MIT tree. The profiles in §2 are new text written against the schema. The capability names are the schema's vocabulary. They are not a copy of `mouse_keyboard_wasd.yaml` or of `ally_type1.yaml`. They go in `default/inputplumber/profiles/`, beside the #48 pointer profile, which is the same kind of file. The derived composite device stays in the companion package, which already marks `license=('MIT' 'GPL-3.0-or-later')` and installs `LICENSE.inputplumber` beside the MIT licence. Keep that split. A citation of the schema URL in a comment is the notice the new files need.
 
 `hid-asus-ally` is GPL-2.0-or-later and stays out of this tree (OQ-17).
 
@@ -441,7 +454,7 @@ Do not collapse those. None of them allows pasting the upstream YAML into this M
 On the device, after the press test. "TBC" waits on OQ-1, OQ-2 or OQ-17 and is not a failure of the other rows. The checks that belong to this brief are spec 01 acceptance 1–6, 8, 9, 12, 15 and 19, plus the ones below.
 
 1. Run [`tools/ally-press-test.sh`](tools/ally-press-test.sh). Record the code for CC tap, CC long, AC tap, AC long, and each grip. Record which capability is the left grip. Leave OQ-1, OQ-2 and OQ-17 open in the spec until that log exists.
-2. Load `gaming.yaml` on the Ally composite only. `TargetDevices` contains `ds5-edge`. A second load, or a load when the path and the target list already match, does not disconnect the pad (C4).
+2. `omarchy-inputplumber-profile load gaming` selects the composite named `ASUS ROG Ally` with a `0b05:1abe` source, and no other composite. `ProfileName` is `Omarchy Ally gaming`. `TargetDevices` is a list of object paths; `DeviceType` on those paths includes `ds5-edge`, `mouse` and `keyboard`. A second `load gaming` is skipped. A root `LoadProfilePath` of the same file, issued by hand, leaves the `ds5-edge` node up (`already running, nothing to do`) and still clears target state. The helper skip is what keeps that clear from happening mid-session (C4).
 3. With a game running: AC tap opens and closes QAM, CC tap opens the Steam menu, CC long opens the Steam OSK in a search field. If QAM arrives as Guide+South, switch the target line to `deck-uhid` and stop (D1). If Guide+West opens the Steam menu, record it under OQ-1.
 4. AC long in game does not change `ProfilePath`, does not screenshot, and opens the overlay when spec 04 is installed, otherwise QAM.
 5. Desktop, Steam closed: pointer at a full deflection, A and RT click and drag, B and LT right-click, X middle-clicks, LB/RB scroll a long page, left stick produces wheel ticks and no pointer motion, stick centred for 10 s does not drift.
@@ -468,9 +481,9 @@ Decisions stay as spec 01 wrote them.
 1. At v0.84.0, `ds5-edge` turns `QuickAccess` into a Guide+South chord. D1's fallback condition is true in the source. The press test still decides what Steam shows. The target line stays `ds5-edge` until that test.
 2. `mouse.wheel` is missing from the published schema and implemented for button sources. Axis → `mouse.wheel` is `NotImplemented`. The stick uses `mouse.button` `Wheel*`. The bumpers keep `mouse.wheel`.
 3. Axis → button holds `Bool(true)` while past the threshold. Edge detection is a TODO in `value.rs`. The device test checks tick repeat.
-4. `LoadProfilePath` always sends `SetTargetDevices` when the profile lists targets, and that D-Bus method stops and recreates virtual devices. The bridge skips the call when path and targets already match, so C4 holds even if the daemon does not compare the list.
+4. The D-Bus comment says `SetTargetDevices` stops and recreates every virtual device. `set_devices` at `117cb04` keeps types that are already running, stops types the new list omits, and creates types that are missing. Every load also clears target state. The helper skips when `ProfileName` matches and each required `DeviceType` is live. `TargetDevices` is object paths, so it is not compared to the YAML type list.
 5. Chord events are spaced 80 ms. Guide then West, and Super then Ctrl then Y, both use that path. The device test checks that the Hyprland bind and the Steam OSK still fire.
-6. Polkit for `LoadProfilePath` and `SetInterceptMode` is `auth_admin` for the active session. The shipped group rule is wider than this session needs (`Stop`, `SendEvent`). A narrow active-session rule ships with the companion. No `NOPASSWD` sudo.
-7. The oneshot loads every `CompositeDevice*`. The bridge must select the Ally object.
+6. The session gets no polkit for `LoadProfilePath` or `SetInterceptMode`. Both go through the root helper, which allowlists the profile name and accepts intercept values `0` and `2` only. The session rule is on our actions, YES for the installed handheld user when the session is active and local, and NO for `sddm`. The greeter load is the root unit, not that rule. No `NOPASSWD` sudo, and no YES rule for `org.shadowblip.Input*`.
+7. #48's pointer loader hardcodes `CompositeDevice0`. The gaming oneshot loads every `CompositeDevice*`. The helper replaces both: name `ASUS ROG Ally`, confirmed with vendor `0b05` product `1abe`.
 8. The capability-map path comment in `path.rs` disagrees with the vector. `/etc` wins for the same id because the `HashMap` insert is later. Do not add an override on the strength of the comment.
 9. Arch's `GPL-3.0-only` and upstream's `GPL-3.0-or-later` disagree. Report both. Do not copy upstream YAML into this tree.
