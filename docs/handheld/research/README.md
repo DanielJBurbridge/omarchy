@@ -1,6 +1,6 @@
 # Handheld research
 
-Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md`, `parity-gaps-ranked.md`, `touch-desktop-and-stick-mouse.md`, `inputplumber-profiles-brief.md`, `brief-speaker-dsp.md`, `brief-power-button.md` and `brief-tdp-limits.md` are dated 16 Nov 2026.
+Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (RC71L). The notes through `ally-hw-dump.md` are dated 12 Nov 2026 (AWST). `touch-first-boot.md`, `prior-art.md`, `feature-parity-audit.md`, `parity-gaps-ranked.md`, `touch-desktop-and-stick-mouse.md`, `inputplumber-profiles-brief.md`, `brief-speaker-dsp.md`, `brief-power-button.md`, `brief-tdp-limits.md` and `build-tdp-slider.md` are dated 16 Nov 2026.
 
 **An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
@@ -22,6 +22,7 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 - [`inputplumber-profiles-brief.md`](inputplumber-profiles-brief.md) — Implementation brief for the RC71L profiles in [spec 01](../01-controller-button-map.md): the upstream composite device, the `gaming`, `desktop` and `osk` YAML against the InputPlumber 0.84 schema, D-Bus profile loads, and the licence split. OQ-1, OQ-2 and OQ-17 stay TBC.
 - [`brief-power-button.md`](brief-power-button.md) — Implementation brief for ranked gap 3: the RC71L power button in the gamescope session. Short press suspends, a one-second hold opens Steam's power menu, and the desktop path stays lock-then-suspend until K07. Names the upstream files to vendor and the core-fit split.
 - [`brief-tdp-limits.md`](brief-tdp-limits.md) — Implementation brief for ranked gap 1: RC71L PPT limits, the session-bus shim Steam's TDP slider talks to, and the resume and AC reapply. Stock steamos-manager stays out. Reuse the MIT interface and write. Backlog #10 and #11.
+- [`build-tdp-slider.md`](build-tdp-slider.md) — Build brief for dev-blue, ranked gap 1. Compares the TDP code at pinned commits, then names the opt-in package, the bash writer and the session shim. Battery 25 applies 20/20/25 and AC 30 applies 30/43/53. Follow-ups L170–L179.
 - [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and a 10-line recommended Omarchy stack, with the steamos-manager caveat above.
 - [`distros.md`](distros.md) — How Bazzite, CachyOS Handheld, SteamOS, ChimeraOS and Nobara install, boot into gaming mode, switch to the desktop and handle docking, plus what Omarchy can reuse and under which licence.
 - [`accessibility.md`](accessibility.md) — Handheld accessibility findings for a gamescope + Steam gaming mode and the Hyprland desktop.
