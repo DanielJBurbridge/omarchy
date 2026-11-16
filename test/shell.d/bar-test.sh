@@ -515,12 +515,31 @@ assertEqual(
 )
 
 const dropped = { version: 1, bar: { layout: { right: [{ id: 'daniel.media' }] } } }
-bar.pinHandheldTouch(dropped)
+const droppedBefore = JSON.stringify(dropped)
+const pinned = bar.pinHandheldTouch(dropped)
+assert(JSON.stringify(dropped) === droppedBefore, 'pinning does not change the config it was given')
 for (const id of ['omarchy.bluetooth', 'omarchy.network', 'omarchy.desktop-keyboard'])
-  assert(dropped.bar.layout.right.some((entry) => entry.id === id), `a dropped handheld bar still has ${id}`)
+  assert(pinned.bar.layout.right.some((entry) => entry.id === id), `a dropped handheld bar still has ${id}`)
 const disabled = { version: 1, disabledPlugins: ['omarchy.network'], bar: { layout: { right: [] } } }
-bar.pinHandheldTouch(disabled)
-assert(!disabled.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'an explicitly disabled network widget stays off the handheld bar')
+const pinnedDisabled = bar.pinHandheldTouch(disabled)
+assert(!pinnedDisabled.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'an explicitly disabled network widget stays off the handheld bar')
+const userText = '{\n  "version": 1,\n  "bar": {\n    "layout": {\n      "right": [\n        {\n          "id": "daniel.media"\n        }\n      ]\n    }\n  }\n}\n'
+const userFile = path.join(fs.mkdtempSync(path.join('/tmp', 'omarchy-shell-pin-')), 'shell.json')
+fs.writeFileSync(userFile, userText)
+const userBytes = fs.readFileSync(userFile)
+const stored = JSON.parse(userBytes.toString())
+const live = bar.pinHandheldTouch(stored)
+const forDisk = bar.shellConfigForDisk(live, stored)
+assert(JSON.stringify(forDisk) === JSON.stringify(stored), 'a pinned bar writes back as the stored config')
+assert(fs.readFileSync(userFile).equals(userBytes), 'pinning leaves ~/.config/omarchy/shell.json byte-identical')
+const edited = bar.pinHandheldTouch(stored)
+edited.bar.position = 'bottom'
+const saved = bar.shellConfigForDisk(edited, stored)
+assert(saved.bar.position === 'bottom', 'a real bar edit is still saved')
+assert(!saved.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'a real bar edit does not store the runtime pin')
+const kept = { version: 1, bar: { layout: { right: [{ id: 'omarchy.network' }] } } }
+const keptDisk = bar.shellConfigForDisk(bar.pinHandheldTouch(kept), kept)
+assert(keptDisk.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'a network widget the user already has is kept')
 assert(bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally RC71L_RC71L', 'other'), 'the Ally product prefix is the handheld')
 assert(!bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally X RC72LA', 'RC72LA'), 'the Ally X is not this handheld')
 JS
