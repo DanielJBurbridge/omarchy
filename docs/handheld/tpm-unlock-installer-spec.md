@@ -2,7 +2,7 @@
 
 Status: draft, 16 November 2026. Owner: dev-ux for the screen. The default is Daniel's choice, as reported by dev-lead (question card). Device: ROG Ally RC71L. No implementation in this change. The screen copy started as the dev-ux pass of 16 November 2026 and was rewritten where that pass understated what PCR 7 protects. The procedure an owner runs on a machine that is already installed is [tpm-unlock.md](tpm-unlock.md).
 
-This supersedes spec 03 D9 and spec 09 D9. Those decisions said handheld encryption stays off. That premise was wrong: the checked RC71L was already LUKS2. A handheld install keeps the disk encrypted. The default unlock is the TPM2, bound to PCR 7, with no PIN. The recovery passphrase is mandatory and stays in a passphrase slot. Daniel also asked for both auto-unlock and TPM2+PIN to be offered. The PIN card is L62.
+This supersedes spec 03 D9 and spec 09 D9. Those decisions said handheld encryption stays off. That premise was wrong: the checked RC71L was already LUKS2. A handheld install keeps the disk encrypted. The default unlock is the TPM2, bound to PCR 7, with no PIN. The recovery passphrase is mandatory and stays in a passphrase slot. Daniel also asked for both auto-unlock and TPM2+PIN to be offered. The PIN card is L68.
 
 ## 0. Decisions
 
@@ -10,7 +10,7 @@ This supersedes spec 03 D9 and spec 09 D9. Those decisions said handheld encrypt
 |---|---|---|
 | D1 | Handheld default is "Unlock automatically": TPM2, PCR 7, no PIN. The recovery passphrase is mandatory on every choice. With Secure Boot off, this protects a drive removed from the handheld. It does not protect the handheld at rest. | Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered |
 | D2 | "Passphrase every boot" stays available. It warns, before the user commits, that a USB or 2.4 GHz keyboard is required at every boot. | dev-ux screen |
-| D3 | "Security chip + PIN" is on the screen, greyed, and not selectable. It is a build item ([L62](alpha-followups.md)), not a choice that stays grey forever. The card appears when the boot keypad can take a numeric PIN from the touchscreen or the pad. | dev-ux screen; Daniel, 16 Nov 2026 |
+| D3 | "Security chip + PIN" is on the screen, greyed, and not selectable. It is a build item ([L68](alpha-followups.md)), not a choice that stays grey forever. The card appears when the boot keypad can take a numeric PIN from the touchscreen or the pad. | dev-ux screen; Daniel, 16 Nov 2026 |
 | D4 | PCR 7 alone. Not 0+7. Not 11. PCR 15, pcrlock and a signed PCR 11 policy are later hardening, not this default. | Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered. [tpm-unlock.md](tpm-unlock.md) |
 | D5 | The hook line is owned by the core install, gated by `omarchy-hw-rog-ally` and the handheld variant. It is not `omarchy-gaming-session`. A `zz-` drop-in is how the runbook wins on a machine that is already installed. It is not the long-term mechanism. | This spec, from the RC71L hook layout |
 
@@ -37,7 +37,7 @@ Pre-selected. It is the only keyboard-free choice today. The label "Recommended 
 
 Body: Powers straight on to your games, no typing. With Secure Boot off, anyone holding the handheld can read every file on it. The desktop lock and your password don't stop that. Only a drive removed from the handheld stays protected. If automatic unlock fails, you'll need a USB or 2.4 GHz keyboard and the recovery passphrase. SSH can't help at that prompt.
 
-Small print: Automatic unlock stops when Secure Boot is toggled, when the Secure Boot keys change (PK, KEK, db, dbx, including a fwupd or LVFS dbx update), when a BIOS update changes those certificates, when the BIOS is reset, when the TPM is cleared, or when an AMD fTPM reset prompt after an AGESA or BIOS update is answered yes. That last one destroys the sealed key. A kernel or UKI rebuild does not, because this choice binds PCR 7 only. PCR 0+7 is not used: PCR 0 is the firmware code and changes on a BIOS update even when Secure Boot did not. PCR 11 is not used: this boot is a systemd-stub UKI, and a literal PCR 11 binding changes on every `limine-update`. Secure Boot is off on the RC71L this was read from. PCR 7 there does not measure the kernel, the initramfs, or an edited Limine command line. Limine's editor is on. Turning Secure Boot on is not part of this screen. It is [L63](alpha-followups.md). PCR 15 (`tpm2-measure-pcr=yes`), `systemd-pcrlock`, and a signed PCR 11 policy are the later binding for the volume-confusion attack. They are not this choice.
+Small print: Automatic unlock stops when Secure Boot is toggled, when the Secure Boot keys change (PK, KEK, db, dbx, including a fwupd or LVFS dbx update), when a BIOS update changes those certificates, when the BIOS is reset, when the TPM is cleared, or when an AMD fTPM reset prompt after an AGESA or BIOS update is answered yes. That last one destroys the sealed key. A kernel or UKI rebuild does not, because this choice binds PCR 7 only. PCR 0+7 is not used: PCR 0 is the firmware code and changes on a BIOS update even when Secure Boot did not. PCR 11 is not used: this boot is a systemd-stub UKI, and a literal PCR 11 binding changes on every `limine-update`. Secure Boot is off on the RC71L this was read from. PCR 7 there does not measure the kernel, the initramfs, or an edited Limine command line. Limine's editor is on. Turning Secure Boot on is not part of this screen. It is [L69](alpha-followups.md). PCR 15 (`tpm2-measure-pcr=yes`), `systemd-pcrlock`, and a signed PCR 11 policy are the later binding for the volume-confusion attack. They are not this choice.
 
 ### Passphrase every boot
 
@@ -53,7 +53,7 @@ Tag: Not available yet.
 
 Reason line, whenever the card is focused or tapped: The boot screen can't show an on-screen keypad yet. This option will appear in a later update.
 
-The card is greyed and focusable, so the reason can be read. A or a tap shows the reason and does not select it. The card is never hidden. Selecting it becomes possible only when L62's keypad is in the image. Both the automatic choice and this choice get built. The screen does not offer the PIN until the keypad works with no USB keyboard.
+The card is greyed and focusable, so the reason can be read. A or a tap shows the reason and does not select it. The card is never hidden. Selecting it becomes possible only when L68's keypad is in the image. Both the automatic choice and this choice get built. The screen does not offer the PIN until the keypad works with no USB keyboard.
 
 Footer: Back (B) and Continue (A). Continue is enabled once an option is selected. One option is pre-selected, so Continue starts enabled.
 
@@ -118,7 +118,7 @@ The ISO stages its key and keeps the busybox line. First boot uses `cryptkey=roo
 
 `luks_rekey_retire` (`install/provisioning/luks-rekey.sh`) runs `luksKillSlot` on every keyslot except the owner's. `luks_dump_slots` lists a `systemd-tpm2` keyslot as an ordinary `luks2` slot. `luks_rekey_verify` fails unless the owner slot is the only one left. Enrolling on the ISO, or before rekey reaches `done`, deletes the TPM slot or never finishes. A second passphrase set beside the W1 password is deleted the same way. An ISO-time enrolment would also measure the ISO's PCR 7, which matches the installed boot only while Secure Boot is off.
 
-This change does not patch `luks-rekey.sh`. Until [L64](alpha-followups.md) lands, no installer ships TPM unlock. L64 is blocking. The order, once the rekey keeps a `systemd-tpm2` token and the recovery slot, is:
+This change does not patch `luks-rekey.sh`. Until [L70](alpha-followups.md) lands, no installer ships TPM unlock. L70 is blocking. The order, once the rekey keeps a `systemd-tpm2` token and the recovery slot, is:
 
 1. W1 sets the disk passphrase. That passphrase is the recovery passphrase. "Generate one for me" is this secret.
 2. Rekey reaches `done` and verify passes. The busybox line is still in place.
@@ -143,7 +143,7 @@ systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 <luks-device>
 
 Then `systemd-cryptenroll` with no enrolment flag, and `cryptsetup luksDump`. A `password` row and a `tpm2` row, and a `systemd-tpm2` token. Missing password row: do not reboot; treat it as a failed install of this choice. Take the header backup before this enrolment. The snapper snapshot does not cover the header.
 
-PIN enrolment (`--tpm2-with-pin=yes`) is not run until L62. When it is run, it is the same command plus that flag, and the image also contains `sd-unl0kr` and `MODULES+=(i2c-hid i2c-hid-acpi hid-multitouch)`.
+PIN enrolment (`--tpm2-with-pin=yes`) is not run until L68. When it is run, it is the same command plus that flag, and the image also contains `sd-unl0kr` and `MODULES+=(i2c-hid i2c-hid-acpi hid-multitouch)`.
 
 ## 7. Failure
 
@@ -170,4 +170,4 @@ On an Ally, no keyboard attached, unless the row says otherwise.
 
 ## 9. Not in this change
 
-The Plymouth strings, the toast, the hook branch in `00-omarchy-hooks.conf`, the PIN keypad, Secure Boot (L63), and the rekey change (L64). L62 is the keypad. No installer ships TPM enrolment until L64 keeps a `systemd-tpm2` token and the recovery slot. The runbook is the manual path for a machine that is already past provisioning.
+The Plymouth strings, the toast, the hook branch in `00-omarchy-hooks.conf`, the PIN keypad, Secure Boot (L69), and the rekey change (L70). L68 is the keypad. No installer ships TPM enrolment until L70 keeps a `systemd-tpm2` token and the recovery slot. The runbook is the manual path for a machine that is already past provisioning.

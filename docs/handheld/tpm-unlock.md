@@ -10,7 +10,7 @@ Two choices:
 |---|---|---|
 | Enrolment | `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7` | The same command, plus `--tpm2-with-pin=yes` |
 | What you type at each later boot | Nothing, when PCR 7 matches | A PIN |
-| Keyboard-free on this Ally today | Yes, after the first reboot has been proven with a keyboard nearby | No. The PIN prompt is Plymouth, which has no keypad. Touch needs more work ([L62](alpha-followups.md)). The built-in pad does not type |
+| Keyboard-free on this Ally today | Yes, after the first reboot has been proven with a keyboard nearby | No. The PIN prompt is Plymouth, which has no keypad. Touch needs more work ([L68](alpha-followups.md)). The built-in pad does not type |
 
 Both choices keep the existing passphrase slot. Do not pass `--wipe-slot=password`.
 
@@ -336,7 +336,7 @@ sudo limine-update
 
 ## 8. Option 1. Enrol, no PIN
 
-Do not run this unless section 2's header file is still on the removable drive and non-empty. Do not run it while `/var/lib/omarchy/provisioning/luks-rekey.state` exists. `luks_rekey_retire` in `install/provisioning/luks-rekey.sh` kills every keyslot except the recorded owner slot, and `luks_dump_slots` lists a `systemd-tpm2` slot as an ordinary `luks2` slot. A rekey that runs after this enrolment deletes the TPM slot, and `luks_rekey_verify` fails while any other slot remains. Finish provisioning first, or leave this machine unenrolled. That gap is [L64](alpha-followups.md). It blocks the installer. It is already the reason this runbook refuses an open rekey journal.
+Do not run this unless section 2's header file is still on the removable drive and non-empty. Do not run it while `/var/lib/omarchy/provisioning/luks-rekey.state` exists. `luks_rekey_retire` in `install/provisioning/luks-rekey.sh` kills every keyslot except the recorded owner slot, and `luks_dump_slots` lists a `systemd-tpm2` slot as an ordinary `luks2` slot. A rekey that runs after this enrolment deletes the TPM slot, and `luks_rekey_verify` fails while any other slot remains. Finish provisioning first, or leave this machine unenrolled. That gap is [L70](alpha-followups.md). It blocks the installer. It is already the reason this runbook refuses an open rekey journal.
 
 The command asks for the existing passphrase. Type it. Do not put it on the command line, in the shell history, or in a file.
 
@@ -356,7 +356,7 @@ Same hooks, same cmdline, same PCR. The PIN is a second secret mixed into the TP
 
 Not keyboard-free today. At boot, `systemd-cryptsetup` asks for the PIN through `systemd-ask-password`. The agents in this initramfs are Plymouth and the console agent. Plymouth's `omarchy` theme draws bullets (`display_password_callback` in `default/plymouth/omarchy.script`) and has no keypad. A USB or 2.4 GHz keyboard can type the PIN. The touchscreen and the pad cannot.
 
-What is missing, and who builds it, is [L62](alpha-followups.md):
+What is missing, and who builds it, is [L68](alpha-followups.md):
 
 - Touch needs the `sd-unl0kr` hook from AUR `buffybox` (GPL-3.0-or-later; upstream [buffybox](https://gitlab.postmarketos.org/postmarketOS/buffybox), [AUR buffybox](https://aur.archlinux.org/packages/buffybox)). That hook is a systemd password agent, so it can answer this PIN prompt. The UKI on this Ally contains `hid-multitouch` and does not contain the I2C HID transport, and the panel is `hid-multitouch` on `i2c_hid_acpi`. The modules to add with the hook are `MODULES+=(i2c-hid i2c-hid-acpi hid-multitouch)`. `buffybox` is not installed by this runbook. Spec 03 has not accepted it for disk unlock.
 - `osk-sdl` is not a path. It was removed from the AUR in 2025. postmarketOS moved off it ([Osk-sdl](https://wiki.postmarketos.org/wiki/Osk-sdl)).
@@ -490,7 +490,7 @@ With Secure Boot off, anyone holding the handheld can read every file on it. The
 - Limine's editor is on. A USB keyboard during the 1 second menu can change the entry. With Secure Boot off, systemd-stub honours a command line the loader passes. PCR 7 does not measure that command line, so the TPM still unseals. `init=/bin/bash` or `rd.systemd.debug_shell` is a root shell on the unlocked disk.
 - PCR 7 has the same value for any boot chain while Secure Boot stays off. Booting another Linux from USB and unlocking with `systemd-cryptsetup` and `tpm2-device=auto`, or `cryptsetup open` with the token, unseals the key and opens the raw disk.
 
-Pulling the drive and fitting it in another machine does not: the key is sealed to this chip. That is the whole of what option 1 protects. Option 2 still asks for a PIN when the person holding the device is not you. It is not available without a keyboard until L62.
+Pulling the drive and fitting it in another machine does not: the key is sealed to this chip. That is the whole of what option 1 protects. Option 2 still asks for a PIN when the person holding the device is not you. It is not available without a keyboard until L68.
 
 These attacks still apply with Secure Boot on and a binding of PCR 7 alone:
 
@@ -504,7 +504,7 @@ Do not delete that slot to "finish" the enrolment.
 
 ## Optional hardening, not the default
 
-Daniel's choice for the handheld is no input at boot. Nothing in this section is turned on by the steps above. Secure Boot on the handheld path is [L63](alpha-followups.md), and it is not done here.
+Daniel's choice for the handheld is no input at boot. Nothing in this section is turned on by the steps above. Secure Boot on the handheld path is [L69](alpha-followups.md), and it is not done here.
 
 When that work lands, the order is: create keys with `sbctl`, or enrol through Limine's own Secure Boot path; sign Limine and the UKI; set `editor_enabled: no` and enrol a hash of the Limine config (`limine enroll-config`) so the menu cannot be edited and a changed config does not boot; then re-enrol PCR 7, because turning Secure Boot on changes that register. The passphrase slot stays.
 

@@ -6,6 +6,11 @@ version: 1
 kind: DeviceProfile
 name: Omarchy Ally pointer
 description: Left stick moves the pointer and the south button clicks. Loaded before the greeter. Whether the greeter actually moves is unverified on device.
+# xbox-elite stays in the target list. A mouse-only list is what hid the built-in pad from Steam.
+target_devices:
+  - xbox-elite
+  - mouse
+  - keyboard
 mapping:
   - name: Left stick horizontal
     source_event:

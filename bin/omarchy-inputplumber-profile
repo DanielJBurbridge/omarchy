@@ -1,0 +1,778 @@
+#!/usr/bin/python3
+# omarchy:hidden=true
+# omarchy:summary=Load an allowlisted InputPlumber profile on the ROG Ally
+# omarchy:args=load <name> | intercept <0|2> | install-greeter | install-service | remove-service | serve
+"""Switch InputPlumber profiles on the RC71L.
+
+One root program talks to InputPlumber. The session never receives polkit for
+LoadProfilePath, LoadProfileFromYaml, SetTargetDevices or SetInterceptMode, and
+it never passes a path. A name is an exact allowlist key. The file opened is
+that key's filename, under the root-owned profile directory, with O_NOFOLLOW
+on every component. The bytes are what LoadProfileFromYaml receives.
+
+A composite that has just been created reports ProfileName "Default" from the
+packaged default.yaml. That is not one of our profiles. The load is skipped
+only when ProfileName equals the allowlisted file's own name and each required
+target type is still live. Any other non-empty name, including Default, is
+loaded again.
+
+The greeter oneshot and the crash-loop path call this program as root. The
+session calls the system service, which checks our own polkit actions. There
+is no pkexec and no sudoers grant.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+PREFIX = "/usr/share/omarchy/default/inputplumber/profiles"
+INSTALL_ROOT = Path("/")
+MAX_PROFILE_BYTES = 512 * 1024
+POINTER_ATTEMPTS = 40
+POINTER_INTERVAL = 0.25
+
+# RC71L is 0b05:1abe. Ally X is 1b4c and is not this profile set.
+ALLY_NAME = "ASUS ROG Ally"
+ALLY_VENDOR = "0b05"
+ALLY_PRODUCT = "1abe"
+
+IP_BUS = "org.shadowblip.InputPlumber"
+COMPOSITE_IFACE = "org.shadowblip.Input.CompositeDevice"
+TARGET_IFACE = "org.shadowblip.Input.Target"
+HIDRAW_IFACE = "org.shadowblip.Input.Source.HIDRawDevice"
+EVDEV_IFACE = "org.shadowblip.Input.Source.EventDevice"
+
+BUS_NAME = "org.omarchy.InputPlumberProfile"
+OBJECT_PATH = "/org/omarchy/InputPlumberProfile"
+OUR_IFACE = "org.omarchy.InputPlumberProfile"
+LOAD_ACTION = "org.omarchy.inputplumber-profile.load"
+INTERCEPT_ACTION = "org.omarchy.inputplumber-profile.intercept"
+
+ALLOWLIST = {
+  "pointer": "omarchy-ally-pointer.yaml",
+  "desktop": "desktop.yaml",
+  "osk": "osk.yaml",
+  "gamepad": "gamepad.yaml",
+  "gaming": "gaming.yaml",
+  "dualsense": "dualsense.yaml",
+}
+
+USER_RE = re.compile(r"^[a-z_][a-z0-9_-]*[$]?$")
+COMPOSITE_RE = re.compile(r"/org/shadowblip/InputPlumber/CompositeDevice[0-9]+(?![0-9/])")
+SOURCE_RE = re.compile(r"/org/shadowblip/InputPlumber/devices/source/[^/\s]+")
+SENDER_RE = re.compile(r"^:[0-9]+\.[0-9]+$")
+
+INTROSPECTION = """
+<node>
+  <interface name="org.omarchy.InputPlumberProfile">
+    <method name="Load">
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <method name="SetIntercept">
+      <arg name="mode" type="u" direction="in"/>
+    </method>
+  </interface>
+</node>
+"""
+
+
+class ProfileError(Exception):
+  pass
+
+
+class BusError(Exception):
+  pass
+
+
+def package_root() -> Path:
+  # Pacman installs this file in /usr/bin and points
+  # /usr/share/omarchy/bin at it, so the script path is not the tree
+  # that holds default/. A checkout sets OMARCHY_PATH to its own root.
+  return Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
+
+
+def ally() -> bool:
+  proc = subprocess.run(["omarchy-hw-rog-ally"], check=False)
+  return proc.returncode == 0
+
+
+def gaming_session_installed() -> bool:
+  proc = subprocess.run(["omarchy-pkg-present", "omarchy-gaming-session"], check=False)
+  return proc.returncode == 0
+
+
+def pause(seconds: float) -> None:
+  time.sleep(seconds)
+
+
+def run_busctl(args: list[str]) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(["busctl", *args], check=False, capture_output=True, text=True)
+
+
+def run_systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(["systemctl", *args], check=False, capture_output=True, text=True)
+
+
+def run_pkcheck(args: list[str]) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(["pkcheck", *args], check=False, capture_output=True, text=True)
+
+
+def filename_for(name: str) -> str:
+  # Exact table key. Never join the caller's string onto the prefix.
+  if name not in ALLOWLIST:
+    raise ProfileError(f"unknown profile {name!r}")
+  filename = ALLOWLIST[name]
+  if "/" in filename or filename in {".", ".."} or filename.startswith("."):
+    raise ProfileError("profile filename is not a single path component")
+  return filename
+
+
+def unquote(value: str) -> str:
+  value = value.strip()
+  if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+    return value[1:-1]
+  return value
+
+
+def profile_meta(text: str) -> tuple[str, list[str] | None]:
+  """Return the top-level name and target_devices.
+
+  target_devices is None when the key is absent. An empty list means the
+  key is present and names nothing. Every shipped profile names a gamepad.
+  """
+  name = None
+  targets: list[str] | None = None
+  lines = text.splitlines()
+  index = 0
+  while index < len(lines):
+    line = lines[index]
+    if name is None and line.startswith("name:"):
+      name = unquote(line.split(":", 1)[1])
+      index += 1
+      continue
+    if line.startswith("target_devices:"):
+      targets = []
+      index += 1
+      while index < len(lines):
+        item = lines[index]
+        stripped = item.strip()
+        if stripped == "" or stripped.startswith("#"):
+          index += 1
+          continue
+        if item[:1] in {" ", "\t"} and stripped.startswith("- "):
+          targets.append(unquote(stripped[2:]))
+          index += 1
+          continue
+        break
+      continue
+    index += 1
+  if not name:
+    raise ProfileError("profile has no name")
+  return name, targets
+
+
+def _open_directory(path: str) -> int:
+  if not path.startswith("/"):
+    raise ProfileError("profile directory is not absolute")
+  fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+  try:
+    for part in path.strip("/").split("/"):
+      if part in {"", ".", ".."}:
+        raise ProfileError("profile directory is not a fixed path")
+      try:
+        nxt = os.open(part, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=fd)
+      except OSError as exc:
+        raise ProfileError(f"refusing to follow a symlink or missing directory at {part}") from exc
+      os.close(fd)
+      fd = nxt
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o755:
+      raise ProfileError("profile directory is not root-owned mode 0755")
+    return fd
+  except Exception:
+    os.close(fd)
+    raise
+
+
+def read_profile(prefix: str, filename: str) -> str:
+  """Read a regular root-owned profile without following a symlink."""
+  if "/" in filename or filename in {"", ".", ".."}:
+    raise ProfileError("profile filename is not a single path component")
+  directory = _open_directory(prefix)
+  try:
+    try:
+      fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory)
+    except OSError as exc:
+      raise ProfileError(f"refusing to open {filename}") from exc
+    try:
+      info = os.fstat(fd)
+      mode = stat.S_IMODE(info.st_mode)
+      if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or mode != 0o644:
+        raise ProfileError(f"{filename} is not a root-owned mode 0644 file")
+      if info.st_size >= MAX_PROFILE_BYTES:
+        raise ProfileError(f"{filename} is larger than {MAX_PROFILE_BYTES} bytes")
+      data = os.read(fd, info.st_size)
+    finally:
+      os.close(fd)
+  finally:
+    os.close(directory)
+  try:
+    return data.decode("utf-8")
+  except UnicodeError as exc:
+    raise ProfileError(f"{filename} is not utf-8") from exc
+
+
+def parse_bus_string(output: str) -> str:
+  line = output.strip()
+  if not line.startswith("s "):
+    raise BusError(f"expected a string property, got {line!r}")
+  raw = line[2:].strip()
+  if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+    return raw[1:-1]
+  return raw
+
+
+def parse_bus_strings(output: str) -> list[str]:
+  line = " ".join(output.split())
+  match = re.match(r"as\s+(\d+)\s*(.*)$", line)
+  if not match:
+    raise BusError(f"expected a string array, got {output!r}")
+  count = int(match.group(1))
+  items = re.findall(r'"([^"]*)"', match.group(2))
+  if len(items) != count:
+    raise BusError(f"string array length {count} does not match {len(items)} values")
+  return items
+
+
+def bus_property(path: str, interface: str, prop: str) -> str | None:
+  proc = run_busctl(["get-property", IP_BUS, path, interface, prop])
+  if proc.returncode != 0:
+    return None
+  try:
+    return parse_bus_string(proc.stdout)
+  except BusError:
+    return None
+
+
+def bus_paths(path: str, prop: str) -> list[str] | None:
+  proc = run_busctl(["get-property", IP_BUS, path, COMPOSITE_IFACE, prop])
+  if proc.returncode != 0:
+    return None
+  try:
+    return parse_bus_strings(proc.stdout)
+  except BusError:
+    return None
+
+
+def source_identity(path: str) -> tuple[str, str, str] | None:
+  """Map one source object to (devnode, vendor, product).
+
+  SourceDevicePaths are devnodes. IdVendor and IdProduct live on the source
+  object, formatted as four lowercase hex digits with no 0x prefix.
+  """
+  devnode = bus_property(path, HIDRAW_IFACE, "DevPath")
+  interface = HIDRAW_IFACE
+  if devnode is None:
+    devnode = bus_property(path, EVDEV_IFACE, "DevicePath")
+    interface = EVDEV_IFACE
+  if not devnode:
+    return None
+  vendor = bus_property(path, interface, "IdVendor")
+  product = bus_property(path, interface, "IdProduct")
+  if vendor is None or product is None:
+    return None
+  return devnode, vendor, product
+
+
+def ally_composites() -> list[str] | None:
+  """Return the composites named ASUS ROG Ally with at least one 1abe source.
+
+  None means the daemon could not be asked. An empty list means it answered
+  and nothing matched. More than one match is returned as-is so the caller
+  refuses to load.
+  """
+  proc = run_busctl(["tree", IP_BUS])
+  if proc.returncode != 0:
+    return None
+  tree = proc.stdout
+  identities: dict[str, tuple[str, str]] = {}
+  for source in SOURCE_RE.findall(tree):
+    identity = source_identity(source)
+    if identity is None:
+      continue
+    devnode, vendor, product = identity
+    identities.setdefault(devnode, (vendor, product))
+  matches: list[str] = []
+  seen: set[str] = set()
+  for composite in COMPOSITE_RE.findall(tree):
+    if composite in seen:
+      continue
+    seen.add(composite)
+    if bus_property(composite, COMPOSITE_IFACE, "Name") != ALLY_NAME:
+      continue
+    devnodes = bus_paths(composite, "SourceDevicePaths")
+    if not devnodes:
+      continue
+    if any(identities.get(devnode) == (ALLY_VENDOR, ALLY_PRODUCT) for devnode in devnodes):
+      matches.append(composite)
+  return matches
+
+
+def live_types(composite: str) -> list[str] | None:
+  paths = bus_paths(composite, "TargetDevices")
+  if paths is None:
+    return None
+  kinds: list[str] = []
+  for path in paths:
+    kind = bus_property(path, TARGET_IFACE, "DeviceType")
+    if kind:
+      kinds.append(kind)
+  return kinds
+
+
+def already_loaded(composite: str, profile_name: str, targets: list[str] | None) -> bool:
+  # ProfileName "Default" is the stock profile. It is not ours, and neither
+  # is any other non-empty name that does not equal this file.
+  current = bus_property(composite, COMPOSITE_IFACE, "ProfileName")
+  if current != profile_name:
+    return False
+  kinds = live_types(composite)
+  if kinds is None:
+    return False
+  if targets is None:
+    return len(kinds) > 0
+  return all(kind in kinds for kind in targets)
+
+
+def select_composite(wait: bool) -> tuple[str | None, bool]:
+  """Return (path, refused). refused is true only when more than one Ally matches."""
+  attempts = POINTER_ATTEMPTS if wait else 1
+  for attempt in range(attempts):
+    matches = ally_composites()
+    if matches is None:
+      if wait and attempt + 1 < attempts:
+        pause(POINTER_INTERVAL)
+        continue
+      return None, False
+    if len(matches) == 1:
+      return matches[0], False
+    if len(matches) > 1:
+      print("omarchy-inputplumber-profile: refusing to load; more than one ASUS ROG Ally composite", file=sys.stderr)
+      return None, True
+    if wait and attempt + 1 < attempts:
+      pause(POINTER_INTERVAL)
+  if wait:
+    print("omarchy-inputplumber-profile: no RC71L composite; not loading", file=sys.stderr)
+  return None, False
+
+
+def load(name: str, wait: bool = False) -> int:
+  if not ally():
+    return 0
+  try:
+    filename = filename_for(name)
+  except ProfileError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 1
+  try:
+    yaml = read_profile(PREFIX, filename)
+    profile_name, targets = profile_meta(yaml)
+  except ProfileError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 0 if wait else 1
+  composite, refused = select_composite(wait)
+  if composite is None:
+    # The greeter must not block on a missing daemon. More than one Ally is
+    # a hard refusal for every caller except that greeter wait.
+    if refused and not wait:
+      return 1
+    return 0
+  if already_loaded(composite, profile_name, targets):
+    print(f"omarchy-inputplumber-profile: {name} already loaded", file=sys.stderr)
+    return 0
+  proc = run_busctl(["call", IP_BUS, composite, COMPOSITE_IFACE, "LoadProfileFromYaml", "s", yaml])
+  if proc.returncode != 0:
+    detail = (proc.stderr or proc.stdout or "").strip()
+    print(f"omarchy-inputplumber-profile: load failed: {detail}", file=sys.stderr)
+    return 0 if wait else 1
+  return 0
+
+
+def intercept(mode: int) -> int:
+  if not ally():
+    return 0
+  if mode not in {0, 2}:
+    print("omarchy-inputplumber-profile: intercept accepts only 0 and 2", file=sys.stderr)
+    return 1
+  composite, _refused = select_composite(False)
+  if composite is None:
+    print("omarchy-inputplumber-profile: no single RC71L composite", file=sys.stderr)
+    return 1
+  proc = run_busctl(["set-property", IP_BUS, composite, COMPOSITE_IFACE, "InterceptMode", "u", str(mode)])
+  if proc.returncode != 0:
+    detail = (proc.stderr or proc.stdout or "").strip()
+    print(f"omarchy-inputplumber-profile: intercept failed: {detail}", file=sys.stderr)
+    return 1
+  return 0
+
+
+def polkit_allowed(sender: str, action: str) -> bool:
+  if action not in {LOAD_ACTION, INTERCEPT_ACTION} or not SENDER_RE.match(sender):
+    return False
+  # No --allow-user-interaction: the rule is YES or the call is refused.
+  # A prompt would block the system service on a handheld that has no keyboard.
+  proc = run_pkcheck(["--action-id", action, "--system-bus-name", sender])
+  return proc.returncode == 0
+
+
+def handheld_user_from(path: Path) -> str | None:
+  if path.is_symlink():
+    return None
+  try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+  except OSError:
+    return None
+  try:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o022:
+      return None
+    text = os.read(fd, 4096).decode("utf-8", "replace")
+  finally:
+    os.close(fd)
+  user = None
+  for line in text.splitlines():
+    if line.startswith("User="):
+      user = line.split("=", 1)[1].strip()
+      break
+  if user is None or user == "sddm" or not USER_RE.match(user):
+    return None
+  return user
+
+
+def polkit_rule(user: str | None) -> str:
+  yes = ""
+  if user is not None and user != "sddm" and USER_RE.match(user):
+    yes = f"""
+  if (subject.active && subject.local && subject.user == "{user}") {{
+    return polkit.Result.YES;
+  }}
+"""
+  return f"""// Generated by omarchy-inputplumber-profile install.
+// YES only for the handheld user named in omarchy-handheld-user.conf, and
+// only while that session is active and local. sddm is never authorized.
+// This rule does not grant any org.shadowblip.Input* action.
+polkit.addRule(function(action, subject) {{
+  if (action.id != "{LOAD_ACTION}" &&
+      action.id != "{INTERCEPT_ACTION}") {{
+    return polkit.Result.NOT_HANDLED;
+  }}
+  if (subject.user == "sddm") {{
+    return polkit.Result.NO;
+  }}
+{yes}  return polkit.Result.NOT_HANDLED;
+}});
+"""
+
+
+def _write_bytes(dest: Path, data: bytes) -> None:
+  if dest.is_symlink():
+    raise ProfileError(f"refusing to write through a symlink at {dest}")
+  dest.parent.mkdir(parents=True, exist_ok=True)
+  os.chmod(dest.parent, 0o755)
+  temporary = dest.with_name(dest.name + ".tmp")
+  if temporary.is_symlink():
+    raise ProfileError(f"refusing to write through a symlink at {temporary}")
+  fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+  try:
+    os.write(fd, data)
+    os.fchmod(fd, 0o644)
+    if os.geteuid() == 0:
+      os.fchown(fd, 0, 0)
+  finally:
+    os.close(fd)
+  os.replace(temporary, dest)
+  os.chmod(dest, 0o644)
+  if os.geteuid() == 0:
+    os.chown(dest, 0, 0)
+
+
+def _copy(src: Path, dest: Path) -> None:
+  if not src.is_file() or src.is_symlink():
+    raise ProfileError(f"missing install source {src}")
+  _write_bytes(dest, src.read_bytes())
+
+
+def _unit_state(unit: str) -> str | None:
+  proc = run_systemctl(["is-enabled", unit])
+  state = (proc.stdout or "").strip()
+  if state in {"enabled", "alias", "linked", "indirect", "disabled", "masked", "static", "not-found"}:
+    return state
+  return None
+
+
+POINTER_UNIT = "omarchy-ally-pointer.service"
+SERVICE_UNIT = "omarchy-inputplumber-profile.service"
+SERVICE_FILES = (
+  "etc/systemd/system/omarchy-inputplumber-profile.service",
+  "usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf",
+  "usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy",
+  "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules",
+)
+
+
+def _null_mask(path: Path) -> bool:
+  if not path.is_symlink():
+    return False
+  try:
+    return os.path.realpath(path) == os.path.realpath("/dev/null")
+  except OSError:
+    return False
+
+
+def _leave_unit(path: Path, state: str | None) -> bool:
+  # systemctl mask is a symlink to /dev/null. Replacing it fails the
+  # migration on every later run, so a mask is left where it is.
+  if state == "masked" or _null_mask(path):
+    print(f"omarchy-inputplumber-profile: leaving masked unit {path} in place", file=sys.stderr)
+    return True
+  return False
+
+
+def _reload() -> bool:
+  reload = run_systemctl(["daemon-reload"])
+  if reload.returncode != 0:
+    print("omarchy-inputplumber-profile: daemon-reload failed", file=sys.stderr)
+    return False
+  run_busctl(["call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ReloadConfig"])
+  return True
+
+
+def _enable(unit: str) -> bool:
+  enabled = run_systemctl(["enable", unit])
+  if enabled.returncode != 0:
+    print("omarchy-inputplumber-profile: enable failed", file=sys.stderr)
+    return False
+  return True
+
+
+def install_greeter_into(dest: Path) -> int:
+  """Rewrite the greeter pointer unit under dest.
+
+  The caller has already decided this is an Ally. A disabled unit stays
+  disabled. A mask is left untouched. This does not install the profile
+  switch service.
+  """
+  root = package_root()
+  unit = dest / "etc/systemd/system" / POINTER_UNIT
+  try:
+    state = _unit_state(POINTER_UNIT)
+    if state is None:
+      print("omarchy-inputplumber-profile: cannot read the pointer unit state", file=sys.stderr)
+      return 1
+    enable = False
+    if not _leave_unit(unit, state):
+      enable = state in {"enabled", "alias", "linked", "indirect", "not-found"}
+      _copy(root / "default/systemd/system" / POINTER_UNIT, unit)
+  except ProfileError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 1
+  if not _reload():
+    return 1
+  if enable and not _enable(POINTER_UNIT):
+    return 1
+  return 0
+
+
+def install_service_into(dest: Path) -> int:
+  """Install the profile switch service, D-Bus policy and polkit rule.
+
+  The caller has already decided this is an Ally with the gaming session
+  package. The polkit rule names whatever handheld user is in the file at
+  this moment.
+  """
+  root = package_root()
+  unit = dest / "etc/systemd/system" / SERVICE_UNIT
+  try:
+    state = _unit_state(SERVICE_UNIT)
+    if state is None:
+      print("omarchy-inputplumber-profile: cannot read the profile service state", file=sys.stderr)
+      return 1
+    enable = False
+    if not _leave_unit(unit, state):
+      enable = state in {"enabled", "alias", "linked", "indirect", "not-found"}
+      _copy(root / "default/systemd/system" / SERVICE_UNIT, unit)
+    _copy(
+      root / "default/inputplumber/org.omarchy.InputPlumberProfile.conf",
+      dest / "usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf",
+    )
+    _copy(
+      root / "default/inputplumber/org.omarchy.inputplumber-profile.policy",
+      dest / "usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy",
+    )
+    user = handheld_user_from(dest / "etc/sddm.conf.d/omarchy-handheld-user.conf")
+    _write_bytes(
+      dest / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules",
+      polkit_rule(user).encode("utf-8"),
+    )
+  except ProfileError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 1
+  if not _reload():
+    return 1
+  if enable and not _enable(SERVICE_UNIT):
+    return 1
+  return 0
+
+
+def _unlink(path: Path) -> None:
+  if path.is_symlink() or path.exists():
+    path.unlink()
+
+
+def remove_service_into(dest: Path) -> int:
+  """Remove the profile switch service and its policy. The greeter unit stays."""
+  run_systemctl(["disable", "--now", SERVICE_UNIT])
+  try:
+    for rel in SERVICE_FILES:
+      _unlink(dest / rel)
+  except OSError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 1
+  if not _reload():
+    return 1
+  return 0
+
+
+def _root_or_exit() -> int | None:
+  if os.geteuid() != 0:
+    print("omarchy-inputplumber-profile: install must run as root", file=sys.stderr)
+    return 1
+  return None
+
+
+def install_greeter() -> int:
+  refused = _root_or_exit()
+  if refused is not None:
+    return refused
+  if not ally():
+    return 0
+  return install_greeter_into(INSTALL_ROOT)
+
+
+def install_service() -> int:
+  refused = _root_or_exit()
+  if refused is not None:
+    return refused
+  if not ally() or not gaming_session_installed():
+    return 0
+  return install_service_into(INSTALL_ROOT)
+
+
+def remove_service() -> int:
+  refused = _root_or_exit()
+  if refused is not None:
+    return refused
+  return remove_service_into(INSTALL_ROOT)
+
+
+def serve() -> int:
+  if os.geteuid() != 0:
+    print("omarchy-inputplumber-profile: serve must run as root", file=sys.stderr)
+    return 1
+  if not ally():
+    return 0
+  import signal
+
+  import gi
+
+  gi.require_version("Gio", "2.0")
+  from gi.repository import Gio, GLib
+
+  loop = GLib.MainLoop()
+  state = {"failed": False, "stopping": False}
+
+  def stop() -> bool:
+    state["stopping"] = True
+    loop.quit()
+    return GLib.SOURCE_REMOVE
+
+  def on_method_call(connection, sender, object_path, interface_name, method_name, parameters, invocation):
+    try:
+      if method_name == "Load":
+        (name,) = parameters.unpack()
+        action = LOAD_ACTION
+        if not isinstance(name, str):
+          invocation.return_dbus_error("org.freedesktop.DBus.Error.InvalidArgs", "name must be a string")
+          return
+        work = lambda: load(name, wait=False)
+      elif method_name == "SetIntercept":
+        (mode,) = parameters.unpack()
+        action = INTERCEPT_ACTION
+        if not isinstance(mode, int) or isinstance(mode, bool):
+          invocation.return_dbus_error("org.freedesktop.DBus.Error.InvalidArgs", "mode must be 0 or 2")
+          return
+        work = lambda: intercept(mode)
+      else:
+        invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method_name)
+        return
+      if not polkit_allowed(sender, action):
+        invocation.return_dbus_error("org.freedesktop.DBus.Error.AccessDenied", "not authorized")
+        return
+      if work() != 0:
+        invocation.return_dbus_error("org.omarchy.InputPlumberProfile.Error", f"{method_name} failed")
+        return
+      invocation.return_value(None)
+    except Exception as exc:
+      invocation.return_dbus_error("org.omarchy.InputPlumberProfile.Error", str(exc))
+
+  def on_bus_acquired(connection, name):
+    node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
+    connection.register_object(OBJECT_PATH, node.interfaces[0], on_method_call, None, None)
+
+  def on_name_lost(connection, name):
+    if not state["stopping"]:
+      state["failed"] = True
+      loop.quit()
+
+  GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
+  GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)
+  Gio.bus_own_name(
+    Gio.BusType.SYSTEM,
+    BUS_NAME,
+    Gio.BusNameOwnerFlags.NONE,
+    on_bus_acquired,
+    None,
+    on_name_lost,
+  )
+  loop.run()
+  return 1 if state["failed"] else 0
+
+
+def main(argv: list[str]) -> int:
+  if len(argv) == 2 and argv[1] == "install-greeter":
+    return install_greeter()
+  if len(argv) == 2 and argv[1] == "install-service":
+    return install_service()
+  if len(argv) == 2 and argv[1] == "remove-service":
+    return remove_service()
+  if len(argv) == 2 and argv[1] == "serve":
+    return serve()
+  if len(argv) == 3 and argv[1] == "load":
+    return load(argv[2], wait=argv[2] == "pointer")
+  if len(argv) == 3 and argv[1] == "intercept":
+    if argv[2] not in {"0", "2"}:
+      print("omarchy-inputplumber-profile: intercept accepts only 0 and 2", file=sys.stderr)
+      return 1
+    return intercept(int(argv[2]))
+  print("usage: omarchy-inputplumber-profile load <name> | intercept <0|2> | install-greeter | install-service | remove-service | serve", file=sys.stderr)
+  return 2
+
+
+if __name__ == "__main__":
+  sys.exit(main(sys.argv))

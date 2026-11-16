@@ -3,10 +3,11 @@ Description=Load the Ally stick pointer before the greeter
 After=inputplumber.service
 Before=display-manager.service
 ConditionPathExists=/usr/bin/inputplumber
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/omarchy-ally-pointer-load
+ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer
 
 [Install]
 WantedBy=graphical.target

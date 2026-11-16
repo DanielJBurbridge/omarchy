@@ -18,7 +18,7 @@ The order of work is the note's §10, best first. §11 is the RC71L package and 
 | D6 | Gaming OSK is Steam's. Command Centre long emits Guide+West, because Command Centre cannot be held. `steam://open/keyboard` is handled only while Steam is running. | Spec 01 §4, §7. Research §8 |
 | D7 | The password prompt is the shell service `omarchy.polkit`. `PolkitAgent.qml` takes exclusive keyboard focus and has no keyboard of its own, so wvkbd cannot type into it. The handheld path puts a keypad inside that dialog, or it keeps the prompt off the path with an `allow_active` rule for the active local session where that is safe. Turning `desktop-lock` off still needs an interactive password. | [PR #47](https://github.com/DanielJBurbridge/omarchy/pull/47). Spec 02 §7.4 |
 | D8 | Before K07, the lock does not appear unless a physical keyboard is attached (spec 02 D11). After K07 the keypad is drawn inside the lock, the way the iPad lock screen and Plasma's lock keyboard are. hyprlock is not that keypad. | Research §4, §9, §10.5 |
-| D9 | A handheld install encrypts the disk and unlocks it with TPM2 bound to PCR 7, no PIN. The recovery passphrase is mandatory and stays in a passphrase slot. "Passphrase every boot" stops at the Plymouth passphrase until a USB or 2.4 GHz keyboard. "Security chip + PIN" is L62, not this boot. The earlier decision said handheld encryption stays off. That premise was wrong: the checked RC71L was already LUKS2. With Secure Boot off, auto-unlock protects a drive removed from the handheld, not the handheld at rest. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md), [tpm-unlock.md](tpm-unlock.md). Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered |
+| D9 | A handheld install encrypts the disk and unlocks it with TPM2 bound to PCR 7, no PIN. The recovery passphrase is mandatory and stays in a passphrase slot. "Passphrase every boot" stops at the Plymouth passphrase until a USB or 2.4 GHz keyboard. "Security chip + PIN" is L68, not this boot. The earlier decision said handheld encryption stays off. That premise was wrong: the checked RC71L was already LUKS2. With Secure Boot off, auto-unlock protects a drive removed from the handheld, not the handheld at rest. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md), [tpm-unlock.md](tpm-unlock.md). Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered |
 | D10 | No system action is hold-only. Command Centre long and Armoury long are firmware events. Userspace does not time a hold of either button. | Spec 01 §4, D5 |
 | D11 | A TTY still asks for a password. The recovery path is SSH, if sshd was already enabled, or a USB keyboard. There is no touch getty. | ALPHA.md. Spec 02 §7.1 |
 | D12 | Do not use greetd, tuigreet, regreet, maliit, impala, iwgtk, HHD, makima, or stock steamos-manager for this goal. | Research §10.8 |
@@ -85,7 +85,7 @@ flowchart TD
 
 `manual/02-getting-started.md` says the installation defaults to full encryption, and that a Bluetooth keyboard cannot enter the passphrase. The Plymouth theme only paints bullets. The RC71L image uses the busybox `encrypt` hook, so a TPM token would not be read until the hooks and the cmdline change. That change is [tpm-unlock.md](tpm-unlock.md). The install screen that offers it is [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md).
 
-The keyboard-free boot is the handheld default: TPM2 bound to PCR 7, no PIN, recovery passphrase kept (D9). "Passphrase every boot" has to say that every later boot needs a USB or 2.4 GHz keyboard, before the user commits. A numeric PIN on a touch keypad is L62. unl0kr stays off this boot until that item lands. Research §7 records `bazzite-touch-unlock` as a third-party unl0kr layer, and this spec still does not put that package on the disk unlock.
+The keyboard-free boot is the handheld default: TPM2 bound to PCR 7, no PIN, recovery passphrase kept (D9). "Passphrase every boot" has to say that every later boot needs a USB or 2.4 GHz keyboard, before the user commits. A numeric PIN on a touch keypad is L68. unl0kr stays off this boot until that item lands. Research §7 records `bazzite-touch-unlock` as a third-party unl0kr layer, and this spec still does not put that package on the disk unlock.
 
 ### 2.2 Crash loop, by distro
 
@@ -105,7 +105,7 @@ The greeter is the recovery screen. On this branch it cannot submit by touch. SS
 | Where | What asks | Handling | Today |
 |---|---|---|---|
 | Limine, 1 s | A key opens the menu | Do nothing. The default entry boots | Yes |
-| Plymouth passphrase | LUKS passphrase, or the TPM PIN once L62 exists | TPM default skips it when PCR 7 matches. Otherwise a USB or 2.4 GHz keyboard (D9). Touch does not submit | Bullets only. No touch entry |
+| Plymouth passphrase | LUKS passphrase, or the TPM PIN once L68 exists | TPM default skips it when PCR 7 matches. Otherwise a USB or 2.4 GHz keyboard (D9). Touch does not submit | Bullets only. No touch entry |
 | SDDM happy path | Nothing | Autologin (D1, D4) | Yes, once apply has run with the gaming package installed and the stop file is absent |
 | Steam sign-in | Steam account | QR with the phone app, or Steam's keyboard (spec 03 W8). QR types nothing | Steam's UI. Not re-tested in this spec |
 | Steam Wi-Fi | Passphrase | Steam → Settings → Internet, then the network, then Connect. Steam's keyboard. The walkthrough is third-party, not a Valve manual (research §5). Whether the page writes a NetworkManager connection with no steamos-manager and with `wpa_supplicant` is spec 03 OQ-10, still unverified | Unverified. Do not ship steamos-manager |
@@ -134,7 +134,7 @@ One keyboard on screen (spec 07 D1). Research §8 is the Steam half. Research §
 | Lock | Keypad inside the lock (K07) | The lock draws it. Digits for a PIN, full keypad for a passphrase (research §9) | wvkbd over the lock. hyprlock, which has no PIN widget (research §4) |
 | Greeter | Qt Virtual Keyboard | `GreeterEnvironment` sets `QT_IM_MODULE=qtvirtualkeyboard` (PR #47). Touch types and submits. A stick-to-mouse profile is what lets the pad press a key, once InputPlumber is up before SDDM (research §6, §10.4). Whether the pointer moves in this greeter is unverified | The letter grid. `[General] InputMethod=`. kwin `--inputmethod` on `start-hyprland`. greetd |
 | First boot, tty1 | buffyboard | Spec 03, for a text field, stopped before SDDM | The installed desktop, the lock, the disk unlock |
-| Disk unlock | None on the TPM path | A USB or 2.4 GHz keyboard when PCR 7 does not unseal, or when the install chose a passphrase | unl0kr, until L62 |
+| Disk unlock | None on the TPM path | A USB or 2.4 GHz keyboard when PCR 7 does not unseal, or when the install chose a passphrase | unl0kr, until L68 |
 
 iPad pattern to copy, and only the behaviour (research §9): the keyboard follows the focused field, and the lock screen's keypad is part of the lock. Apple's software is not reusable. Plasma's `VirtualKeyboardLoader` is the same idea inside the lock, and a KDE bug records Steam's keyboard sitting under that lock, invisible (research §7). That is why D8 keeps the keypad inside the lock surface.
 
@@ -199,7 +199,7 @@ The alpha does not include these. They are filed in [alpha-followups.md](alpha-f
 | L37 | A keypad inside `omarchy.polkit`, or polkit prompts kept off the handheld path (D7). A gap for wvkbd is not that fix. |
 | L38 | InputPlumber as a system service, with an Omarchy-written stick-to-mouse map, before SDDM (research §10.4, §11). |
 | L39 | First-boot wizard and buffyboard (spec 03). |
-| L40 | Plymouth stays a physical keyboard when the TPM does not unseal, or when the install chose a passphrase. The handheld default is TPM2, PCR 7 (D9). The PIN keypad is L62. |
+| L40 | Plymouth stays a physical keyboard when the TPM does not unseal, or when the install chose a passphrase. The handheld default is TPM2, PCR 7 (D9). The PIN keypad is L68. |
 | L41 | `apply` must keep `User=` (D4). Today's rewrite omits it. |
 
 ## 9. Open questions
@@ -208,7 +208,7 @@ For dev-lead. Several are research §12, repeated here so this spec has one list
 
 | # | Question | Owner |
 |---|---|---|
-| OQ-1 | **Resolved.** Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered. Not a quote. Handheld default is TPM2 auto-unlock, PCR 7, recovery passphrase kept. The old premise that encryption stays off was wrong: the checked RC71L was already LUKS2. A Plymouth touch pad is not this default. The PIN keypad is L62. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md) |
+| OQ-1 | **Resolved.** Daniel's choice, as reported by dev-lead, 16 Nov 2026 (question card); Daniel also asked for both auto-unlock and TPM2+PIN to be offered. Not a quote. Handheld default is TPM2 auto-unlock, PCR 7, recovery passphrase kept. The old premise that encryption stays off was wrong: the checked RC71L was already LUKS2. A Plymouth touch pad is not this default. The PIN keypad is L68. | [tpm-unlock-installer-spec.md](tpm-unlock-installer-spec.md) |
 | OQ-2 | Steam → Settings → Internet on this Ally: does it list SSIDs and save a NetworkManager connection with `wpa_supplicant` and no steamos-manager? Spec 03 OQ-10. Research §12.1. | Hardware test |
 | OQ-3 | `xdg-open steam://open/keyboard` from Hyprland, Steam running, no physical keyboard: does a window appear, and can a finger type into a GTK passphrase? Research §12.3. | Hardware test |
 | OQ-4 | Steam+X and X alone, in gamescope and in Hyprland, on the installed client. Research §12.4 says the chord is broken in Plasma Desktop Mode as of the Oct 2026 client. This spec already refuses Steam+X as the desktop trigger (D5). | Hardware test |
