@@ -40,12 +40,12 @@ if grep -q 'NOPASSWD' "$apply" "$install" "$resume"; then
 fi
 pass "the three stores take a bounded flock"
 
-migration=$ROOT/migrations/1795075200.sh
+migration=$ROOT/migrations/1794842519.sh
 [[ $(stat -c %a -- "$migration") == 644 ]] || fail "the migration is mode 0644"
 [[ $(head -1 "$migration") != '#!'* ]] || fail "the migration has a shebang"
 grep -q 'omarchy-hw-rog-ally' "$migration" || fail "the migration is gated on the Ally"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$migration" || fail "the session install is gated on the gaming package"
-grep -q 'exit 1' "$migration" || fail "a failed install stays pending"
+grep -q 'exit 1' "$migration" || fail "a failed install exits zero"
 grep -q 'omarchy-ally-tdp-install" hardware' "$ROOT/install/hardware/asus/ally-tdp.sh" || fail "the hardware leaf installs the units"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$ROOT/install/hardware/asus/ally-tdp.sh" || fail "the leaf gates the session on the gaming package"
 # shellcheck disable=SC2016
@@ -311,9 +311,9 @@ mkdir -p "$dest"
 : >"$SYSTEMCTL_LOG"
 SYSTEMCTL_FAIL=1 HW=ally OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
   PATH="$work/bin:$PATH" bash -euo pipefail "$migration" >"$work/migrate.out" 2>"$work/migrate.err" &&
-  fail "an offline install is marked done"
-grep -q 'will be retried' "$work/migrate.err" || fail "a failed install does not say it will retry" "$(cat "$work/migrate.err")"
-pass "a failed install stays pending"
+  fail "a failed install exits zero"
+grep -q 'Ally TDP hardware install failed' "$work/migrate.err" || fail "a failed install is silent" "$(cat "$work/migrate.err")"
+pass "a failed install exits non-zero"
 
 unset SYSTEMCTL_FAIL
 rm -rf "$dest"

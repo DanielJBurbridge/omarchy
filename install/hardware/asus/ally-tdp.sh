@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # TDP units for the original ROG Ally. The shim and the power-profiles-daemon
 # mask are the gaming session, not every Ally. Enable can fail on an image's
-# first boot before systemd will take the unit. The migration retries it and
-# stays pending when that install fails, including while the machine is offline.
+# first boot before systemd will take the unit. The leaf warns and continues.
+# A fresh install marks the migration before the script can run, so that
+# marker is not a retry (L161).
 if omarchy-hw-rog-ally; then
   if ! sudo "$OMARCHY_PATH/bin/omarchy-ally-tdp-install" hardware; then
     printf 'warning: Ally TDP hardware install failed; re-run: sudo %s hardware\n' \
