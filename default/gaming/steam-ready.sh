@@ -14,16 +14,16 @@ steam_ui_path() {
 }
 
 steam_collect_ui_inodes() {
-  local root=$1 line inode path
+  local root=$1 found
   steam_ui_inodes=' '
   [[ -r $root/net/unix ]] || return 0
-  while IFS= read -r line || [[ -n $line ]]; do
-    inode=$(awk '{ print $7 }' <<< "$line")
-    path=$(awk '{ for (i = 8; i <= NF; i++) printf "%s%s", (i == 8 ? "" : " "), $i }' <<< "$line")
-    [[ $inode =~ ^[0-9]+$ ]] || continue
-    steam_ui_path "$path" || continue
-    steam_ui_inodes+="$inode "
-  done < "$root/net/unix"
+  found=$(awk '{
+    path = $8
+    for (i = 9; i <= NF; i++) path = path " " $i
+    if ($7 ~ /^[0-9]+$/ && (path ~ /^\/tmp\/\.X11-unix\/X[0-9]+$/ || path ~ /(^|\/)wayland-[0-9]+$/))
+      printf "%s ", $7
+  }' "$root/net/unix")
+  steam_ui_inodes+="$found"
 }
 
 steam_pid_has_ui() {
@@ -43,21 +43,34 @@ steam_pid_has_ui() {
 }
 
 steam_tree_has_ui_from() {
-  local root=$1 pid=$2 child ppid
+  local root=$1 pid=$2 child
   steam_pid_has_ui "$root" "$pid" && return 0
-  for child in "$root"/[0-9]*; do
-    [[ -d $child ]] || continue
-    ppid=$(awk '/^PPid:/ { print $2; exit }' "$child/status" 2>/dev/null) || continue
-    [[ $ppid == "$pid" ]] || continue
-    steam_tree_has_ui_from "$root" "${child##*/}" && return 0
+  for child in "${!steam_ppid_of[@]}"; do
+    [[ ${steam_ppid_of[$child]} == "$pid" ]] || continue
+    steam_tree_has_ui_from "$root" "$child" && return 0
   done
   return 1
 }
 
 # root is a /proc-shaped directory. pid is the Steam parent.
 steam_tree_has_ui() {
-  local root=$1 pid=$2
+  local root=$1 pid=$2 entry parent
+  local -A steam_ppid_of=()
   steam_collect_ui_inodes "$root"
+  local statuses=()
+  for entry in "$root"/[0-9]*; do
+    [[ -f $entry/status ]] || continue
+    statuses+=("$entry/status")
+  done
+  if (( ${#statuses[@]} )); then
+    while read -r entry parent; do
+      [[ $parent =~ ^[0-9]+$ ]] || continue
+      steam_ppid_of[$entry]=$parent
+    done < <(awk '/^PPid:/ {
+      n = split(FILENAME, parts, "/")
+      print parts[n - 1], $2
+    }' "${statuses[@]}")
+  fi
   steam_tree_has_ui_from "$root" "$pid"
 }
 

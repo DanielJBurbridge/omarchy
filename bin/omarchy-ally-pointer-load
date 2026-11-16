@@ -9,7 +9,6 @@ if [[ -z ${OMARCHY_PATH:-} ]]; then
 fi
 profile=$OMARCHY_PATH/default/inputplumber/profiles/omarchy-ally-pointer.yaml
 [[ -f $profile ]] || exit 0
-command -v busctl >/dev/null 2>&1 || exit 0
 waited=0
 while (( waited < 40 )); do
   if busctl introspect org.shadowblip.InputPlumber /org/shadowblip/InputPlumber/CompositeDevice0 >/dev/null 2>&1; then

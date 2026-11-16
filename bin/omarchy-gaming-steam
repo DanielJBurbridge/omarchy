@@ -31,8 +31,8 @@ steam_pid=$!
 proc_root=${OMARCHY_STEAM_PROC_ROOT:-/proc}
 while kill -0 "$steam_pid" 2>/dev/null; do
   if steam_tree_has_ui "$proc_root" "$steam_pid"; then
-    printf 'started\n' > "$OMARCHY_GAMING_RUNTIME/ready"
-    break
+    # A reader that already timed out must not leave this write blocked.
+    timeout 1s bash -c 'printf "started\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" && break
   fi
   sleep 0.2
 done

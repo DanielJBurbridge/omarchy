@@ -260,9 +260,10 @@ run_gaming() {
   if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
     mark_steam_ready
     wait -n -p finished "$scope_pid" "$return_pid" || status=$?
-  elif [[ $finished == "$ready_pid" ]] && gaming_scope_alive && [[ ! -f $gaming_runtime/steam-exit ]]; then
+  elif [[ $finished == "$ready_pid" ]] && gaming_scope_alive && pgrep -u "$UID" -x steam >/dev/null; then
     # The fd check can miss a UI that is up. Stopping the scope here is what
-    # turned a running Steam into the recovery desktop on every boot.
+    # turned a running Steam into the recovery desktop on every boot. A
+    # Gamescope that never started Steam still fails and is stopped.
     printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
     mark_steam_ready
     wait -n -p finished "$scope_pid" "$return_pid" || status=$?

@@ -86,6 +86,10 @@ exit 0
 EOF
   cat > "$HANDHELD_STUB/pgrep" <<'EOF'
 #!/bin/bash
+# The supervisor leaves a live Steam up. Report that process, and nothing else.
+if [[ $* == *steam* ]]; then
+  exec /usr/bin/pgrep "$@"
+fi
 exit 1
 EOF
   cat > "$HANDHELD_STUB/systemctl" <<'EOF'
