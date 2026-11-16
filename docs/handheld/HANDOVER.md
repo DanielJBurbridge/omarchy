@@ -22,7 +22,7 @@ What this tip ships in source:
 
 Not built:
 
-- Controller map and InputPlumber (profiles, desktop bridge, gaming bridge). No `gaming.yaml` ships, so `omarchy-gaming-input-profile` does nothing.
+- Controller map, and the desktop and gaming bridges. `default/inputplumber/profiles/gaming.yaml` is in the tree (profile name `Omarchy Ally gaming`). `omarchy-gaming-input-profile` loads the name `gaming` when `omarchy-hw-rog-ally` succeeds and `omarchy-inputplumber-profile.service` is active, and exits 0 otherwise. The same directory also has `desktop.yaml`, `osk.yaml` and `omarchy-ally-pointer.yaml`. The profile allowlist names `gamepad.yaml` and `dualsense.yaml`, and those two files are not in this tree.
 - The F17 escape. No InputPlumber intercept ships, so there is nothing to escape. It becomes required when intercept lands.
 - The quick-access overlay (spec 04).
 - The TDP shim unit. `omarchy-ally-tdp-shim.service` is not in this tree. #33 is a draft spike, gated on battery tests at 15/20/25 W and a 30 W unplug test. See [Red-team open items](#red-team-open-items).

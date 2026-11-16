@@ -4,7 +4,7 @@ The alpha is the gaming session, autologin (the apply step below), the RC71L des
 
 What's missing:
 
-- Controller map, InputPlumber profiles, and the desktop and gaming bridges (spec 01). No `gaming.yaml` ships, so `omarchy-gaming-input-profile` does nothing.
+- Controller map, and the desktop and gaming bridges (spec 01). `default/inputplumber/profiles/gaming.yaml` is in the tree (profile name `Omarchy Ally gaming`). `omarchy-gaming-input-profile` loads the name `gaming` when `omarchy-hw-rog-ally` succeeds and `omarchy-inputplumber-profile.service` is active, and exits 0 otherwise. The same directory also has `desktop.yaml`, `osk.yaml` and `omarchy-ally-pointer.yaml`. The profile allowlist names `gamepad.yaml` and `dualsense.yaml`, and those two files are not in this tree.
 - The F17 escape and the overlay watchdog (spec 04, spec 07). No InputPlumber intercept ships, so there is nothing to escape yet.
 - Quick-access overlay, fan, RGB, and TDP. `omarchy-ally-tdp-shim.service` is not in this tree.
 - Dock switching. `omarchy-display-rog-ally` is not in this tree.
