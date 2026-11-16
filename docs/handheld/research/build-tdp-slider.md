@@ -51,9 +51,9 @@ The drop-in `default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-sess
 | `bin/omarchy-ally-tdp-apply` | `#!/bin/bash`. The writer. Installed at `/usr/bin/omarchy-ally-tdp-apply` |
 | `bin/omarchy-ally-tdp-shim` | `#!/usr/bin/python3`. The session-bus owner. Installed at `/usr/bin/omarchy-ally-tdp-shim` |
 | `default/systemd/user/omarchy-ally-tdp-shim.service` | `Type=dbus`, `BusName=com.steampowered.SteamOSManager1`, `ExecStart=/usr/bin/omarchy-ally-tdp-shim`. `PartOf=` and `WantedBy=` `graphical-session.target` and `omarchy-gaming-session.target`. `ExecCondition=/usr/bin/omarchy-hw-rog-ally` |
-| `default/systemd/system/omarchy-ally-tdp-resume.service` | Oneshot, `WantedBy=` `suspend.target` `hibernate.target` `hybrid-sleep.target` `suspend-then-hibernate.target`. `ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert`. `ExecCondition=/usr/bin/omarchy-hw-rog-ally` |
-| `default/systemd/system/omarchy-ally-tdp-source.service` | Oneshot. Same `--reassert`. Pulled by udev |
-| `default/udev/99-omarchy-ally-tdp.rules` | `ACTION=="change"`, `SUBSYSTEM=="power_supply"`, `PROGRAM=="/usr/bin/omarchy-hw-rog-ally"`, `TAG+="systemd"`, `ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"` |
+| `default/systemd/system/omarchy-ally-tdp-resume.service` | Oneshot that stays active across sleep, the pattern in [systemd.special(7)](https://www.freedesktop.org/software/systemd/man/latest/systemd.special.html) for `sleep.target`. `DefaultDependencies=no`, `StopWhenUnneeded=yes`, `Before=sleep.target`, `Type=oneshot`, `RemainAfterExit=yes`, `ExecStart=/bin/true`, `ExecStop=/usr/bin/omarchy-ally-tdp-apply --reassert`, `ExecCondition=/usr/bin/omarchy-hw-rog-ally`, `WantedBy=sleep.target`. The man page says a command in `ExecStop=` on that shape runs after the system woke up. `ExecStart=` does not write. `sleep.target` is pulled in by `suspend.target`, `hibernate.target`, `hybrid-sleep.target` and `suspend-then-hibernate.target` |
+| `default/systemd/system/omarchy-ally-tdp-source.service` | Oneshot. `ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert`. Pulled by the udev rule below. This is not the sleep unit |
+| `default/udev/99-omarchy-ally-tdp.rules` | Four `ACTION=="change"` rules, `SUBSYSTEM=="power_supply"`. `ENV{POWER_SUPPLY_TYPE}` is `Mains` or `USB`, and `ENV{POWER_SUPPLY_ONLINE}` is `0` or `1`, one rule for each pair. Those two matches come before `PROGRAM=="/usr/bin/omarchy-hw-rog-ally"`, then `TAG+="systemd"` and `ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"`. A battery capacity event does not match. The kernel puts every property on a change uevent, so a later property change on the same Mains or USB supply still matches |
 | `default/polkit/org.omarchy.ally.set-tdp.policy` | Action `org.omarchy.ally.set-tdp`. `allow_any=no`, `allow_inactive=no`, `allow_active=yes`. The only exec path is `/usr/bin/omarchy-ally-tdp-apply`. D1's sign-off of `allow_active=yes` is still outstanding (L106) |
 | `default/polkit/50-omarchy-ally-set-tdp.rules` | NO when `subject.user` is `sddm`. No `wheel` grant. YES only for the handheld user recorded in `omarchy-handheld-user.conf`, when `subject.active` and `subject.local` are both true. Same shape as the InputPlumber rule in [inputplumber-profiles-brief.md](inputplumber-profiles-brief.md) |
 | `default/dbus/com.steampowered.SteamOSManager1.service` | Session activation. `Name=com.steampowered.SteamOSManager1`, `SystemdService=omarchy-ally-tdp-shim.service`. Do not copy evlaV's file. Its `SystemdService` is `steamos-manager.service` |
@@ -68,13 +68,15 @@ On startup of a source, snapshot `default_value`, `min_value` and `max_value` fo
 
 Write order, after that clamp: SPL `current_value`, then SPPT, then FPPT. Keep SPL ≤ SPPT ≤ FPPT after the write and read them back. A tuple that would break that order writes nothing. AC is a `Mains` or `USB` supply with `online` 1. Do not write `platform_profile` or the deprecated `asus-nb-wmi` files.
 
+`--set` and `--reassert` take an exclusive `flock` on `/run/omarchy-ally-tdp.lock` before the first store and hold it until the readback finishes. Logind, the resume `ExecStop=` and the udev oneshot can call `--reassert` at once. The second call waits. The three stores are not interleaved. If the lock cannot be opened, the writer exits and writes nothing. `--show` does not take the lock.
+
 Refuse `--set` and `--reassert` while any of these is active: `power-profiles-daemon` (when it is not the mask below), `powerstation`, `hhd`, `adjustor`, `asusd`, `tlp`, `auto-cpufreq`, `tuned`, `gamemoded`. That is the overlay conflict list.
 
 ## Shim
 
 The shim claims `com.steampowered.SteamOSManager1` before Steam, which the session restart above already does when the unit is installed. It exports `TdpLimit1` from the vendored XML. `TdpLimitMin` and `TdpLimitMax` follow the live window and the policy ceiling: 20 on battery, 30 on AC, also bounded by the live max and the boot-captured max. `PerformanceProfile1` advertises only `performance`, and a set of that string succeeds without writing `platform_profile`. `GpuPerformanceLevel1` advertises only `auto`. `ManualGpuClock` returns `NotSupported`. `DeviceModel` is `("rog_ally", "RC71L")`. No factory-reset, storage, Wi-Fi, session or BIOS methods. `PropertiesChanged` only after the writer readback, including min and max when the source changes the window.
 
-The shim never writes sysfs. It `pkexec`s only `--set` and `--reassert`. On logind `PrepareForSleep(false)` it calls `--reassert`. A second `--reassert` from the resume unit is idempotent.
+The shim never writes sysfs. It `pkexec`s only `--set` and `--reassert`. On logind `PrepareForSleep(false)` it calls `--reassert`. The resume unit's `ExecStop=` calls `--reassert` after wake. Both take the writer's lock, so the stores are not interleaved.
 
 ## Install and removal
 
@@ -90,8 +92,8 @@ Read package power under load. These tuples are the acceptance, on the stock tab
 
 1. The QAM slider appears once the shim owns the name, including after desktop-to-gaming. Max 20 on battery and 30 on AC.
 2. Battery `--set 20` and `--set 25` apply 20/20/25. AC `--set 30` applies 30/43/53. Each readback is inside the live min and max.
-3. Unplug after a stored 30: the applied tuple is 20/20/25 and the stored request stays 30. Plug in: 30/43/53 returns.
-4. Suspend and resume: `--reassert` holds the limit under load. If it sticks near 4–7 W, record the MCU before calling it a writer bug ([SteamOS #2790](https://github.com/ValveSoftware/SteamOS/issues/2790)).
+3. Unplug after a stored 30: the applied tuple is 20/20/25 and the stored request stays 30. Plug in: 30/43/53 returns. A battery capacity event does not start the source oneshot.
+4. Suspend and resume: the resume unit writes nothing on the way into sleep. After wake, `ExecStop=` `--reassert` holds the limit under load. If it sticks near 4–7 W, record the MCU before calling it a writer bug ([SteamOS #2790](https://github.com/ValveSoftware/SteamOS/issues/2790)).
 5. With the mask on, `powerprofilesctl` is not the writer. After removal, `powerprofilesctl` works. Gaming had one PPT writer.
 6. A non-RC71L, a missing armoury class, an inactive session, and user `sddm` write nothing.
 
@@ -99,8 +101,8 @@ Read package power under load. These tuples are the acceptance, on the stock tab
 
 - Steam never calls the shim. The name was claimed after Steam's startup check, or `TdpLimit1` is missing, so the client treats the feature as unsupported. The session restart is before the gamescope scope. Confirm the name is owned before `steam` starts. A Deck-identity check beyond the four flags is **unverified**. There is no second slider implementation if Steam ignores the name.
 - `asus-armoury` is missing. The writer exits. The shim does not advertise a writable `TdpLimit`. Do not fall through to RyzenAdj, the deprecated platform files, or `ppt_platform_sppt`.
-- Resume. Both the logind signal and `omarchy-ally-tdp-resume.service` call `--reassert`. The dumped unit's MCU is below 319 ([ally-hw-dump.md](ally-hw-dump.md)). Update it before treating a stuck wattage as this package.
-- AC replug. The udev oneshot runs `--reassert`. A stored 30 comes back as 30/43/53. If the EC has already changed the live value, the readback still has to match that tuple. Whether the EC swaps the limit by itself is **unverified**.
+- Resume. `omarchy-ally-tdp-resume.service` follows [systemd.special(7)](https://www.freedesktop.org/software/systemd/man/latest/systemd.special.html): `Before=sleep.target`, `WantedBy=sleep.target`, `RemainAfterExit=yes`, `StopWhenUnneeded=yes`, and `--reassert` is `ExecStop=`, so it runs after wake. `ExecStart=` is `/bin/true` and writes nothing. Logind `PrepareForSleep(false)` also calls `--reassert`. The flock serialises those calls with the udev oneshot. The dumped unit's MCU is below 319 ([ally-hw-dump.md](ally-hw-dump.md)). Update it before treating a stuck wattage as this package.
+- AC replug. The udev oneshot runs `--reassert` only for a `Mains` or `USB` supply whose event has `POWER_SUPPLY_ONLINE` of 0 or 1. A stored 30 comes back as 30/43/53. If the EC has already changed the live value, the readback still has to match that tuple. Whether the EC swaps the limit by itself is **unverified**.
 
 ## Licences
 
