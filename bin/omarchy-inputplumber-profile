@@ -134,8 +134,8 @@ def unquote(value: str) -> str:
 def profile_meta(text: str) -> tuple[str, list[str] | None]:
   """Return the top-level name and target_devices.
 
-  target_devices is None when the key is absent (the pointer profile). An
-  empty list means the key is present and names nothing.
+  target_devices is None when the key is absent. An empty list means the
+  key is present and names nothing. Every shipped profile names a gamepad.
   """
   name = None
   targets: list[str] | None = None

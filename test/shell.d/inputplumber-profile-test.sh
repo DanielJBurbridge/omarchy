@@ -117,10 +117,11 @@ def cp(code, stdout="", stderr=""):
   return subprocess.CompletedProcess(["busctl"], code, stdout, stderr)
 
 profiles = root / "default/inputplumber/profiles"
+gamepads = {"ds5", "ds5-edge", "deck", "deck-uhid", "xbox-elite"}
 shipped = {
-  "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer", None),
-  "desktop.yaml": ("Omarchy Ally desktop", ["mouse", "keyboard"]),
-  "osk.yaml": ("Omarchy Ally osk", ["mouse", "keyboard"]),
+  "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer", ["xbox-elite", "mouse", "keyboard"]),
+  "desktop.yaml": ("Omarchy Ally desktop", ["xbox-elite", "mouse", "keyboard"]),
+  "osk.yaml": ("Omarchy Ally osk", ["xbox-elite", "mouse", "keyboard"]),
   "gaming.yaml": ("Omarchy Ally gaming", ["ds5-edge", "mouse", "keyboard"]),
 }
 for filename, expected in shipped.items():
@@ -130,7 +131,13 @@ for filename, expected in shipped.items():
   check("LeftPaddle" not in text and "RightPaddle" not in text, f"{filename} maps no grip")
 
 gaming = (profiles / "gaming.yaml").read_text()
+_, gaming_targets = mod.profile_meta(gaming)
+check(any(target in gamepads for target in gaming_targets), "gaming mode includes a gamepad Steam recognises")
+check(set(gaming_targets) - {"mouse", "keyboard"}, "gaming is not a mouse and keyboard target list")
+check("motion:" not in gaming, "gaming does not map a stick to the pointer")
 check('button: "Guide"' in gaming and 'button: "West"' in gaming, "gaming keeps Guide then West")
+for filename, (_name, targets) in shipped.items():
+  check(targets is not None and any(target in gamepads for target in targets), f"{filename} keeps a gamepad target")
 desktop = (profiles / "desktop.yaml").read_text()
 osk = (profiles / "osk.yaml").read_text()
 check('button: "Right"' in desktop and 'button: "Middle"' in desktop, "desktop keeps right and middle click")

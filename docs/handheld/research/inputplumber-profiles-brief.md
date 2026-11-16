@@ -106,7 +106,7 @@ Shipped `desktop.yaml` on that same commit, with two edits from spec Appendix A 
 - Remove `LeftPaddle1` → `KeyLeftShift` and `RightPaddle1` → `KeyLeftCtrl`. No `KeyLeftMeta` target either. After OQ-17 the bridge's uinput keyboard holds Super and Ctrl (§8.1 of the spec). Until then it writes nothing for the grips.
 - Add four left-stick mappings, one per direction, to `mouse.button` `WheelUp` / `WheelDown` / `WheelLeft` / `WheelRight`. That is the notched form (D7, OQ-7 closed). The stick deadzone field is omitted, so the schema default and the daemon both use 0.3 ([`value.rs`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/input/event/value.rs), `translate_axis_to_button`, `unwrap_or(0.3)`). The spec does not set a stick-scroll deadzone. Do not copy the trigger's 0.25 onto the stick.
 
-Targets stay `mouse` and `keyboard` only (C2). Right stick `speed_pps: 900` is a schema number; the daemon reads it and otherwise uses 800 (`translate_axis_to_mouse_motion`). The pointer's 0.20 floor is hardcoded in that function, which matches spec §9. Trigger `deadzone: 0.25` is read (`translate_trigger_to_button`). Holding A or RT holds mouse Left, which is the drag.
+The right stick stays the pointer, and the face buttons stay mouse clicks (C2). `target_devices` also lists `xbox-elite`. A mouse and keyboard list stops the gamepad node, and on the #48 deploy that is the state Steam reported as no controller. Right stick `speed_pps: 900` is a schema number; the daemon reads it and otherwise uses 800 (`translate_axis_to_mouse_motion`). The pointer's 0.20 floor is hardcoded in that function, which matches spec §9. Trigger `deadzone: 0.25` is read (`translate_trigger_to_button`). Holding A or RT holds mouse Left, which is the drag.
 
 CC tap is `dbus: omarchy_power` (the power panel now; the quick-access overlay is spec 04, and it does not need a new profile line). CC long is `KeyLeftMeta`, `KeyLeftCtrl`, `KeyY`, the Hyprland bind `SUPER + CTRL + Y` → `omarchy-toggle-desktop-keyboard` in [`default/hypr/bindings/utilities.lua`](../../../default/hypr/bindings/utilities.lua). Steam+X is not a desktop trigger (spec 09 D5). AC tap is `dbus: omarchy_menu`. A second tap closes the menu in Hyprland (spec Δ2), not by a second profile. AC long is `dbus: omarchy_mode`, and the bridge toggles desktop ⇄ `gamepad`.
 
@@ -118,6 +118,7 @@ version: 1
 kind: "DeviceProfile"
 name: "Omarchy Ally desktop"
 target_devices:
+  - "xbox-elite"
   - "mouse"
   - "keyboard"
 mapping:
@@ -348,7 +349,7 @@ Allowlist, and the file each name opens. The prefix is hardcoded to `/usr/share/
 | `gaming` | `gaming.yaml` | `Omarchy Ally gaming` | `run_gaming`, before Gamescope |
 | `dualsense` | `dualsense.yaml` | `Omarchy Ally dualsense` | A menu or CLI choice in the desktop session (C5). Not the boot profile |
 
-`pointer` sets no `target_devices`. A load of it replaces mappings and does not send `SetTargetDevices`, so the composite keeps the targets it already has (the stock default is `xbox-elite`, `mouse`, `keyboard`). `desktop` sets `mouse` and `keyboard` only. Loading `desktop` over `pointer` stops `xbox-elite` and keeps `mouse` and `keyboard`. They are two profiles and one loader. The greeter does not run `desktop.yaml`.
+`pointer`, `desktop` and `osk` set `target_devices` to `xbox-elite`, `mouse` and `keyboard`. The left stick is a pointer only in `pointer`; the right stick is a pointer only in `desktop` and `osk`. `gaming` sets `ds5-edge`, `mouse` and `keyboard`, and it does not map a stick to the pointer. A profile whose list is only `mouse` and `keyboard` stops the gamepad node. That is what the #48 pointer load left Steam looking at, so none of these files is mouse and keyboard alone. The greeter does not run `desktop.yaml`.
 
 ### Which composite
 
