@@ -462,6 +462,9 @@
   "setup.keyboard.input-methods": {
     "label": "Input Methods"
   },
+  "setup.keyboard.desktop": {
+    "label": "Desktop Keyboard"
+  },
   "setup.input": {
     "label": "Input"
   },
@@ -470,6 +473,12 @@
   },
   "setup.network": {
     "label": "Network"
+  },
+  "setup.network.wifi": {
+    "label": "Wi-Fi"
+  },
+  "setup.network.bluetooth": {
+    "label": "Bluetooth"
   },
   "setup.network.dns": {
     "label": "DNS"

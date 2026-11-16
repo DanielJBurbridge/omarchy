@@ -9,6 +9,7 @@ import qs.Commons
 import qs.Commons as Commons
 
 import "plugins/bar"
+import "plugins/bar/BarModel.js" as BarModel
 import "services"
 import "services/AuthServiceStore.js" as AuthServiceStore
 
@@ -103,7 +104,43 @@ ShellRoot {
       }
     }
     userConfigUnreadable = !!userText.trim() && !user
-    shellConfig = user || defaults
+    // Stored is the file (or the defaults). The handheld pin is a second
+    // object the bar reads. Nothing here writes ~/.config/omarchy/shell.json.
+    storedShellConfig = user || defaults
+    shellConfig = handheldAlly ? BarModel.pinHandheldTouch(storedShellConfig) : storedShellConfig
+  }
+
+  property var storedShellConfig: null
+
+  property bool handheldAlly: false
+
+  function refreshHandheld() {
+    var ally = BarModel.isRogAllyDmi(dmiVendor.text(), dmiProduct.text(), dmiBoard.text())
+    if (ally === handheldAlly) return
+    handheldAlly = ally
+    applyShellConfig()
+  }
+
+  FileView {
+    id: dmiVendor
+    path: "/sys/class/dmi/id/sys_vendor"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
+  }
+  FileView {
+    id: dmiProduct
+    path: "/sys/class/dmi/id/product_name"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
+  }
+  FileView {
+    id: dmiBoard
+    path: "/sys/class/dmi/id/board_name"
+    watchChanges: false
+    printErrors: false
+    onLoaded: shell.refreshHandheld()
   }
 
   function loadDefaults(raw) {
@@ -127,12 +164,19 @@ ShellRoot {
   function persistShellConfig(nextConfig) {
     var payload = JSON.parse(JSON.stringify(nextConfig))
     payload.version = 1
-    shellConfig = payload
+    // Drop widgets the handheld pin added. A save must not put them into the
+    // user's shell.json, and a pin-only change must not write the file at all.
+    var forDisk = handheldAlly && storedShellConfig
+      ? BarModel.shellConfigForDisk(payload, storedShellConfig) : payload
+    forDisk.version = 1
+    shellConfig = handheldAlly ? BarModel.pinHandheldTouch(forDisk) : forDisk
     if (userConfigUnreadable) {
       console.warn("shell.json is unreadable, not overwriting it; fix it to save bar changes")
       return
     }
-    userConfigFile.setText(JSON.stringify(payload, null, 2) + "\n")
+    if (storedShellConfig && JSON.stringify(forDisk) === JSON.stringify(storedShellConfig)) return
+    storedShellConfig = JSON.parse(JSON.stringify(forDisk))
+    userConfigFile.setText(JSON.stringify(forDisk, null, 2) + "\n")
   }
 
   readonly property var barConfig: shellConfig && Util.isPlainObject(shellConfig.bar) ? shellConfig.bar : builtinShellConfig.bar

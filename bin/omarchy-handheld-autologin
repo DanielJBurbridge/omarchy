@@ -11,6 +11,9 @@ conf_dir=${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}
 failures=$run_root/failures
 stop=$run_root/stop
 dropin=$conf_dir/zz-omarchy-handheld.conf
+# User= lives here, not in the drop-in apply rewrites, and not in autologin.conf.
+# Unencrypted installs delete autologin.conf after the first boot.
+user_dropin=$conf_dir/omarchy-handheld-user.conf
 
 if (( EUID == 0 )) && [[ -z ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
   export PATH=/usr/bin:/bin
@@ -27,7 +30,7 @@ fi
 
 refuse_symlink() {
   local path
-  for path in "$run_root" "$conf_dir" "$failures" "$stop" "$dropin"; do
+  for path in "$run_root" "$conf_dir" "$failures" "$stop" "$dropin" "$user_dropin"; do
     if [[ -L $path ]]; then
       echo "omarchy-handheld-autologin: refusing a symlink at $path" >&2
       exit 1
@@ -74,12 +77,26 @@ Relogin=$relogin
 EOF
 }
 
+# Written once by the installer. apply never creates or replaces this file.
+install_user() {
+  local username=$1
+  refuse_symlink
+  [[ $username =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || exit 2
+  [[ -e $user_dropin ]] && return 0
+  ensure_dir "$conf_dir"
+  write_file "$user_dropin" <<EOF
+[Autologin]
+User=$username
+EOF
+}
+
 apply_dropin() {
   refuse_symlink
   if ! handheld_variant; then
     rm -f -- "$dropin"
     return 0
   fi
+  # A crash-loop stop shows the greeter. A boot with no stop file autologins.
   if [[ -f $stop ]]; then
     write_dropin false
   else
@@ -98,10 +115,15 @@ restart_greeter() {
 case $action in
   session)
     refuse_symlink
+    # Stop means the greeter. Exiting 0 does not start the desktop, so a
+    # Relogin=false restart cannot come back as desktop() and loop.
     if [[ -f $stop ]]; then
       exit 0
     fi
     exec omarchy-session-start relogin
+    ;;
+  install-user)
+    install_user "${2:-}"
     ;;
   apply)
     apply_dropin

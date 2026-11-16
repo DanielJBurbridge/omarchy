@@ -122,6 +122,7 @@ qt6-base
 qt6-declarative
 qt6-multimedia
 qt6-svg
+qt6-virtualkeyboard
 qt6-wayland
 qtengine
 ttfx

@@ -57,7 +57,7 @@ Steam's keyboard inside gamescope is drawn by Steam, not by gamescope. The games
 
 ## 4. Login, autologin and the lock
 
-Spec 02 §7.1 and spec 03 W9 say the installer writes `User=<installer-created user>`, `Session=omarchy-handheld.desktop` and `Relogin=false` once, and never guesses the user. On this tree those keys are not one file. `write_dropin` in `bin/omarchy-handheld-autologin` writes only `Session=omarchy-handheld.desktop` and `Relogin=` into `/etc/sddm.conf.d/zz-omarchy-handheld.conf`. It does not write `User=`. `apply` replaces that file, so a `User=` line put only there is deleted on the next apply ([write_dropin](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-handheld-autologin), [ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). `User=` has to live in a file `apply` does not replace. Today's provisioner writes `User=` and `Session=omarchy.desktop` to `/etc/sddm.conf.d/autologin.conf`. An unencrypted install then enables `omarchy-provision-autologin-once.service`, which deletes that file before the next SDDM start ([configure_login](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-provision-owner)). sddm.conf(5) restarts an autologin session on `Relogin=true` only when both `User` and `Session` are set ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). After that cleanup, a handheld that still autologins needs `User=` in some other drop-in. Spec 02 §7.7 keeps the installer's `Session=` and lets `zz-` win on `Relogin`. Three failed gaming starts inside 60 seconds set `Relogin=false` and the greeter shows. Getty is not autologin. OQ-4 is resolved: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
+Spec 02 §7.1 and spec 03 W9 say the installer writes `User=<installer-created user>`, `Session=omarchy-handheld.desktop` and `Relogin=false` once, and never guesses the user. On this tree those keys are not one file. `write_dropin` in `bin/omarchy-handheld-autologin` writes only `Session=omarchy-handheld.desktop` and `Relogin=` into `/etc/sddm.conf.d/zz-omarchy-handheld.conf`. It does not write `User=`. `apply` replaces that file, so a `User=` line put only there is deleted on the next apply ([write_dropin](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-handheld-autologin), [ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). `User=` has to live in a file `apply` does not replace. Today's provisioner writes `User=` and `Session=omarchy.desktop` to `/etc/sddm.conf.d/autologin.conf`. An unencrypted install then enables `omarchy-provision-autologin-once.service`, which deletes that file before the next SDDM start ([configure_login](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-provision-owner)). sddm.conf(5) restarts an autologin session on `Relogin=true` only when both `User` and `Session` are set ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). After that cleanup, a handheld that still autologins needs `User=` in some other drop-in. This branch writes that surviving `User=` once to `/etc/sddm.conf.d/omarchy-handheld-user.conf` (`omarchy-handheld-autologin install-user`). apply never creates or replaces that file. Spec 02 §7.7 keeps the installer's `Session=` and lets `zz-` win on `Relogin`. Three failed gaming starts inside 60 seconds set `Relogin=false` and the greeter shows. The session verb exits without starting the desktop. Getty is not autologin. OQ-4 is resolved: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
 
 Until auth item K07 (a keyboard inside the trusted lock surface), the handheld variant ships `desktop-lock` `default-off`. With that value, Switch to Desktop, Exit Steam, the dock prompt and the gaming-failure fallback all show the Hyprland desktop with no lock. Spec 02 §7.5 states the trade-off in plain terms: anyone holding the Ally then has the desktop UI, autostart and the user's files. The gaming session is already the desktop user's UID, with Steam, games and anything that session starts. The lock, once on, protects the desktop UI only. It does not protect user files, Steam data or a shell started inside gamescope. A TTY still asks for a password. This gap is accepted because there is no lock-screen touch keyboard yet. It is not a user opt-out. After `/var/lib/omarchy/handheld/k07-landed` exists, a missing value fails closed to `on`.
 
@@ -118,7 +118,7 @@ On Omarchy, turning `desktop-lock` off needs an interactive password, and a pass
 | ChimeraOS | Repeated init failure drops to the Gnome desktop | [Getting Started](https://github.com/ChimeraOS/chimeraos/wiki/Getting-Started) |
 | Omarchy | One retry, then the desktop through `desktop()`. Three starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and show the greeter. A reboot clears `/run` and the next boot writes `Relogin=true` again | [ALPHA.md](../ALPHA.md), [02 §7.2](../02-mode-switch-and-dock.md) |
 
-The greeter is the recovery screen, and on this branch it cannot submit the password by touch. SSH works only when sshd was already enabled ([ALPHA.md](../ALPHA.md)). That is the hole this note is trying to close.
+The greeter is the recovery screen. SSH works only when sshd was already enabled ([ALPHA.md](../ALPHA.md)). The grid on this branch has backspace, space and enter, and `GreeterEnvironment` turns on Qt Virtual Keyboard, so that crash-loop greeter can be submitted by touch.
 
 ## 8. Steam's on-screen keyboard outside a game
 
@@ -187,6 +187,13 @@ User=<installer-created user>
 Session=omarchy-handheld.desktop
 Relogin=false
 
+# /etc/sddm.conf.d/omarchy-handheld-user.conf
+# The file this branch writes once. apply never creates or replaces it.
+# autologin.conf is deleted after the first boot on an unencrypted install,
+# so User= lives here instead.
+[Autologin]
+User=<installer-created user>
+
 # /etc/sddm.conf.d/zz-omarchy-handheld.conf
 # What write_dropin actually writes. No User=.
 [Autologin]
@@ -194,7 +201,7 @@ Session=omarchy-handheld.desktop
 Relogin=true
 ```
 
-`zz-` sorts later, so its `Relogin` wins. Three failures make `apply` write `Relogin=false` ([ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). `Relogin=true` does nothing unless some other file still has `User=` ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`.
+`zz-` sorts later, so its `Relogin` wins. Three failures make `apply` write `Relogin=false` ([ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). The session verb then exits without starting the desktop. `Relogin=true` does nothing unless some other file still has `User=` ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). Do not put `User=` in the file apply rewrites. Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`.
 
 Session command, already in `bin/omarchy-session-start`:
 

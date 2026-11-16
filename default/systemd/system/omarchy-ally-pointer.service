@@ -1,0 +1,12 @@
+[Unit]
+Description=Load the Ally stick pointer before the greeter
+After=inputplumber.service
+Before=display-manager.service
+ConditionPathExists=/usr/bin/inputplumber
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-ally-pointer-load
+
+[Install]
+WantedBy=graphical.target

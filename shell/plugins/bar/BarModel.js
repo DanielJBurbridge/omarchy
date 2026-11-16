@@ -686,6 +686,75 @@ function fullscreenOn(toplevels, workspaceId) {
   return false
 }
 
+var handheldTouchIds = ["omarchy.bluetooth", "omarchy.network", "omarchy.desktop-keyboard"]
+
+function isRogAllyDmi(vendor, product, board) {
+  var v = String(vendor || "").trim()
+  var p = String(product || "").trim()
+  var b = String(board || "").trim()
+  if (v !== "ASUSTeK COMPUTER INC.") return false
+  return p.indexOf("ROG Ally RC71L") === 0 || b === "RC71L"
+}
+
+function layoutHasId(layout, id) {
+  if (!isPlainObject(layout)) return false
+  for (var s = 0; s < sections.length; s++) {
+    var entries = layout[sections[s]]
+    if (!Array.isArray(entries)) continue
+    for (var i = 0; i < entries.length; i++) {
+      if (entryId(entries[i]) === id) return true
+    }
+  }
+  return false
+}
+
+// A handheld bar still has Wi-Fi, Bluetooth and the desktop keyboard when the
+// user's shell.json left them out. This is a copy. The argument and the user's
+// shell.json are not modified. An explicit disabledPlugins entry stays out.
+function pinHandheldTouch(config) {
+  if (!isPlainObject(config)) return config
+  var copy = JSON.parse(JSON.stringify(config))
+  var disabled = Array.isArray(copy.disabledPlugins) ? copy.disabledPlugins : []
+  if (!isPlainObject(copy.bar)) copy.bar = {}
+  if (!isPlainObject(copy.bar.layout)) copy.bar.layout = {}
+  if (!Array.isArray(copy.bar.layout.right)) copy.bar.layout.right = []
+  for (var i = 0; i < handheldTouchIds.length; i++) {
+    var id = handheldTouchIds[i]
+    if (disabled.indexOf(id) !== -1) continue
+    if (layoutHasId(copy.bar.layout, id)) continue
+    copy.bar.layout.right.unshift({ id: id })
+  }
+  return copy
+}
+
+// The config to write back. Runtime pins that the stored file did not already
+// contain are removed, including a section the pin had to create.
+function shellConfigForDisk(config, stored) {
+  var copy = JSON.parse(JSON.stringify(config))
+  if (!isPlainObject(copy)) return copy
+  var storedLayout = isPlainObject(stored) && isPlainObject(stored.bar) && isPlainObject(stored.bar.layout)
+    ? stored.bar.layout : {}
+  if (!isPlainObject(copy.bar) || !isPlainObject(copy.bar.layout)) return copy
+  var storedHadBar = isPlainObject(stored) && isPlainObject(stored.bar)
+  var storedHadLayout = storedHadBar && isPlainObject(stored.bar.layout)
+  for (var s = 0; s < sections.length; s++) {
+    var name = sections[s]
+    var entries = copy.bar.layout[name]
+    if (!Array.isArray(entries)) continue
+    var kept = []
+    for (var i = 0; i < entries.length; i++) {
+      var id = entryId(entries[i])
+      if (handheldTouchIds.indexOf(id) !== -1 && !layoutHasId(storedLayout, id)) continue
+      kept.push(entries[i])
+    }
+    if (kept.length === 0 && !Array.isArray(storedLayout[name])) delete copy.bar.layout[name]
+    else copy.bar.layout[name] = kept
+  }
+  if (!storedHadLayout && Object.keys(copy.bar.layout).length === 0) delete copy.bar.layout
+  if (!storedHadBar && isPlainObject(copy.bar) && Object.keys(copy.bar).length === 0) delete copy.bar
+  return copy
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     barSizeFor: barSizeFor,
@@ -723,6 +792,9 @@ if (typeof module !== "undefined") {
     expandPath: expandPath,
     customModuleSafeName: customModuleSafeName,
     customModuleType: customModuleType,
-    customModulePath: customModulePath
+    customModulePath: customModulePath,
+    isRogAllyDmi: isRogAllyDmi,
+    pinHandheldTouch: pinHandheldTouch,
+    shellConfigForDisk: shellConfigForDisk
   }
 }
