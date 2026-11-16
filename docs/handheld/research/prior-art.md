@@ -136,7 +136,7 @@ What this branch already does, read from the tree, so the comparison is against 
 | Autologin | `bin/omarchy-handheld-autologin` `write_dropin` | Writes `Session=omarchy-handheld.desktop` and `Relogin=` into `/etc/sddm.conf.d/zz-omarchy-handheld.conf`. Does not write `User=`. Three misses in 60 s set `Relogin=false`. |
 | First-boot autologin | `bin/omarchy-provision-owner` `configure_login` | Writes `User=` and `Session=omarchy.desktop` to `/etc/sddm.conf.d/autologin.conf`. An unencrypted install enables `omarchy-provision-autologin-once.service`, which deletes that file. |
 
-Specs on top of that: [02](../02-mode-switch-and-dock.md) (separate sessions, Steam's Switch to Desktop, lock choke point, no SDDM restart as the switch), [03](../03-first-boot-and-install.md) (controller plus touch, encryption off, buffyboard only after review), [09](../09-keyboard-free-boot.md) (autologin into the gamescope session that already ships).
+Specs on top of that: [02](../02-mode-switch-and-dock.md) (separate sessions, Steam's Switch to Desktop, lock choke point, no SDDM restart as the switch), [03](../03-first-boot-and-install.md) (controller plus touch, TPM auto-unlock, buffyboard only after review), [09](../09-keyboard-free-boot.md) (autologin into the gamescope session that already ships).
 
 ### Reuse, where the licence allows
 
