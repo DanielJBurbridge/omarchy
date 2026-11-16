@@ -399,6 +399,7 @@ user_conf = dest / "etc/sddm.conf.d/omarchy-handheld-user.conf"
 user_conf.parent.mkdir(parents=True)
 user_conf.write_text("[Autologin]\nUser=daniel\n")
 os.chmod(user_conf, 0o644)
+os.environ["OMARCHY_PATH"] = str(root)
 check(mod.install_greeter_into(dest) == 0, "the greeter install rewrites the pointer unit")
 check(mod.install_service_into(dest) == 0, "the service install writes the Ally policy")
 unit = (dest / "etc/systemd/system/omarchy-ally-pointer.service").read_text()
@@ -574,3 +575,71 @@ if problems:
 print("ok - profile loads, skips and policy")
 PY
 pass "profile loads, skips and policy"
+
+pkg=$work/pkg
+mkdir -p "$pkg/usr/bin" "$pkg/usr/share/omarchy/bin" "$pkg/usr/share/omarchy/default" \
+  "$pkg/etc/systemd/system" "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules"
+cp "$ROOT/bin/omarchy-inputplumber-profile" "$pkg/usr/bin/omarchy-inputplumber-profile"
+chmod 755 "$pkg/usr/bin/omarchy-inputplumber-profile"
+ln -s ../../../bin/omarchy-inputplumber-profile "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile"
+cp -a "$ROOT/default/systemd" "$ROOT/default/inputplumber" "$pkg/usr/share/omarchy/default/"
+cat > "$pkg/usr/bin/omarchy-hw-rog-ally" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat > "$pkg/usr/bin/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat > "$pkg/usr/bin/systemctl" <<'EOF'
+#!/bin/bash
+if [[ ${1:-} == is-enabled ]]; then
+  printf 'not-found\n'
+  exit 1
+fi
+exit 0
+EOF
+cat > "$pkg/usr/bin/busctl" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod 755 "$pkg/usr/bin/omarchy-hw-rog-ally" "$pkg/usr/bin/omarchy-pkg-present" \
+  "$pkg/usr/bin/systemctl" "$pkg/usr/bin/busctl"
+
+pkg_mounts=()
+pkg_cleanup() {
+  local dest
+  for dest in "${pkg_mounts[@]}"; do
+    umount "$dest" || true
+  done
+  rm -rf "$work"
+}
+trap pkg_cleanup EXIT
+mount --bind "$pkg/etc/systemd/system" /etc/systemd/system
+pkg_mounts+=("/etc/systemd/system")
+mount --bind "$pkg/dbus" /usr/share/dbus-1/system.d
+pkg_mounts+=("/usr/share/dbus-1/system.d")
+mount --bind "$pkg/polkit-actions" /usr/share/polkit-1/actions
+pkg_mounts+=("/usr/share/polkit-1/actions")
+mount --bind "$pkg/polkit-rules" /etc/polkit-1/rules.d
+pkg_mounts+=("/etc/polkit-1/rules.d")
+
+run_packaged() {
+  env -i PATH="$pkg/usr/bin:/usr/bin:/bin" OMARCHY_PATH="$pkg/usr/share/omarchy" "$@"
+}
+if ! run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter >"$pkg/greeter.out" 2>"$pkg/greeter.err"; then
+  fail "install-greeter fails on the packaged layout" "$(cat "$pkg/greeter.err")"
+fi
+if ! run_packaged "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile" install-service >"$pkg/service.out" 2>"$pkg/service.err"; then
+  fail "install-service fails on the packaged layout" "$(cat "$pkg/service.err")"
+fi
+grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
+  /etc/systemd/system/omarchy-ally-pointer.service ||
+  fail "the packaged greeter unit does not call the helper" "$(cat /etc/systemd/system/omarchy-ally-pointer.service)"
+grep -q 'omarchy-ally-pointer-load' /etc/systemd/system/omarchy-ally-pointer.service &&
+  fail "the packaged greeter unit names the old loader"
+[[ -f /etc/systemd/system/omarchy-inputplumber-profile.service ]] || fail "the packaged install skips the profile service"
+[[ -f /usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf ]] || fail "the packaged install skips the bus policy"
+[[ -f /usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy ]] || fail "the packaged install skips the polkit action"
+[[ -f /etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules ]] || fail "the packaged install skips the polkit rule"
+pass "a packaged layout installs the greeter unit and the profile service"

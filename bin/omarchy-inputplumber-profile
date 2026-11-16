@@ -91,7 +91,10 @@ class BusError(Exception):
 
 
 def package_root() -> Path:
-  return Path(__file__).resolve().parent.parent
+  # Pacman installs this file in /usr/bin and points
+  # /usr/share/omarchy/bin at it, so the script path is not the tree
+  # that holds default/. A checkout sets OMARCHY_PATH to its own root.
+  return Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
 
 
 def ally() -> bool:
