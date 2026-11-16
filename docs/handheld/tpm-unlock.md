@@ -138,7 +138,7 @@ fi
 
 Stop unless that last line says the file is non-empty. The file plus the passphrase from this moment opens the disk. Keep it the way you keep the passphrase. Do not copy it back onto the Ally. `luksHeaderRestore` in section 13 puts this header back. Do not enrol if you no longer have the file.
 
-Opening the menu takes a key during the 1 second timeout, so the USB or 2.4 GHz keyboard has to be plugged in before you reboot. Limine's editor is on: `default/limine/limine.conf` does not set `editor_enabled: no`, and Limine's default is yes. `editor_enabled: no` only holds together with Secure Boot and `limine enroll-config`. Without both, anyone who can write the ESP can turn the editor back on. The security section has that command. It does not change these steps.
+Opening the menu takes a key during the 1 second timeout, so the USB or 2.4 GHz keyboard has to be plugged in before you reboot. Limine's editor is on: `default/limine/limine.conf` does not set `editor_enabled: no`, and Limine's default is yes. `editor_enabled: no` only holds together with Secure Boot and `limine enroll-config`. Without both, anyone who can write the ESP can turn the editor back on. The hardening section has the arguments and the recovery. It does not change these steps.
 
 ## 3. tpm2-tss
 
@@ -361,57 +361,61 @@ The UKI check is the last step on the busybox boot. When this running boot is st
 
 Do not run this unless section 2's header file is still on the removable drive and non-empty. Do not run it while `/var/lib/omarchy/provisioning/luks-rekey.state` exists. `luks_rekey_retire` in `install/provisioning/luks-rekey.sh` kills every keyslot except the recorded owner slot, and `luks_dump_slots` lists a `systemd-tpm2` slot as an ordinary `luks2` slot. A rekey that runs after this enrolment deletes the TPM slot, and `luks_rekey_verify` fails while any other slot remains. Finish provisioning first, or leave this machine unenrolled. That gap is [L70](alpha-followups.md). It blocks the installer. It is already the reason this runbook refuses an open rekey journal.
 
-Omarchy's default busybox `encrypt` initrd never extends PCR 7 with systemd's os-separator. The systemd initrd runs `systemd-pcrosseparator.service`, which extends PCR 7 with `os-separator` before cryptsetup (`ConditionPathExists=/etc/initrd-release`, `Before=cryptsetup-pre.target`, [systemd-pcrosseparator.service(8)](https://man.archlinux.org/man/systemd-pcrosseparator.service.8.en)). A token sealed on the busybox boot can never unseal: every `sd-encrypt` boot extends PCR 7 before the unlock. That is the failure read on this Ally on 16 November 2026.
+Omarchy's default busybox `encrypt` initrd never extends PCR 7 with systemd's os-separator. The systemd initrd runs `systemd-pcrosseparator.service` before cryptsetup (`ConditionPathExists=/etc/initrd-release`, `Before=cryptsetup-pre.target`). The service extends the string `os-separator` into PCRs 0-7, 9 and 12-14 ([systemd-pcrosseparator.service(8)](https://man.archlinux.org/man/systemd-pcrosseparator.service.8.en)). A token sealed on the busybox boot can never unseal: every `sd-encrypt` boot extends those PCRs before the unlock. A later binding of 7+14 or 0+7 has the same gap, because 14 and 0 are in that list. That is the failure read on this Ally on 16 November 2026.
 
-Switch the hooks, rebuild, reboot once, unlock with the passphrase, then enrol. The other way is to pin the value the systemd boot will measure: `--tpm2-pcrs=7:sha256=<value>`. `<value>` is the sha256 `systemd-analyze pcrs 7` prints on a boot whose log already contains `os-separator`. The value printed on the busybox boot is the wrong pin.
+Switch the hooks, rebuild, reboot once, unlock with the passphrase, then enrol. The other way is to pin this machine's sd-encrypt value: `--tpm2-pcrs=7:sha256=<value>`. `<value>` is the sha256 `systemd-analyze pcrs 7` prints on this Ally after `os-separator`. Another machine's PCR 7 can differ when its db or dbx differs. The value printed on the busybox boot is the wrong pin.
 
-A fresh shell does not have `LUKS_DEV`. Set it, then read PCR 7. Stop when the log has no `os-separator` line.
+A fresh shell does not have `LUKS_DEV`. The enrolment runs only when this boot's PCR 7 log contains `os-separator`. The command asks for the existing passphrase. Type it. Do not put it on the command line, in the shell history, or in a file. It adds a TPM slot bound to PCR 7 and does not remove the passphrase slot.
 
 ```bash
 ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
 MAPPER_NAME=$(basename "$ROOT_SRC")
 LUKS_DEV=$(sudo cryptsetup status "$MAPPER_NAME" | awk '/^[[:space:]]+device:/ { print $2; exit }')
+systemd-analyze pcrs 7
 if [[ ! -b $LUKS_DEV ]]; then
   echo "stop: LUKS_DEV is unset. This finder is for a booted Ally, not a live USB"
-fi
-systemd-analyze pcrs 7
-sudo systemd-pcrlock log --pcr=7
-```
-
-`systemd-pcrlock log --pcr=7` lists the PCR 7 events. An `sd-encrypt` boot shows the firmware Secure Boot variables, the firmware separator, then `os-separator`. `systemd-analyze pcrs 7` prints the sha256 of PCR 7 now. After `os-separator`, this image does not extend PCR 7 again, so that sha256 is the value at unlock time on this boot and on the next one.
-
-The command asks for the existing passphrase. Type it. Do not put it on the command line, in the shell history, or in a file.
-
-This adds a TPM slot bound to PCR 7. It does not remove the passphrase slot.
-
-```bash
-sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$LUKS_DEV"
-```
-
-Pin, only when the hex is the sha256 from an `sd-encrypt` boot. The flag is `--tpm2-pcrs=7:sha256=<value>`. Leave `value` as the placeholder to skip this block. The enrolment above already bound the live PCR 7.
-
-```bash
-value=REPLACE_WITH_SD_ENCRYPT_PCR7_SHA256
-if [[ $value == "REPLACE_WITH_SD_ENCRYPT_PCR7_SHA256" ]]; then
-  echo "skip pin: set value to the sha256 from systemd-analyze pcrs 7 on an sd-encrypt boot"
+elif ! sudo systemd-pcrlock log --pcr=7 | grep -q os-separator; then
+  echo "stop: this boot's PCR 7 log has no os-separator. Reboot onto the sd-encrypt image and unlock with the passphrase before enrolling"
 else
-  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs="7:sha256=${value}" "$LUKS_DEV"
+  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$LUKS_DEV"
+  if sudo cryptsetup open --test-passphrase --token-only --token-type systemd-tpm2 "$LUKS_DEV"; then
+    echo "token unseals with this boot's PCR 7. That is the value at the next unlock"
+  else
+    echo "stop: the token did not unseal. Do not reboot for automatic unlock. Set reenroll=yes and run the replace block"
+  fi
+fi
+```
+
+`systemd-pcrlock log --pcr=7` lists the PCR 7 events. An `sd-encrypt` boot shows the firmware Secure Boot variables, the firmware separator, then `os-separator`. After that record, this image does not extend PCR 7 again, so a successful `cryptsetup open --test-passphrase --token-only --token-type systemd-tpm2` is what the next boot will do. That test does not activate a second mapping, and with `--token-only` it does not ask for the passphrase. `luksDump`'s `tpm2-policy-hash` is a different hex from the sha256 `systemd-analyze pcrs 7` prints. The test is the check.
+
+Pin, only when the hex is this Ally's sha256 from an `sd-encrypt` boot. The flag is `--tpm2-pcrs=7:sha256=<value>`. `--wipe-slot=tpm2` is on the same command, so the slot from the enrolment above is replaced and a second TPM slot is not left behind. Leave `value` as the placeholder to skip this block.
+
+```bash
+value=REPLACE_WITH_THIS_ALLY_PCR7_SHA256
+if [[ $value == "REPLACE_WITH_THIS_ALLY_PCR7_SHA256" ]]; then
+  echo "skip pin: set value to this Ally's sha256 from systemd-analyze pcrs 7 on an sd-encrypt boot"
+elif [[ ! -b $LUKS_DEV ]]; then
+  echo "stop: LUKS_DEV is unset"
+else
+  sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs="7:sha256=${value}" "$LUKS_DEV"
 fi
 ```
 
 `--tpm2-pcrs=7` is required. From systemd 258 the default PCR mask is empty, so omitting the option binds no PCR at all ([systemd v258 NEWS](https://github.com/systemd/systemd/releases/tag/v258)). Earlier `systemd-cryptenroll` bound the current literal value of PCR 7 when the option was left off. The systemd on this Ally is 262, which has the empty default. PCR 7 is the Secure Boot policy register. Binding nothing is not what this runbook does.
 
-Before the reboot that should unseal, run `systemd-analyze pcrs 7` and `systemd-pcrlock log --pcr=7` again, and read `tpm2-policy-hash` from section 10's `luksDump`. That policy is PCR 7 at enrolment. It is a different hex from the sha256 `systemd-analyze pcrs 7` prints. It matches the next boot when the log already contained `os-separator` and that sha256 is unchanged since the enrolment. A token sealed on the busybox boot carries the policy of the shorter PCR 7. Re-enrol from this boot and drop the old TPM slot in the same call. Leave `reenroll` unset to keep the slot the command above just wrote.
+A TPM slot sealed on the busybox boot is replaced from the `sd-encrypt` session. `--wipe-slot=tpm2` removes the old TPM slots after the new slot is written and leaves the passphrase slot. Do not add `--wipe-slot=password`. Leave `reenroll` unset to keep the slot the block above just wrote.
 
 ```bash
 if [[ ${reenroll:-} != "yes" ]]; then
-  echo "skip re-enrol: set reenroll=yes to replace a TPM slot, including one sealed on the busybox boot"
+  echo "skip re-enrol: set reenroll=yes to replace a TPM slot sealed on the busybox boot"
+elif [[ ! -b $LUKS_DEV ]]; then
+  echo "stop: LUKS_DEV is unset"
+elif ! sudo systemd-pcrlock log --pcr=7 | grep -q os-separator; then
+  echo "stop: this boot's PCR 7 log has no os-separator"
 else
   sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 "$LUKS_DEV"
 fi
 ```
-
-`--wipe-slot=tpm2` on an enrolment command removes the old TPM slots after the new slot is written. It leaves the passphrase slot. Use it whenever a TPM slot is already present, including one sealed too early. Do not add `--wipe-slot=password`.
 
 Go to section 10. Do not also run option 2.
 
@@ -419,7 +423,7 @@ Go to section 10. Do not also run option 2.
 
 Do not run this unless section 2's header file is still on the removable drive and non-empty. Do not run it while `/var/lib/omarchy/provisioning/luks-rekey.state` exists. `luks_rekey_retire` in `install/provisioning/luks-rekey.sh` kills every keyslot except the recorded owner slot, and `luks_dump_slots` lists a `systemd-tpm2` slot as an ordinary `luks2` slot. A rekey that runs after this enrolment deletes the TPM slot, and `luks_rekey_verify` fails while any other slot remains. Finish provisioning first, or leave this machine unenrolled. That gap is [L70](alpha-followups.md). It blocks the installer. It is already the reason this runbook refuses an open rekey journal.
 
-The os-separator rule in section 8 applies here. Enrol on the `sd-encrypt` boot, or pin `--tpm2-pcrs=7:sha256=<value>` from that boot. A fresh shell sets `LUKS_DEV` the same way.
+The os-separator rule in section 8 applies here. Enrol on the `sd-encrypt` boot, or pin this Ally's `--tpm2-pcrs=7:sha256=<value>` from that boot. A fresh shell sets `LUKS_DEV` the same way. The enrolment commands below run only when the PCR 7 log contains `os-separator`.
 
 ```bash
 ROOT_SRC=$(findmnt -no SOURCE --nofsroot /)
@@ -427,12 +431,12 @@ MAPPER_NAME=$(basename "$ROOT_SRC")
 LUKS_DEV=$(sudo cryptsetup status "$MAPPER_NAME" | awk '/^[[:space:]]+device:/ { print $2; exit }')
 if [[ ! -b $LUKS_DEV ]]; then
   echo "stop: LUKS_DEV is unset. This finder is for a booted Ally, not a live USB"
+elif ! sudo systemd-pcrlock log --pcr=7 | grep -q os-separator; then
+  echo "stop: this boot's PCR 7 log has no os-separator. Reboot onto the sd-encrypt image and unlock with the passphrase before enrolling"
+else
+  echo "os-separator is in this boot's PCR 7 log"
 fi
-systemd-analyze pcrs 7
-sudo systemd-pcrlock log --pcr=7
 ```
-
-Stop when that log has no `os-separator` line.
 
 Same hooks, same cmdline, same PCR. The PIN is a second secret mixed into the TPM policy. It is not a replacement for the passphrase slot.
 
@@ -448,13 +452,25 @@ A wrong PIN counts toward the TPM's dictionary-attack lockout. That lockout is a
 
 ```bash
 systemctl --version | head -n 1
-sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 --tpm2-with-pin=yes "$LUKS_DEV"
+if [[ ! -b $LUKS_DEV ]]; then
+  echo "stop: LUKS_DEV is unset"
+elif ! sudo systemd-pcrlock log --pcr=7 | grep -q os-separator; then
+  echo "stop: this boot's PCR 7 log has no os-separator"
+else
+  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 --tpm2-with-pin=yes "$LUKS_DEV"
+fi
 ```
 
-The command asks for the existing passphrase, then the PIN twice. If option 1 is already enrolled, do not add a second TPM slot. Replace it:
+The command asks for the existing passphrase, then the PIN twice. If option 1 is already enrolled, do not add a second TPM slot. Replace it. The same log check applies.
 
 ```bash
-sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 --tpm2-with-pin=yes "$LUKS_DEV"
+if [[ ! -b $LUKS_DEV ]]; then
+  echo "stop: LUKS_DEV is unset"
+elif ! sudo systemd-pcrlock log --pcr=7 | grep -q os-separator; then
+  echo "stop: this boot's PCR 7 log has no os-separator"
+else
+  sudo systemd-cryptenroll --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs=7 --tpm2-with-pin=yes "$LUKS_DEV"
+fi
 ```
 
 `--wipe-slot=tpm2` combined with an enrolment wipes the old TPM slots only after the new slot is written, and it does not wipe the new slot ([systemd-cryptenroll(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html)). It does not wipe a passphrase slot. Do not add `--wipe-slot=password`.
@@ -474,7 +490,7 @@ sudo systemd-cryptenroll "$LUKS_DEV"
 sudo cryptsetup luksDump "$LUKS_DEV"
 ```
 
-`systemd-cryptenroll` with no enrolment flag lists slots. You want a `password` row and a `tpm2` row. `luksDump` shows a `systemd-tpm2` token and an enabled passphrase keyslot (a `luks2` slot with a PBKDF, the slot that was there before you started). The token JSON includes `tpm2-policy-hash`, the policy of PCR 7 at enrolment. Section 8 is how that lines up with `systemd-analyze pcrs 7` and `systemd-pcrlock log --pcr=7`.
+`systemd-cryptenroll` with no enrolment flag lists slots. You want a `password` row and a `tpm2` row. `luksDump` shows a `systemd-tpm2` token and an enabled passphrase keyslot (a `luks2` slot with a PBKDF, the slot that was there before you started). The token JSON includes `tpm2-policy-hash`, the policy of PCR 7 at enrolment. That hex is not the sha256 from `systemd-analyze pcrs 7`. Section 8's `cryptsetup open --test-passphrase --token-only` is the proof that this boot unseals the token.
 
 Stop if the password row is gone. Do not reboot. Put the passphrase slot back from your notes only if you still have the passphrase and `cryptsetup luksAddKey` is a step you already know; otherwise boot nothing new and use the snapshot path in section 13 after you restore the old image. A TPM-only header is not the outcome of this runbook.
 
@@ -611,7 +627,7 @@ Secure Boot is off on this Ally. PCR 7 is then a stable "Secure Boot is off" mea
 
 With Secure Boot off, anyone holding the handheld can read every file on it. The desktop lock, the user password and sudo do not stop that. Only a drive removed from the handheld stays protected. Stock Omarchy treats the LUKS prompt as the boundary in front of autologin. This default removes that boundary, and the handheld desktop lock defaults to off. Two ways in, with no extra media and with any USB stick:
 
-- Limine's editor is on. A USB keyboard during the 1 second menu can change the entry. With Secure Boot off, systemd-stub honours a command line the loader passes. PCR 7 does not measure that command line, so the TPM still unseals. `init=/bin/bash` or `rd.systemd.debug_shell` is a root shell on the unlocked disk. `editor_enabled: no` in `limine.conf` does not close this by itself. That line lives on the ESP. Without Secure Boot and `limine enroll-config`, anyone who can write the ESP turns the editor back on. The command is in the hardening section.
+- Limine's editor is on. A USB keyboard during the 1 second menu can change the entry. With Secure Boot off, systemd-stub honours a command line the loader passes. PCR 7 does not measure that command line, so the TPM still unseals. `init=/bin/bash` or `rd.systemd.debug_shell` is a root shell on the unlocked disk. `editor_enabled: no` in `limine.conf` does not close this by itself. That line lives on the ESP. Without Secure Boot and `limine enroll-config`, anyone who can write the ESP turns the editor back on. A one-shot hash of that file panics after the next rewrite. The arguments and the recovery are in the hardening section.
 - PCR 7 has the same value for any boot chain while Secure Boot stays off. Booting another Linux from USB and unlocking with `systemd-cryptsetup` and `tpm2-device=auto`, or `cryptsetup open` with the token, unseals the key and opens the raw disk.
 
 Pulling the drive and fitting it in another machine does not: the key is sealed to this chip. That is the whole of what option 1 protects. Option 2 still asks for a PIN when the person holding the device is not you. It is not available without a keyboard until L68.
@@ -628,7 +644,7 @@ Do not delete that slot to "finish" the enrolment.
 
 ## What other images bind
 
-Bazzite binds PCR 7 and PCR 14, and Secure Boot can stay off. `ujust setup-luks-tpm-unlock` runs `luks-enable-tpm2-autounlock`, which calls `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+14` ([ujust](https://docs.bazzite.gg/Installing_and_Managing_Software/ujust/), [recipe](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-just/src/recipes/15-luks.just), [script](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-luks/src/luks-enable-tpm2-autounlock)). The image is `kinoite-main` ([Containerfile](https://github.com/ublue-os/bazzite/blob/main/Containerfile), [install.sh](https://github.com/ublue-os/main/blob/main/build_files/install.sh)). The script describes that pair as tied to the Secure Boot and MOK list state. `ujust enroll-secure-boot-key` is a separate, optional step ([Secure Boot](https://docs.bazzite.gg/General/Installation_Guide/secure_boot/)).
+Bazzite binds PCR 7 and PCR 14, and Secure Boot can stay off. `ujust setup-luks-tpm-unlock` runs `luks-enable-tpm2-autounlock`, which calls `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7+14` ([ujust](https://docs.bazzite.gg/Installing_and_Managing_Software/ujust/), [recipe](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-just/src/recipes/15-luks.just), [script](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-luks/src/luks-enable-tpm2-autounlock)). The image is `kinoite-main` ([Containerfile](https://github.com/ublue-os/bazzite/blob/main/Containerfile), [install.sh](https://github.com/ublue-os/main/blob/main/build_files/install.sh)). The script describes that pair as tied to the Secure Boot and MOK list state. PCR 14 is one of the registers `systemd-pcrosseparator.service` extends, so that 7+14 binding has the same enrol-after-systemd-boot rule as PCR 7. `ujust enroll-secure-boot-key` is a separate, optional step ([Secure Boot](https://docs.bazzite.gg/General/Installation_Guide/secure_boot/)). The ublue-os and Bazzite sources linked here are Apache-2.0. This section cites their commands. It does not copy their files.
 
 CachyOS, Handheld Edition included, publishes no LUKS TPM page and no default PCR set. Secure Boot in the wiki is `sbctl` ([secure boot](https://wiki.cachyos.org/configuration/secure_boot_setup/)). Documented boot managers are systemd-boot, rEFInd, GRUB and Limine ([boot managers](https://wiki.cachyos.org/installation/boot_managers/)). Handheld Edition defaults to Limine ([handheld install](https://wiki.cachyos.org/installation/installation_handheld/)). Community guides use `systemd-cryptenroll`, usually with Secure Boot already on. One forum tutorial uses `1+3+5+7+11+12+14+15` and calls `1+7` the absolute minimal ([thread](https://discuss.cachyos.org/t/tpm2-luks-auto-unlock-on-boot-systemd-only/5100)). That list is the thread's suggestion. CachyOS publishes no default of its own.
 
@@ -640,23 +656,15 @@ Omarchy ships `ENABLE_UKI=yes` (`etc/limine-entry-tool.d/omarchy-uki.conf`) and 
 
 Daniel's choice for the handheld is no input at boot. Nothing in this section is turned on by the steps above. Secure Boot on the handheld path is [L69](alpha-followups.md), and it is not done here.
 
-When that work lands, the order is: create keys with `sbctl`, or enrol through Limine's own Secure Boot path; set `editor_enabled: no` in `/boot/limine.conf`; enrol that file's BLAKE2B into the Limine EFI binary; sign that binary and the UKI after the enrol, because the enrol rewrites the binary; then re-enrol PCR 7, because turning Secure Boot on changes that register. The passphrase slot stays.
+When that work lands, the order is limine-entry-tool's, not a one-shot hash. Run `limine-install --fallback` first, so a checksum mismatch can still boot the fallback. Set `ENABLE_ENROLL_LIMINE_CONFIG=yes` in `/etc/default/limine`. With limine-snapper-sync, the pre hook is `limine-reset-enroll` and the post hook is `limine-enroll-config` (`/etc/boot/hooks/pre.d/10-limine-reset-enroll`, `/etc/boot/hooks/post.d/90-limine-enroll-config`). Those hooks re-enrol after `limine-update` and after a snapshot entry is written. Then sign the Limine binary and the UKI, and re-enrol PCR 7, because turning Secure Boot on changes that register. The passphrase slot stays. This page does not run that enrol.
 
-`editor_enabled: no` only helps with Secure Boot and this enrol. Limine defaults the editor to yes unless a config hash is enrolled, and it disables the editor unconditionally when Secure Boot is active and a hash is enrolled ([CONFIG.md](https://github.com/limine-bootloader/limine/blob/master/CONFIG.md)). The setting lives in `limine.conf`. Without Secure Boot plus `limine enroll-config`, anyone who can write the ESP can turn the editor back on. An image with no enrolled hash has no integrity beyond the firmware ([USAGE](https://github.com/limine-bootloader/limine/blob/master/USAGE.md), [FAQ](https://github.com/limine-bootloader/limine/blob/master/FAQ.md)).
+`editor_enabled: no` only helps with Secure Boot and an enrolled hash. Limine defaults the editor to yes unless a config hash is enrolled, and it disables the editor unconditionally when Secure Boot is active and a hash is enrolled ([CONFIG.md](https://github.com/limine-bootloader/limine/blob/master/CONFIG.md)). The setting lives in `limine.conf`. Without Secure Boot plus `limine enroll-config`, anyone who can write the ESP can turn the editor back on. An image with no enrolled hash has no integrity beyond the firmware ([USAGE](https://github.com/limine-bootloader/limine/blob/master/USAGE.md), [FAQ](https://github.com/limine-bootloader/limine/blob/master/FAQ.md)).
 
-The command takes two arguments: the Limine EFI executable, then the BLAKE2B-512 of the config file. The hash is 128 hex characters. On this x86 Ally the executable is `/boot/EFI/limine/limine_x64.efi`, and the config is `/boot/limine.conf` after `editor_enabled: no` is in it.
+`limine enroll-config` takes two arguments: the Limine EFI executable, then the BLAKE2B-512 of the config, 128 hex characters (`b2sum -l 512`). `limine enroll-config <efi> --reset` removes the enrolled hash. On the checked RC71L the executable was `/boot/EFI/limine/limine_x64.efi`. This tree does not name that file. A later enrol has to set `limine_efi` to the binary on the ESP and stop unless `[[ -f $limine_efi ]]`. Signing happens after the enrol, because the enrol rewrites the binary.
 
-```bash
-config_hash=$(b2sum -l 512 /boot/limine.conf | awk '{ print $1; exit }')
-printf 'blake2b=%s\nlength=%s\n' "$config_hash" "${#config_hash}"
-if ((${#config_hash} != 128)); then
-  echo "stop: limine enroll-config wants the 128-character BLAKE2B-512 of limine.conf"
-else
-  sudo limine enroll-config /boot/EFI/limine/limine_x64.efi "$config_hash"
-fi
-```
+Do not enrol one hash of `/boot/limine.conf` and stop. With Secure Boot on, Limine checks that hash on every boot, and a mismatch panics before any OS ([USAGE](https://github.com/limine-bootloader/limine/blob/master/USAGE.md)). `limine-update`, `limine-snapper-sync` and Omarchy migrations rewrite `/boot/limine.conf`. The first of those after a one-shot enrol is the panic in [#15524](https://github.com/omacom/omarchy/issues/15524). A live USB does not start while the firmware holds only the owner's keys.
 
-`limine enroll-config /boot/EFI/limine/limine_x64.efi --reset` removes the enrolled hash. Sign the binary after the enrol. A signature made earlier no longer matches the rewritten file.
+Recovery from that panic: turn Secure Boot off in the Ally's firmware setup. Limine then skips the checksum check. The disk asks for the passphrase, because turning Secure Boot off changes PCR 7. From a USB that can boot, which needs Microsoft keys enrolled (`sbctl enroll-keys -m`) or Secure Boot already off, `limine enroll-config <efi> --reset` clears the hash. Confirm `[[ -f $limine_efi ]]` before that reset.
 
 A later binding, still not this default, is PCR 7 plus PCR 15, or `systemd-pcrlock`, or a signed PCR 11 policy. PCR 7 alone, even with Secure Boot on, does not close the volume-confusion case above.
 
@@ -666,5 +674,5 @@ A later binding, still not this default, is PCR 7 plus PCR 15, or `systemd-pcrlo
 - Checked on the RC71L, 16 November 2026: busybox `encrypt` is the image, `/etc/mkinitcpio.conf`'s systemd line is not, `/etc/crypttab` has no live entries, Secure Boot is disabled, the UKI is under `/boot/EFI/Linux/`, `limine-update` rebuilds it, `-h` on `limine-update` and `limine-mkinitcpio` starts that rebuild. `btrfs-overlayfs` is `run_latehook` only. `sd-btrfs-overlayfs` from `limine-mkinitcpio-hook` put `overlayfs-setup.service` in the rebuilt initrd. Snapshot entries boot archived UKIs from `limine_history` with the old cmdline. `usbhid`, `hid-generic`, `atkbd` and `xhci` are built into the omarchy kernel. `omarchy_hooks.conf` did not strip `kms` (no NVIDIA). `omarchy_vconsole.conf` and `FILES` were unchanged by the hook assignment. A token sealed on that busybox boot missed `os-separator`. The `sd-encrypt` boot extended PCR 7 before cryptsetup, and the token did not unseal.
 - [systemd-cryptenroll(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html), [systemd v258 NEWS](https://github.com/systemd/systemd/releases/tag/v258) (the PCR mask defaults to empty), [systemd-ask-password(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-ask-password.html), [Arch Wiki: systemd-cryptenroll](https://wiki.archlinux.org/title/Systemd-cryptenroll), [systemd-pcrosseparator.service(8)](https://man.archlinux.org/man/systemd-pcrosseparator.service.8.en), [UAPI PCR registry](https://uapi-group.org/specifications/specs/linux_tpm_pcr_registry/).
 - Peers: [Bazzite ujust](https://docs.bazzite.gg/Installing_and_Managing_Software/ujust/), [15-luks.just](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-just/src/recipes/15-luks.just), [luks-enable-tpm2-autounlock](https://github.com/ublue-os/packages/blob/main/packages/ublue-os-luks/src/luks-enable-tpm2-autounlock), [Bazzite Containerfile](https://github.com/ublue-os/bazzite/blob/main/Containerfile), [ublue install.sh](https://github.com/ublue-os/main/blob/main/build_files/install.sh), [Bazzite Secure Boot](https://docs.bazzite.gg/General/Installation_Guide/secure_boot/), [CachyOS Secure Boot](https://wiki.cachyos.org/configuration/secure_boot_setup/), [CachyOS boot managers](https://wiki.cachyos.org/installation/boot_managers/), [CachyOS Handheld](https://wiki.cachyos.org/installation/installation_handheld/), [CachyOS forum TPM thread](https://discuss.cachyos.org/t/tpm2-luks-auto-unlock-on-boot-systemd-only/5100).
-- Threats: [oddlama, Bypassing disk encryption on systems with automatic TPM2 unlock](https://oddlama.org/blog/bypassing-disk-encryption-with-tpm2-unlock/) (2025). faulTPM, shown on AMD Zen 2 and Zen 3, not verified on the Z1: [arxiv 2304.14717](https://arxiv.org/abs/2304.14717). Limine's editor defaults to on when `editor_enabled` is unset (`default/limine/limine.conf`). `editor_enabled: no` holds with Secure Boot and an enrolled config hash: [CONFIG.md](https://github.com/limine-bootloader/limine/blob/master/CONFIG.md), [USAGE.md](https://github.com/limine-bootloader/limine/blob/master/USAGE.md), [FAQ.md](https://github.com/limine-bootloader/limine/blob/master/FAQ.md). Stock quattro does not ship that path ([closed PR 1726](https://github.com/omacom/omarchy/pull/1726), [#10945](https://github.com/omacom/omarchy/issues/10945), [#15524](https://github.com/omacom/omarchy/issues/15524), [Arch Wiki: Limine](https://wiki.archlinux.org/title/Limine), [discussion 5306](https://github.com/omacom/omarchy/discussions/5306)).
+- Threats: [oddlama, Bypassing disk encryption on systems with automatic TPM2 unlock](https://oddlama.org/blog/bypassing-disk-encryption-with-tpm2-unlock/) (2025). faulTPM, shown on AMD Zen 2 and Zen 3, not verified on the Z1: [arxiv 2304.14717](https://arxiv.org/abs/2304.14717). Limine's editor defaults to on when `editor_enabled` is unset (`default/limine/limine.conf`). `editor_enabled: no` holds with Secure Boot and an enrolled config hash: [CONFIG.md](https://github.com/limine-bootloader/limine/blob/master/CONFIG.md), [USAGE.md](https://github.com/limine-bootloader/limine/blob/master/USAGE.md), [FAQ.md](https://github.com/limine-bootloader/limine/blob/master/FAQ.md). Limine's docs are BSD-2-Clause. The citations are the commands and the checksum rule. Stock quattro does not ship that path ([closed PR 1726](https://github.com/omacom/omarchy/pull/1726), [#10945](https://github.com/omacom/omarchy/issues/10945), [#15524](https://github.com/omacom/omarchy/issues/15524), [Arch Wiki: Limine](https://wiki.archlinux.org/title/Limine), [discussion 5306](https://github.com/omacom/omarchy/discussions/5306)). limine-entry-tool re-enrols on each config rewrite (`ENABLE_ENROLL_LIMINE_CONFIG`, `limine-enroll-config`, `limine-reset-enroll`, `limine-install --fallback`).
 - Pad: [research/ally-hw-dump.md](research/ally-hw-dump.md). Touch path, not installed here: [buffybox](https://gitlab.postmarketos.org/postmarketOS/buffybox), [AUR buffybox](https://aur.archlinux.org/packages/buffybox). Retired: [Osk-sdl](https://wiki.postmarketos.org/wiki/Osk-sdl).
