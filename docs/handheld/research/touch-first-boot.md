@@ -57,7 +57,7 @@ Steam's keyboard inside gamescope is drawn by Steam, not by gamescope. The games
 
 ## 4. Login, autologin and the lock
 
-Spec 02 §7.1: the handheld installer writes the autologin user once. `User=` is its own file, `omarchy-handheld-user.conf`, because apply rewrites `zz-omarchy-handheld.conf` and an unencrypted install deletes `autologin.conf` after the first boot. The handheld drop-in sets `Session=omarchy-handheld.desktop` and `Relogin=true`. Three failed gaming starts inside 60 seconds set `Relogin=false`, restart SDDM, and the greeter shows. The session verb exits without starting the desktop. Getty is not autologin. OQ-4 is resolved there: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
+Spec 02 §7.1 and spec 03 W9 say the installer writes `User=<installer-created user>`, `Session=omarchy-handheld.desktop` and `Relogin=false` once, and never guesses the user. On this tree those keys are not one file. `write_dropin` in `bin/omarchy-handheld-autologin` writes only `Session=omarchy-handheld.desktop` and `Relogin=` into `/etc/sddm.conf.d/zz-omarchy-handheld.conf`. It does not write `User=`. `apply` replaces that file, so a `User=` line put only there is deleted on the next apply ([write_dropin](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-handheld-autologin), [ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). `User=` has to live in a file `apply` does not replace. Today's provisioner writes `User=` and `Session=omarchy.desktop` to `/etc/sddm.conf.d/autologin.conf`. An unencrypted install then enables `omarchy-provision-autologin-once.service`, which deletes that file before the next SDDM start ([configure_login](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/bin/omarchy-provision-owner)). sddm.conf(5) restarts an autologin session on `Relogin=true` only when both `User` and `Session` are set ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). After that cleanup, a handheld that still autologins needs `User=` in some other drop-in. This branch writes that surviving `User=` once to `/etc/sddm.conf.d/omarchy-handheld-user.conf` (`omarchy-handheld-autologin install-user`). apply never creates or replaces that file. Spec 02 §7.7 keeps the installer's `Session=` and lets `zz-` win on `Relogin`. Three failed gaming starts inside 60 seconds set `Relogin=false` and the greeter shows. The session verb exits without starting the desktop. Getty is not autologin. OQ-4 is resolved: a desktop reached from that autologin goes through `desktop()` in `bin/omarchy-session-start`, and the lock runs only when `desktop-lock` is effectively `on` ([02 §7.1–§7.4](../02-mode-switch-and-dock.md)).
 
 Until auth item K07 (a keyboard inside the trusted lock surface), the handheld variant ships `desktop-lock` `default-off`. With that value, Switch to Desktop, Exit Steam, the dock prompt and the gaming-failure fallback all show the Hyprland desktop with no lock. Spec 02 §7.5 states the trade-off in plain terms: anyone holding the Ally then has the desktop UI, autostart and the user's files. The gaming session is already the desktop user's UID, with Steam, games and anything that session starts. The lock, once on, protects the desktop UI only. It does not protect user files, Steam data or a shell started inside gamescope. A TTY still asks for a password. This gap is accepted because there is no lock-screen touch keyboard yet. It is not a user opt-out. After `/var/lib/omarchy/handheld/k07-landed` exists, a missing value fails closed to `on`.
 
@@ -107,7 +107,7 @@ CachyOS Handheld's desktop is that same Plasma session (`plasma.desktop` in `ste
 
 Bazzite's deck image avoids a boot password by autologin. The same thread says a LUKS passphrase still needs a physical keyboard ([thread](https://www.answeroverflow.com/m/1334405906246537236)). A third-party layer, `bazzite-touch-unlock`, puts unl0kr on the Plymouth passphrase screen. It is not Bazzite upstream, it needs a USB keyboard for the first install, and touch is the supported input ([repo](https://github.com/jg00dman/bazzite-touch-unlock)). unl0kr comes from BuffyBox. AUR `buffybox` is `GPL-3.0-or-later` ([AUR](https://aur.archlinux.org/packages/buffybox)). Spec 03 already refuses unl0kr as the lock keyboard and the disk-unlock keyboard.
 
-On Omarchy, turning `desktop-lock` off needs an interactive password, and a passwordless polkit rule must not be able to do it ([02 §7.4](../02-mode-switch-and-dock.md)). `install/omarchy-base.packages` does not name a polkit agent. Whether `hyprpolkitagent` (listed in extra beside the other hypr* packages) can take wvkbd input is unverified, and its SPDX id was not fetched, so it is not a reuse candidate in the table below. Until K07, the handheld does not put that prompt on the boot path: `default-off` skips the lock.
+On Omarchy, turning `desktop-lock` off needs an interactive password, and a passwordless polkit rule must not be able to do it ([02 §7.4](../02-mode-switch-and-dock.md)). The desktop already ships that dialog: `omarchy.polkit` is a keep-loaded shell service ([manifest](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/shell/plugins/polkit/manifest.json)). `PolkitAgent.qml` is a layer-shell window with exclusive keyboard focus and a password field. It does not embed a keyboard ([PolkitAgent.qml](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/shell/plugins/polkit/PolkitAgent.qml)). `install/omarchy-base.packages` does not name `hyprpolkitagent`. Whether wvkbd can type into that exclusive layer is unverified (open question 6). Until K07, the handheld does not put that prompt on the boot path: `default-off` skips the lock.
 
 ### Crash loop
 
@@ -118,7 +118,7 @@ On Omarchy, turning `desktop-lock` off needs an interactive password, and a pass
 | ChimeraOS | Repeated init failure drops to the Gnome desktop | [Getting Started](https://github.com/ChimeraOS/chimeraos/wiki/Getting-Started) |
 | Omarchy | One retry, then the desktop through `desktop()`. Three starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and show the greeter. A reboot clears `/run` and the next boot writes `Relogin=true` again | [ALPHA.md](../ALPHA.md), [02 §7.2](../02-mode-switch-and-dock.md) |
 
-The greeter is the recovery screen, and on this branch it cannot submit the password by touch. SSH works only when sshd was already enabled ([ALPHA.md](../ALPHA.md)). That is the hole this note is trying to close.
+The greeter is the recovery screen. SSH works only when sshd was already enabled ([ALPHA.md](../ALPHA.md)). The grid on this branch has backspace, space and enter, and `GreeterEnvironment` turns on Qt Virtual Keyboard, so that crash-loop greeter can be submitted by touch.
 
 ## 8. Steam's on-screen keyboard outside a game
 
@@ -131,7 +131,7 @@ Summon paths with a source:
 | Steam+X | Valve's chord layout binds `button_x` to `controller_action SHOW_KEYBOARD`. Sam Lantinga: all-zero `steam://open/keyboard` parameters match that chord | The Oct 2026 client logs `Guide button skipped due to chording` and does nothing for Steam+X in Desktop Mode. X alone still opens it when the stock desktop config is loaded ([#13794](https://github.com/ValveSoftware/steam-for-linux/issues/13794), [SDL PR 6515](https://github.com/libsdl-org/SDL/pull/6515)) |
 | X alone | `desktop_neptune.vdf` binds `button_x` to `SHOW_KEYBOARD` | Needs Steam running and that desktop config applied. A blank desktop config is a different case; #13794 says a blank config was not the cause of the chord bug |
 | `steam://open/keyboard` | SDL opens `steam://open/keyboard?XPosition=%d&YPosition=%d&Width=%d&Height=%d&Mode=0`. Close is `steam://close/keyboard`. `xdg-open steam://open/keyboard` showed the keyboard on a Deck while a game was running | The URL is handled by Steam. slouken: Wayland reporting three keyboards made SDL skip the OSK, because it thought a hardware keyboard was present ([SDL #12595](https://github.com/libsdl-org/SDL/issues/12595)) |
-| `ISteamUtils::ShowFloatingGamepadTextInput` | Opens a floating keyboard and sends OS key events to the game. Mode 0 dismisses on Enter | Partner API, in-game ([docs](https://partner.steamgames.com/doc/api/ISteamUtils#ShowGamepadTextInput)) |
+| `ISteamUtils::ShowFloatingGamepadTextInput` | Opens a floating keyboard and sends OS key events to the game. Mode 0 dismisses on Enter | Partner API, in-game ([ShowFloatingGamepadTextInput](https://partner.steamgames.com/doc/api/ISteamUtils#ShowFloatingGamepadTextInput)). `ShowGamepadTextInput` is the other call on that page |
 | Text field in Game Mode | A third-party guide says holding Steam and pressing X, or focusing a text box, opens it. It also says the chord does not work on the home screen or inside Settings | [How-To Geek](https://www.howtogeek.com/898672/how-to-use-and-customize-the-virtual-keyboard-on-your-steam-deck/). Not a Valve page. The Valve FAQ URLs fetched for this note returned no article body |
 
 Hyprland: no source says the Steam keyboard window maps, accepts touch, or sits above Hyprland surfaces. #13794 and KDE 457772 are Desktop Mode on Plasma. Spec 07 already says Big Picture inside Hyprland uses wvkbd, and Steam's desktop layout stays off while the InputPlumber `desktop` profile is active. Whether `xdg-open steam://open/keyboard` from a Hyprland terminal does anything on the Ally is an open question. Steam must be running or the URL has nobody to handle it ([SDL PR 6515](https://github.com/libsdl-org/SDL/pull/6515)).
@@ -150,7 +150,7 @@ Best first. Each line is something Omarchy can ship without copying copyleft sou
 
 1. **Autologin into the gamescope session that already exists.** Touch is passthrough (`--default-touch-mode 4`). Steam's UI, Steam's Internet page and Steam's keyboard are the keyboardless path. Spec 02 already chose this. The security cost is §4.
 2. **Stay on NetworkManager with `wpa_supplicant`.** Join Wi-Fi in Steam if OQ-10 passes, otherwise in `omarchy.network` with wvkbd for the passphrase. Do not switch the backend to iwd.
-3. **Make the greeter able to submit.** Qt Virtual Keyboard (`extra/qt6-virtualkeyboard`) inside the existing SDDM theme, with Backspace, Shift, symbols and a submit control. The current grid cannot finish a login. Do not swap SDDM for greetd.
+3. **Make the greeter able to submit.** Qt Virtual Keyboard (`extra/qt6-virtualkeyboard`) inside the existing SDDM theme, with Backspace, Shift, symbols and a submit control. Turn it on the way the auth greeter does: `GreeterEnvironment` names the Qt module, and `[General] InputMethod=` stays unset. Do not add kwin's `--inputmethod` to `start-hyprland`. The current grid cannot finish a login. Do not swap SDDM for greetd.
 4. **InputPlumber as a system service before the greeter**, with an explicit stick-to-mouse profile for the greeter and the desktop. The package is already the plan in [buttons-and-input.md](buttons-and-input.md). Confirm on device that the pointer moves in SDDM.
 5. **K07 as a numeric keypad inside the lock**, on the iPad and Plasma pattern. `desktop-lock` stays `default-off` until that exists. hyprlock's missing PIN widget is why this is not "turn hyprlock on".
 6. **wvkbd, manual, on the Hyprland desktop only.** Already spec 07. `--auto` stays off while Fcitx5 is the input method.
@@ -172,23 +172,36 @@ Packages to add, when the matching piece is built. Versions are the Arch pages f
 
 Leave installed and unchanged: `networkmanager`, `sddm`, `fcitx5`, `hyprland`. Do not add `iwd`, `impala` or `iwgtk`.
 
-Autologin, written once by the installer, as spec 02 §7.1 and spec 03 W9 already say:
+Autologin is two files. `apply` rewrites only the second. Putting `User=` in the second file loses it.
 
 ```
+# /etc/sddm.conf.d/autologin.conf
+# Installer-owned. apply does not touch this file.
+# Today's provisioner writes Session=omarchy.desktop here, then an
+# unencrypted install deletes the file on the next boot. A handheld
+# that keeps autologin after that boot needs User= to survive, and
+# Session=omarchy-handheld.desktop either here or in a file that
+# zz- does not need to repeat.
+[Autologin]
+User=<installer-created user>
+Session=omarchy-handheld.desktop
+Relogin=false
+
 # /etc/sddm.conf.d/omarchy-handheld-user.conf
-# Installer-owned. apply never rewrites it. autologin.conf is deleted
-# after the first boot on an unencrypted install, so User= cannot live there.
+# The file this branch writes once. apply never creates or replaces it.
+# autologin.conf is deleted after the first boot on an unencrypted install,
+# so User= lives here instead.
 [Autologin]
 User=<installer-created user>
 
 # /etc/sddm.conf.d/zz-omarchy-handheld.conf
-# apply rewrites only these two keys.
+# What write_dropin actually writes. No User=.
 [Autologin]
 Session=omarchy-handheld.desktop
 Relogin=true
 ```
 
-Do not put `User=` in the file apply rewrites. Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`. Three failures set `Relogin=false` and show the greeter ([ALPHA.md](../ALPHA.md)).
+`zz-` sorts later, so its `Relogin` wins. Three failures make `apply` write `Relogin=false` ([ALPHA.md](../ALPHA.md), [02 §7.7](../02-mode-switch-and-dock.md)). The session verb then exits without starting the desktop. `Relogin=true` does nothing unless some other file still has `User=` ([sddm.conf(5)](https://man.archlinux.org/man/sddm.conf.5)). Do not put `User=` in the file apply rewrites. Do not guess the user at runtime. Do not copy CachyOS `steam-set-session`.
 
 Session command, already in `bin/omarchy-session-start`:
 
@@ -204,7 +217,7 @@ systemctl enable --now inputplumber.service
 
 The mouse profile is a new file under `/etc/inputplumber/profiles/`, loaded with `LoadProfilePath` on the composite device. The stock `50-rog_ally.yaml` creates the mouse target and does not, by itself, document a stick-to-cursor map. Write that map in Omarchy's own words, or vendor InputPlumber's file beside its LICENSE. Do not paste the GPL YAML into an MIT file.
 
-Greeter: extend `default/sddm/omarchy/Main.qml` with Backspace and a submit button that calls the same `sddm.login` the Return key calls, or switch that grid for Qt Virtual Keyboard. The auth branches already point at `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf` ([07](../07-on-screen-keyboard.md)). This integration file has no `InputMethod=` line. The kwin-specific `--inputmethod` advice does not apply to `start-hyprland` until someone tests it.
+Greeter: extend `default/sddm/omarchy/Main.qml` with Backspace and a submit button that calls the same `sddm.login` the Return key calls, or switch that grid for Qt Virtual Keyboard. The auth and release branches set `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf` (`QT_IM_MODULE`, `QT_IM_MODULES`, `QT_VIRTUALKEYBOARD_DESKTOP_DISABLE`) and do not set `InputMethod=` ([07](../07-on-screen-keyboard.md), [lock-findings](../review/lock-findings.md)). This integration file has neither line ([10-wayland.conf](https://github.com/DanielJBurbridge/omarchy/blob/feat/ally-parity-integration-20261111/etc/sddm.conf.d/10-wayland.conf)). Follow that `GreeterEnvironment` pattern. Do not add kwin's `--inputmethod` to `start-hyprland`.
 
 Desktop passphrase: summon wvkbd with the existing helper, then type into `omarchy.network`. If the bar widget is missing, a menu row that summons `omarchy.network` is the small product change. `nm-connection-editor` is the fallback window. Both need the pointer from InputPlumber or a finger.
 
@@ -225,7 +238,7 @@ Pieces already on this branch that the setup touches:
 3. `xdg-open steam://open/keyboard` from Hyprland, Steam running, no physical keyboard. Does a window appear, and does touch type into a GTK passphrase dialog?
 4. Steam+X and X-alone against the stock Steam desktop config, in gamescope and in Hyprland. #13794 says the chord is broken in Plasma Desktop Mode as of the Oct 2026 client.
 5. `inputplumber.service` active before SDDM: does the stick move the greeter pointer, and can A click a key on the grid?
-6. wvkbd typed into a real polkit or sudo prompt on this desktop. If the dialog is modal and covers the keyboard, the prompt is not usable. Record which agent is installed. The base package list does not name one.
+6. wvkbd typed into `omarchy.polkit`. That dialog takes exclusive keyboard focus and has no keyboard of its own. If it covers wvkbd, the prompt is not usable by touch. A sudo prompt in a terminal is the same question.
 7. The greeter grid: confirm there is no submit control on the device, matching `Main.qml`.
 8. hyprgrass on the Ally touchscreen, with a USB keyboard plugged in for the first load.
 9. Whether the RC71L accelerometer should drive `iio-hyprland`. Not required for boot.
