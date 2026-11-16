@@ -14,8 +14,8 @@ source=('powerbuttond::git+https://gitlab.steamos.cloud/holo/powerbuttond.git#co
         '70-omarchy-rog-ally-power-button.hwdb'
         '70-omarchy-rog-ally-power-button.rules')
 sha256sums=('SKIP'
-            '2dee85350942cd4a075d7d4b11b09c71fc297313fb4b021fd926c70116a836c9'
-            '5f0c5ca5626d6703a1d75fd5a10e8a6b1dedce8e8c0a414af608cf7e1d0d5301')
+            '1014f99404e135552b4b7fefc6da53fac799ac541b492eb04b728f1b6c6eab0b'
+            '8e7349cf743e87fc868d8477f6874a82d274b84ef3e28a1e2fb4e51215bb4e45')
 
 build() {
   make -C powerbuttond

@@ -144,13 +144,17 @@ cat >"$power_stub/omarchy-install-rog-ally-powerbutton" <<'SH'
 printf '%s\n' "install-powerbutton" >>"$PKG_LOG"
 exit "${FAKE_POWER_INSTALL:-0}"
 SH
-chmod +x "$power_stub/omarchy-install-rog-ally-powerbutton"
+cat >"$power_stub/omarchy-pkg-present" <<'SH'
+#!/bin/bash
+[[ $1 == omarchy-gaming-session && ${FAKE_GAMING_SESSION:-0} == 1 ]]
+SH
+chmod +x "$power_stub/omarchy-install-rog-ally-powerbutton" "$power_stub/omarchy-pkg-present"
 
 run_ally_leaf() {
   OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
     OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
     OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${1:-0}" \
+    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${1:-0}" FAKE_GAMING_SESSION="${2:-0}" \
     PATH="$power_stub:$ROOT/bin:$PATH" \
     bash -eE -c 'source "$1"' bash "$ROOT/install/hardware/asus/rog-ally.sh" </dev/null
 }
@@ -158,11 +162,19 @@ run_ally_leaf() {
 : >"$pkg_log"
 note=$(
   write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
-  run_ally_leaf
+  run_ally_leaf 0 0
 )
 [[ $note == *"RC71L"* && $note == *"asusctl"* ]] || fail "the Ally hardware leaf names the machine and the skipped package" "$note"
-[[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the Ally hardware leaf installs the power-button companion" "$(<"$pkg_log")"
-pass "the Ally hardware leaf names the machine and installs the power-button companion"
+[[ ! -s $pkg_log ]] || fail "the Ally hardware leaf does not install the power button without the gaming session" "$(<"$pkg_log")"
+pass "the Ally hardware leaf names the machine and skips the power button without the gaming session"
+
+: >"$pkg_log"
+note=$(
+  write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
+  run_ally_leaf 0 1
+)
+[[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the Ally hardware leaf installs the power-button companion with the gaming session" "$(<"$pkg_log")"
+pass "the Ally hardware leaf installs the power-button companion with the gaming session"
 
 : >"$pkg_log"
 note=$(
@@ -175,10 +187,10 @@ pass "the Ally hardware leaf is silent on an Ally X"
 
 : >"$pkg_log"
 write_dmi "$vendor" "ROG Ally" "RC71L"
-if ! err=$(run_ally_leaf 1 2>&1 >/dev/null); then
+if ! err=$(run_ally_leaf 1 1 2>&1 >/dev/null); then
   fail "a failed companion install does not abort the Ally hardware leaf"
 fi
-[[ $err == *"sudo omarchy-install-rog-ally-powerbutton"* ]] || fail "a failed companion install names the command to re-run" "$err"
+[[ $err == *"omarchy-setup-gaming-session"* ]] || fail "a failed companion install names the command to re-run" "$err"
 pass "a failed companion install does not stall the rest of hardware setup"
 
 # Laptop audio quirks must not run on the Ally. sudo is stubbed so a body that
@@ -672,6 +684,7 @@ mkdir -p "$build_stub"
 cat >"$build_stub/makepkg" <<'SH'
 #!/bin/bash
 printf 'makepkg %s\n' "$*" >>"$PKG_LOG"
+printf 'git-speed %s %s\n' "${GIT_HTTP_LOW_SPEED_LIMIT:-missing}" "${GIT_HTTP_LOW_SPEED_TIME:-missing}" >>"$PKG_LOG"
 pwd >"$PKG_LOG.workdir"
 cmp -s PKGBUILD "$OMARCHY_PATH/packaging/rog-ally-powerbutton/PKGBUILD" || exit 1
 cmp -s 70-omarchy-rog-ally-power-button.hwdb "$OMARCHY_PATH/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.hwdb" || exit 1
@@ -682,6 +695,7 @@ cat >"$build_stub/pacman" <<'SH'
 #!/bin/bash
 if [[ $1 == -Q ]]; then
   name=${!#}
+  [[ $name == omarchy-gaming-session && ${FAKE_GAMING_SESSION:-0} == 1 ]] && exit 0
   [[ $name == omarchy-rog-ally-powerbutton && ${FAKE_POWER_PKG:-0} == 1 ]] && exit 0
   [[ -n ${FAKE_CONFLICT:-} && $name == "$FAKE_CONFLICT" ]] && exit 0
   exit 1
@@ -706,6 +720,14 @@ cat >"$build_stub/yay" <<'SH'
 printf 'yay %s\n' "$*" >>"$PKG_LOG"
 exit 99
 SH
+cat >"$build_stub/timeout" <<'SH'
+#!/bin/bash
+printf 'timeout %s\n' "$1" >>"$PKG_LOG"
+[[ $1 =~ ^[0-9]+$ ]] || exit 1
+(( $1 > 0 && $1 <= 120 )) || exit 1
+shift
+exec "$@"
+SH
 chmod +x "$build_stub"/*
 
 power_migration=$ROOT/migrations/1795075200.sh
@@ -722,6 +744,7 @@ run_power_install() {
     OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
     OMARCHY_PATH="$ROOT" PKG_LOG="$pkg_log" \
     FAKE_POWER_PKG="${FAKE_POWER_PKG:-0}" FAKE_CONFLICT="${FAKE_CONFLICT:-}" \
+    FAKE_GAMING_SESSION="${FAKE_GAMING_SESSION:-0}" \
     PATH="$build_stub:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-install-rog-ally-powerbutton"
 }
@@ -742,9 +765,14 @@ run_power_install
 pass "the power-button installer stays closed off the original Ally"
 
 write_dmi "$vendor" "ROG Ally" "RC71L"
+: >"$pkg_log"
+FAKE_GAMING_SESSION=0 run_power_install
+[[ ! -s $pkg_log ]] || fail "the installer does nothing without the gaming session" "$(<"$pkg_log")"
+pass "the power-button installer does nothing without the gaming session"
+
 for conflict in steamos-powerbuttond steam-powerbuttond steam-powerbuttond-git; do
   : >"$pkg_log"
-  if note=$(FAKE_CONFLICT="$conflict" run_power_install 2>&1); then
+  if note=$(FAKE_GAMING_SESSION=1 FAKE_CONFLICT="$conflict" run_power_install 2>&1); then
     fail "an installed $conflict is refused"
   fi
   [[ $note == *"$conflict"* ]] || fail "the refusal names $conflict" "$note"
@@ -754,7 +782,7 @@ done
 pass "an already installed Steam power daemon is left in place"
 
 : >"$pkg_log"
-FAKE_POWER_PKG=1 run_power_install
+FAKE_GAMING_SESSION=1 FAKE_POWER_PKG=1 run_power_install
 udev_refreshed || fail "an installed companion still reloads the input tags" "$(<"$pkg_log")"
 [[ $(<"$pkg_log") != *makepkg* && $(<"$pkg_log") != *"pacman -U"* ]] ||
   fail "an installed companion is not built again" "$(<"$pkg_log")"
@@ -762,7 +790,9 @@ pass "an installed companion only reloads udev"
 
 : >"$pkg_log"
 rm -f "$pkg_log.workdir"
-FAKE_POWER_PKG=0 FAKE_CONFLICT= run_power_install
+FAKE_GAMING_SESSION=1 FAKE_POWER_PKG=0 FAKE_CONFLICT='' run_power_install
+[[ $(<"$pkg_log") == *'timeout 90'* ]] || fail "the build is capped before the display manager" "$(<"$pkg_log")"
+[[ $(<"$pkg_log") == *'git-speed 1000 30'* ]] || fail "a stalled clone aborts" "$(<"$pkg_log")"
 [[ $(<"$pkg_log") == *makepkg* ]] || fail "a missing companion is built" "$(<"$pkg_log")"
 [[ $(<"$pkg_log") == *"pacman -U --noconfirm --"* && $(<"$pkg_log") == *"omarchy-rog-ally-powerbutton-"*".pkg.tar.zst"* ]] ||
   fail "the built package is installed with pacman -U" "$(<"$pkg_log")"
@@ -774,21 +804,110 @@ udev_refreshed || fail "a new companion reloads the input tags" "$(<"$pkg_log")"
   fail "the recipe directory is not the build directory"
 pass "the missing companion is built from the in-tree recipe and installed locally"
 
+run_power_migration() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    OMARCHY_PATH="$ROOT" HOME="$power_home" \
+    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${FAKE_POWER_INSTALL:-0}" \
+    FAKE_GAMING_SESSION="${FAKE_GAMING_SESSION:-0}" \
+    FAKE_POWER_PKG="${FAKE_POWER_PKG:-0}" FAKE_CONFLICT="${FAKE_CONFLICT:-}" \
+    PATH="$1:$ROOT/bin:$PATH" \
+    bash -euo pipefail "$power_migration"
+}
+
+power_home="$test_tmp/power-home"
+mkdir -p "$power_home"
+power_marker="$power_home/.local/state/omarchy/migrations/1795075200.sh"
+
 : >"$pkg_log"
 write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
-FAKE_POWER_INSTALL=0 \
-  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
-  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
-  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-  PKG_LOG="$pkg_log" PATH="$power_stub:$ROOT/bin:$PATH" \
-  bash -euo pipefail "$power_migration" >/dev/null
+FAKE_GAMING_SESSION=0 run_power_migration "$power_stub" >/dev/null
+[[ ! -s $pkg_log ]] || fail "the migration does nothing without the gaming session" "$(<"$pkg_log")"
+pass "the migration does nothing without the gaming session"
+
+: >"$pkg_log"
+FAKE_GAMING_SESSION=1 FAKE_POWER_INSTALL=0 run_power_migration "$power_stub" >/dev/null
 [[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the migration installs the companion on an RC71L" "$(<"$pkg_log")"
 : >"$pkg_log"
 write_dmi "$vendor" "ROG Strix G16" "GU605CX"
-OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
-  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
-  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-  PKG_LOG="$pkg_log" PATH="$power_stub:$ROOT/bin:$PATH" \
-  bash -euo pipefail "$power_migration" >/dev/null
+FAKE_GAMING_SESSION=1 run_power_migration "$power_stub" >/dev/null
 [[ ! -s $pkg_log ]] || fail "the migration does nothing on a ROG laptop" "$(<"$pkg_log")"
-pass "the migration installs the companion only on the original Ally"
+pass "the migration installs the companion only on the original Ally with the gaming session"
+
+# A failed build returns 0, writes no marker, and leaves the queue free to continue.
+write_dmi "$vendor" "ROG Ally" "RC71L"
+: >"$pkg_log"
+rm -rf "$power_home/.local"
+queue=$test_tmp/later-migration
+if ! note=$(FAKE_GAMING_SESSION=1 FAKE_POWER_INSTALL=1 run_power_migration "$power_stub" 2>&1 >/dev/null); then
+  fail "a failed power-button build halts the migration"
+fi
+[[ $note == *"omarchy-setup-gaming-session"* ]] || fail "a failed migration names the online retry" "$note"
+[[ ! -e $power_marker ]] || fail "a failed power-button build records the migration as done"
+printf 'later-migration\n' >"$queue"
+[[ $(<"$queue") == later-migration ]] || fail "a later migration does not run after the soft failure"
+pass "a failed power-button build soft-fails and is not marked done"
+
+: >"$pkg_log"
+if note=$(FAKE_GAMING_SESSION=1 FAKE_CONFLICT=steamos-powerbuttond run_power_migration "$build_stub" 2>&1 >/dev/null); then
+  :
+else
+  fail "a conflicting power daemon halts the migration"
+fi
+[[ $note == *"steamos-powerbuttond"* && $note == *"omarchy-setup-gaming-session"* ]] ||
+  fail "a conflicting handler warns and still returns" "$note"
+[[ $(<"$pkg_log") != *makepkg* && $(<"$pkg_log") != *"pacman -U"* ]] ||
+  fail "a conflicting handler is built over" "$(<"$pkg_log")"
+[[ ! -e $power_marker ]] || fail "a conflicting handler marks the migration done"
+pass "a conflicting power daemon does not halt later migrations"
+
+# Setup retries even when the fresh-install marker is already present, and a
+# failed build does not create that marker or skip the next try.
+setup_home="$test_tmp/setup-home"
+mkdir -p "$setup_home"
+run_power_setup() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    OMARCHY_PATH="$ROOT" HOME="$setup_home" XDG_STATE_HOME="$setup_home/.local/state" \
+    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${1:-0}" FAKE_GAMING_SESSION="${2:-0}" \
+    PATH="$power_stub:$ROOT/bin:$PATH" \
+    "$ROOT/bin/omarchy-setup-gaming-session" status
+}
+: >"$pkg_log"
+write_dmi "$vendor" "ROG Ally" "RC71L"
+run_power_setup 0 0 >/dev/null
+[[ ! -s $pkg_log ]] || fail "setup does not install the power button without the gaming session" "$(<"$pkg_log")"
+pass "setup does not install the power button without the gaming session"
+
+: >"$pkg_log"
+mkdir -p "$setup_home/.local/state/omarchy/migrations"
+marked="$setup_home/.local/state/omarchy/migrations/1795075200.sh"
+touch "$marked"
+marked_stamp=$(stat -c %Y -- "$marked")
+if ! setup_err=$(run_power_setup 1 1 2>&1 >/dev/null); then
+  fail "a failed build aborts gaming setup" "$setup_err"
+fi
+if ! setup_err2=$(run_power_setup 1 1 2>&1 >/dev/null); then
+  fail "a second failed build aborts gaming setup" "$setup_err2"
+fi
+[[ $setup_err == *"omarchy-setup-gaming-session"* && $setup_err2 == *"omarchy-setup-gaming-session"* ]] ||
+  fail "a failed build does not warn" "$setup_err"
+[[ $(grep -c install-powerbutton "$pkg_log") == 2 ]] ||
+  fail "a pre-marked migration or a failed build skips the next setup" "$(<"$pkg_log")"
+[[ $(stat -c %Y -- "$marked") == "$marked_stamp" ]] || fail "setup rewrites the migration marker"
+[[ ! -e $setup_home/.local/state/omarchy/rog-ally-powerbutton ]] ||
+  fail "a failed build records a power-button success"
+pass "a failed build is not marked done and setup retries it"
+
+rules=$ROOT/packaging/rog-ally-powerbutton/70-omarchy-rog-ally-power-button.rules
+uaccess_count=0
+while IFS= read -r line; do
+  [[ $line == *'TAG+="uaccess"'* ]] || continue
+  uaccess_count=$((uaccess_count + 1))
+  [[ $line == *'ATTRS{name}=="Power Button"'* ]] || fail "uaccess is not limited to the ACPI power button" "$line"
+  [[ $line == *'PNP0C0C'* || $line == *'LNXPWRBN'* ]] || fail "uaccess is not limited to the ACPI power-button id" "$line"
+done <"$rules"
+(( uaccess_count == 2 )) || fail "the power-button rule no longer grants uaccess" "$uaccess_count"
+pass "the power-button uaccess rule matches only the ACPI power button"
