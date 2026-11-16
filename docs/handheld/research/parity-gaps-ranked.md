@@ -8,7 +8,7 @@ Goal 1 is that it works on this Ally. Goal 2 is a shape upstream Omarchy can tak
 
 ## Already in the tree
 
-These are not rows. [ALPHA.md](../ALPHA.md) (tip `d3747faff`) and [HANDOVER.md](../HANDOVER.md) (integ `00daf17f`) still say `gaming.yaml` does not ship. The file is in this tree.
+These are not rows. `gaming.yaml` is in this tree, and [ALPHA.md](../ALPHA.md) and [HANDOVER.md](../HANDOVER.md) name that file.
 
 - Gamescope plus Steam: [`bin/omarchy-session-start`](../../../bin/omarchy-session-start), [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam). The four client flags are set. Fake Deck TDP, fan, HDR, format and OS-update flags are refused in the comment above that line.
 - Autologin: [`bin/omarchy-handheld-autologin`](../../../bin/omarchy-handheld-autologin) writes `Session=` and `Relogin=` only. `User=` is `omarchy-handheld-user.conf`, written by `install-user` in [`bin/omarchy-provision-owner`](../../../bin/omarchy-provision-owner). The only recorded RC71L boot of this line came up on the desktop, at integ `d3747faf` ([HANDOVER.md](../HANDOVER.md), cited by the audit). Whether the current files reach Steam is **unverified**.
