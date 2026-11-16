@@ -83,16 +83,41 @@ The hook line that matters is the one in `00-omarchy-hooks.conf`, plus `HOOKS+=(
 
 ## 2. Take a snapshot
 
-Snapper's config on an Omarchy install is `root` (`install/config/snapper.sh`). `limine-snapper-sync` adds a Limine entry for it. That entry does not boot the UKI you are about to build. It boots the UKI archived for that snapshot under `limine_history` on the ESP, with the cmdline saved beside it. After this change those entries still have `cryptdevice=` and do not have `tpm2-device=auto`. They are the busybox `encrypt` image, and the passphrase still opens them. That is the rollback if the new UKI will not boot.
+Snapper's config on an Omarchy install is `root` (`install/config/snapper.sh`). `limine-snapper-sync` adds a Limine entry for it. That entry does not boot the UKI you are about to build. It boots the UKI archived for that snapshot under `limine_history` on the ESP, with the cmdline saved beside it. After this change those entries still have `cryptdevice=` and do not have `tpm2-device=auto`. They are the busybox `encrypt` image, and the passphrase still opens them.
+
+Booting that entry mounts the snapshot read-only. Writes go to a tmpfs overlay and are gone at the next reboot. Editing `/etc` there, or running `limine-update` there, does not change the real root, and the next kernel update rebuilds whatever the real root still has. The snapshot is how you get in. The repair that lasts is the USB path in section 13.
 
 ```bash
 sudo snapper -c root create --description "before TPM unlock"
 sudo snapper -c root list
+sudo grep -n 'limine_history\|Snapshots' /boot/limine.conf
+sudo find /boot -path '*limine_history*' \( -name '*.efi' -o -name '*.EFI' \) -print
 ```
 
-Stop if the create fails. Do not change hooks or the cmdline without a snapshot you can see in that list.
+Stop if the create fails, if the new snapshot is not listed, or if `find` prints no archived UKI. On the checked Ally, `limine-snapper-sync` wrote the entry as soon as the snapshot existed. Do not change hooks or the cmdline without both the snapper row and the Limine entry.
 
-Opening the menu takes a key during the 1 second timeout, so the USB or 2.4 GHz keyboard has to be plugged in before you reboot.
+A snapper snapshot does not copy the LUKS header. Enrolment rewrites that header. Back it up onto removable media before you enrol, and not onto this disk. Plug in a USB stick and mount it yourself. The example mount point is `/mnt/header-backup`.
+
+```bash
+backup_dir=/mnt/header-backup
+src=$(findmnt -T "$backup_dir" -no SOURCE)
+root_src=$(findmnt -no SOURCE --nofsroot /)
+if [[ -z $src || $src == "$root_src" || $src == /dev/mapper/* ]]; then
+  echo "stop: put the header backup on removable media, not this disk"
+else
+  backup=$backup_dir/luks-header-$(date +%Y%m%d).img
+  sudo cryptsetup luksHeaderBackup "$LUKS_DEV" --header-backup-file "$backup"
+  if sudo test -s "$backup"; then
+    echo "header backup is non-empty: $backup"
+  else
+    echo "stop: header backup is missing or empty"
+  fi
+fi
+```
+
+Stop unless that last line says the file is non-empty. The file plus the passphrase from this moment opens the disk. Keep it the way you keep the passphrase. Do not copy it back onto the Ally. `luksHeaderRestore` in section 13 puts this header back. Do not enrol if you no longer have the file.
+
+Opening the menu takes a key during the 1 second timeout, so the USB or 2.4 GHz keyboard has to be plugged in before you reboot. Limine's editor is on: `default/limine/limine.conf` does not set `editor_enabled: no`, and Limine's default is yes. That matters for what PCR 7 does and does not protect, in the security section. It does not change these steps.
 
 ## 3. tpm2-tss
 
@@ -176,7 +201,7 @@ On this Ally the `cryptdevice=` value is a PARTUUID with trailing options (`:roo
 `LUKS_UUID` is the variable from section 1.
 
 ```bash
-sudo cp -a /etc/default/limine /etc/default/limine.bak.tpm
+sudo cp -a /etc/default/limine /etc/default/limine.pre-tpm2
 sudo cat /etc/default/limine > /tmp/limine.default.in
 
 rewrite_limine_default() {
@@ -232,14 +257,18 @@ rm -f /tmp/limine.default.in
 
 Read the diff. The new line still has `root=/dev/mapper/root` (or whatever `root=` was), `rd.luks.name=<luks-uuid>=<mapper>`, and `rd.luks.options=<luks-uuid>=...,tpm2-device=auto`. It has no `cryptdevice=`. `resume=` is not in this file; it stays in `resume.conf`.
 
-Install it only when those checks pass:
+Install it only when every check passes. A failed check prints `stop` and does not copy the file. It does not exit the shell, so `LUKS_DEV` and `LUKS_UUID` stay set.
 
 ```bash
-sudo grep -q 'cryptdevice=' /etc/default/limine.new && { echo "cryptdevice= is still there"; exit 1; }
-sudo grep -q 'tpm2-device=auto' /etc/default/limine.new
-sudo grep -q 'root=' /etc/default/limine.new
-sudo grep -q "rd.luks.name=${LUKS_UUID}=" /etc/default/limine.new
-sudo cp -a /etc/default/limine.new /etc/default/limine
+if sudo grep -q 'cryptdevice=' /etc/default/limine.new \
+  || ! sudo grep -q 'tpm2-device=auto' /etc/default/limine.new \
+  || ! sudo grep -q 'root=' /etc/default/limine.new \
+  || ! sudo grep -q "rd.luks.name=${LUKS_UUID}=" /etc/default/limine.new
+then
+  echo "stop: /etc/default/limine.new is not the cmdline this runbook will install"
+else
+  sudo cp -a /etc/default/limine.new /etc/default/limine
+fi
 ```
 
 The shape, with your own ids filled in by the script, is:
@@ -275,7 +304,15 @@ echo "--- generated limine.conf ---"
 sudo grep -nE 'cryptdevice=|tpm2-device=|rd\.luks\.' /boot/limine.conf
 ```
 
-The UKI cmdline and `/boot/limine.conf` must contain `tpm2-device=auto` and `rd.luks.name=<luks-uuid>=`. They must not contain `cryptdevice=`.
+The UKI cmdline and the default entry in `/boot/limine.conf` must contain `tpm2-device=auto`, `rd.luks.name=<luks-uuid>=` and `root=`. They must not contain `cryptdevice=`. Snapshot entries still contain `cryptdevice=`. That is the rollback, not a failed edit.
+
+```bash
+cmdline=$(sudo objcopy -O binary --only-section=.cmdline "$UKI" /dev/stdout | tr -d '\0'; echo)
+printf '%s\n' "$cmdline"
+if [[ $cmdline == *cryptdevice=* || $cmdline != *tpm2-device=auto* || $cmdline != *root=* ]]; then
+  echo "stop: the UKI cmdline is missing root= or tpm2-device=auto, or it still has cryptdevice="
+fi
+```
 
 Then the initrd inside the UKI. `ukify inspect` prints the sections when `ukify` is installed (`systemd-ukify`). It was not required on this Ally. Extracting `.initrd` uses `objcopy`, which is already there. Either one is enough; do both when `ukify` is present.
 
@@ -292,12 +329,14 @@ sudo rm -f /tmp/omarchy-uki.initrd
 Stop if the `Hooks:` line from `lsinitcpio -a` does not contain `systemd`, `plymouth`, `sd-encrypt` and `sd-btrfs-overlayfs`. Stop if it contains `udev` or `resume`, or a hook that is the word `encrypt` rather than `sd-encrypt`, or `btrfs-overlayfs` without the `sd-` prefix. Stop if `libtss2` is missing: the TPM token cannot be read. Stop if `overlayfs-setup.service` is missing: snapshot boot will not mount the overlay. On the checked Ally that unit was in the initrd, with `/usr/lib/limine/overlayfs-setup`. Restore the backup and rebuild before you reboot:
 
 ```bash
-sudo cp -a /etc/default/limine.bak.tpm /etc/default/limine
+sudo cp -a /etc/default/limine.pre-tpm2 /etc/default/limine
 sudo rm -f /etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf
 sudo limine-update
 ```
 
 ## 8. Option 1. Enrol, no PIN
+
+Do not run this unless section 2's header file is still on the removable drive and non-empty. Do not run it while `/var/lib/omarchy/provisioning/luks-rekey.state` exists. `luks_rekey_retire` in `install/provisioning/luks-rekey.sh` kills every keyslot except the recorded owner slot, and `luks_dump_slots` lists a `systemd-tpm2` slot as an ordinary `luks2` slot. A rekey that runs after this enrolment deletes the TPM slot, and `luks_rekey_verify` fails while any other slot remains. Finish provisioning first, or leave this machine unenrolled. That gap is [L64](alpha-followups.md). It blocks the installer. It is already the reason this runbook refuses an open rekey journal.
 
 The command asks for the existing passphrase. Type it. Do not put it on the command line, in the shell history, or in a file.
 
@@ -307,7 +346,7 @@ This adds a TPM slot bound to PCR 7. It does not remove the passphrase slot.
 sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$LUKS_DEV"
 ```
 
-`--tpm2-pcrs=` is required. Without it, current `systemd-cryptenroll` binds no PCR at all (the man page's default is an empty list). PCR 7 is the Secure Boot policy register.
+`--tpm2-pcrs=7` is required. From systemd 258 the default PCR mask is empty, so omitting the option binds no PCR at all ([systemd v258 NEWS](https://github.com/systemd/systemd/releases/tag/v258)). Earlier `systemd-cryptenroll` bound the current literal value of PCR 7 when the option was left off. The systemd on this Ally is 262, which has the empty default. PCR 7 is the Secure Boot policy register. Binding nothing is not what this runbook does.
 
 Go to section 10. Do not also run option 2.
 
@@ -383,13 +422,34 @@ MAPPER_NAME=$(basename "$ROOT_SRC")
 LUKS_DEV=$(sudo cryptsetup status "$MAPPER_NAME" | awk '/^[[:space:]]+device:/ { print $2; exit }')
 sudo systemd-cryptenroll --wipe-slot=tpm2 "$LUKS_DEV"
 sudo rm -f /etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf
-sudo cp -a /etc/default/limine.bak.tpm /etc/default/limine
+sudo cp -a /etc/default/limine.pre-tpm2 /etc/default/limine
 sudo limine-update
 ```
 
-`--wipe-slot=tpm2` removes TPM slots only. The passphrase slot stays, so the disk still opens even before the old hooks are restored.
+`--wipe-slot=tpm2` removes TPM slots only. The passphrase slot stays, so the disk still opens even before the old hooks are restored. Those three file commands only last when this system is the real root, not a snapshot boot.
 
-If the new UKI will not boot, do not repair it from that image. At the Limine menu (key during the 1 second timeout), pick the snapshot from section 2. Each snapshot entry boots the UKI stored for it under `limine_history`, with that entry's saved cmdline. Those UKIs are still the busybox `encrypt` image: `cryptdevice=` is on the cmdline, `tpm2-device=auto` is not, and the passphrase unlocks them. Restoring the files above still has to be done once that snapshot has booted, or the next normal entry will rebuild the same broken UKI.
+If the header itself is damaged, put back the file from section 2. This replaces the whole header, including any TPM slot written after the backup. The passphrase from backup time opens the restored header. Type the confirmation cryptsetup asks for. Do not point `--header-backup-file` at a path on this disk.
+
+```bash
+sudo cryptsetup luksHeaderRestore "$LUKS_DEV" --header-backup-file "$backup"
+```
+
+If the new UKI will not boot, the Limine snapshot from section 2 gets you in and nothing more. Its UKI under `limine_history` still has `cryptdevice=` and no `tpm2-device=auto`, and the passphrase unlocks it. The root you land on is a read-only snapshot with writes in tmpfs. `rm` of the zz file, a restored `/etc/default/limine`, and `limine-update` run there are gone at the next reboot. The real `@` still has the new hook line, and the next kernel update rebuilds that UKI.
+
+The repair that lasts is from an Arch or Omarchy live ISO. Find the locked partition with `lsblk -f` (`FSTYPE` `crypto_LUKS`) and the ESP (`vfat`, the EFI system partition). The passphrase is typed at `cryptsetup open`. SSH cannot reach this prompt.
+
+```bash
+sudo cryptsetup open "$LUKS_DEV" root
+sudo mount -o subvol=@ /dev/mapper/root /mnt
+sudo mount "$ESP" /mnt/boot
+sudo rm -f /mnt/etc/mkinitcpio.conf.d/zz-tpm-sd-encrypt.conf
+sudo cp -a /mnt/etc/default/limine.pre-tpm2 /mnt/etc/default/limine
+sudo arch-chroot /mnt limine-update
+```
+
+`$ESP` is the EFI partition you found, not a guess. `/etc/default/limine.pre-tpm2` is the copy section 5 wrote on the real root. If that file is missing, do not invent a cmdline. Boot stays on the snapshot entry until the backup exists.
+
+`snapper rollback` and `limine-snapper-restore` are a different operation: they change which subvolume is the real root. This runbook does not use them. A snapshot menu entry is not that restore.
 
 ## 14. Re-enrol after a firmware or Secure Boot change
 
@@ -411,23 +471,49 @@ The TPM releases the disk key only when PCR 7 has the value it had at enrolment.
 PCR 7 changes, and automatic unlock stops, when:
 
 - Secure Boot is turned on or off
-- Secure Boot keys change: PK, KEK, db, or dbx
-- a BIOS update replaces those certificates (a dbx update is the usual one)
+- Secure Boot keys change: PK, KEK, db, or dbx, including a fwupd or LVFS update of the UEFI dbx
+- a BIOS update replaces those certificates
 - the BIOS is reset, which restores or clears those keys
+- the TPM is cleared
+- an AMD fTPM reset prompt after an AGESA or BIOS update is answered yes. That destroys the sealed key. The passphrase slot still opens the disk. The TPM slot does not.
+
+SSH cannot help at the initramfs prompt. Nothing is listening yet. The passphrase is typed on a USB or 2.4 GHz keyboard, on the machine.
 
 PCR 0+7 is more brittle. PCR 0 is the firmware code itself and changes on a BIOS update even when the Secure Boot policy did not. You would type the passphrase after ordinary firmware updates. PCR 7 does not do that. That is why this runbook does not bind PCR 0.
 
-PCR 11 is not the default. This machine boots a systemd-stub UKI, and systemd-stub measures that UKI into PCR 11. A literal PCR 11 binding would change on every `limine-update`, including a kernel update and an initramfs rebuild, and automatic unlock would fail until you re-enrol. PCR 7 survives those rebuilds. Signed PCR policies are a different mechanism. This runbook does not set one up.
+PCR 11 is not the default. This machine boots a systemd-stub UKI, and systemd-stub measures that UKI into PCR 11. A literal PCR 11 binding would change on every `limine-update`, including a kernel update and an initramfs rebuild, and automatic unlock would fail until you re-enrol. PCR 7 survives those rebuilds. A signed PCR 11 policy (`ukify --pcr-private-key`) is a different mechanism. This runbook does not set one up.
 
-Secure Boot is off on this Ally. PCR 7 is then a stable "Secure Boot is off" measurement. It survives a kernel and UKI rebuild. It does not check that the bootloader or the kernel is the one you installed. Anyone who can switch the handheld on, with that Secure Boot state left as it is, gets the disk unlocked and then the autologin session. Pulling the drive and fitting it in another machine does not: the key is sealed to this chip. That is the trade-off of option 1 with no PIN. Option 2 is the choice that still asks for a secret when the person holding the device is not you. It is not available without a keyboard until L62.
+Secure Boot is off on this Ally. PCR 7 is then a stable "Secure Boot is off" measurement. It survives a kernel and UKI rebuild. It does not check the bootloader, the kernel, or the command line.
+
+With Secure Boot off, anyone holding the handheld can read every file on it. The desktop lock, the user password and sudo do not stop that. Only a drive removed from the handheld stays protected. Stock Omarchy treats the LUKS prompt as the boundary in front of autologin. This default removes that boundary, and the handheld desktop lock defaults to off. Two ways in, with no extra media and with any USB stick:
+
+- Limine's editor is on. A USB keyboard during the 1 second menu can change the entry. With Secure Boot off, systemd-stub honours a command line the loader passes. PCR 7 does not measure that command line, so the TPM still unseals. `init=/bin/bash` or `rd.systemd.debug_shell` is a root shell on the unlocked disk.
+- PCR 7 has the same value for any boot chain while Secure Boot stays off. Booting another Linux from USB and unlocking with `systemd-cryptsetup` and `tpm2-device=auto`, or `cryptsetup open` with the token, unseals the key and opens the raw disk.
+
+Pulling the drive and fitting it in another machine does not: the key is sealed to this chip. That is the whole of what option 1 protects. Option 2 still asks for a PIN when the person holding the device is not you. It is not available without a keyboard until L62.
+
+These attacks still apply with Secure Boot on and a binding of PCR 7 alone:
+
+- A fake LUKS volume, or an initrd that unlocks a volume the attacker prepared, can unseal the key because PCR 7 never measured which volume it was. The write-up is oddlama, "Bypassing disk encryption on systems with automatic TPM2 unlock" (2025). The mitigation is to measure the volume key into PCR 15 (`tpm2-measure-pcr=yes` on the crypttab line) and bind that measurement, or to use `systemd-pcrlock` or a signed policy. This runbook does not do that. It is named under hardening, and it is not the default.
+- Sniffing a TPM bus does not apply to this machine. The Ally's TPM is an AMD fTPM. There is no discrete chip on a bus to tap.
+- Faulting an AMD fTPM has been shown on Zen 2 and Zen 3 (faulTPM). The Z1 is Zen 4. That attack is not verified on this CPU. Do not treat the fTPM as a defense against someone who can open the machine and fault the processor.
 
 The passphrase slot is the way in when the chip will not unlock. Anyone who knows the passphrase can open the disk without the TPM. Write it down somewhere that is not only on this handheld.
 
 Do not delete that slot to "finish" the enrolment.
 
+## Optional hardening, not the default
+
+Daniel's choice for the handheld is no input at boot. Nothing in this section is turned on by the steps above. Secure Boot on the handheld path is [L63](alpha-followups.md), and it is not done here.
+
+When that work lands, the order is: create keys with `sbctl`, or enrol through Limine's own Secure Boot path; sign Limine and the UKI; set `editor_enabled: no` and enrol a hash of the Limine config (`limine enroll-config`) so the menu cannot be edited and a changed config does not boot; then re-enrol PCR 7, because turning Secure Boot on changes that register. The passphrase slot stays.
+
+A later binding, still not this default, is PCR 7 plus PCR 15, or `systemd-pcrlock`, or a signed PCR 11 policy. PCR 7 alone, even with Secure Boot on, does not close the volume-confusion case above.
+
 ## Sources
 
 - This tree: `etc/mkinitcpio.conf.d/00-omarchy-hooks.conf`, `etc/mkinitcpio.conf.d/omarchy_hooks.conf`, `etc/mkinitcpio.conf.d/omarchy_vconsole.conf`, `etc/limine-entry-tool.d/omarchy-defaults.conf`, `etc/limine-entry-tool.d/omarchy-uki.conf`, `default/limine/limine.conf`, `default/limine/default.conf`, `default/plymouth/omarchy.script`, `install/config/snapper.sh`, `bin/omarchy-hibernation-setup` (the `resume.conf` cmdline drop-in), `bin/omarchy-upgrade-to-quattro` (why `/etc/default/limine` holds `root=` and the unlock parameters once a `+=` drop-in exists).
 - Checked on the RC71L, 16 November 2026: busybox `encrypt` is the image, `/etc/mkinitcpio.conf`'s systemd line is not, `/etc/crypttab` has no live entries, Secure Boot is disabled, the UKI is under `/boot/EFI/Linux/`, `limine-update` rebuilds it, `-h` on `limine-update` and `limine-mkinitcpio` starts that rebuild. `btrfs-overlayfs` is `run_latehook` only. `sd-btrfs-overlayfs` from `limine-mkinitcpio-hook` put `overlayfs-setup.service` in the rebuilt initrd. Snapshot entries boot archived UKIs from `limine_history` with the old cmdline. `usbhid`, `hid-generic`, `atkbd` and `xhci` are built into the omarchy kernel. `omarchy_hooks.conf` did not strip `kms` (no NVIDIA). `omarchy_vconsole.conf` and `FILES` were unchanged by the hook assignment.
-- [systemd-cryptenroll(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html), [systemd-ask-password(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-ask-password.html), [Arch Wiki: systemd-cryptenroll](https://wiki.archlinux.org/title/Systemd-cryptenroll).
+- [systemd-cryptenroll(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html), [systemd v258 NEWS](https://github.com/systemd/systemd/releases/tag/v258) (the PCR mask defaults to empty), [systemd-ask-password(1)](https://www.freedesktop.org/software/systemd/man/latest/systemd-ask-password.html), [Arch Wiki: systemd-cryptenroll](https://wiki.archlinux.org/title/Systemd-cryptenroll).
+- Threats: [oddlama, Bypassing disk encryption on systems with automatic TPM2 unlock](https://oddlama.org/blog/bypassing-disk-encryption-with-tpm2-unlock/) (2025). faulTPM, shown on AMD Zen 2 and Zen 3, not verified on the Z1: [arxiv 2304.14717](https://arxiv.org/abs/2304.14717). Limine's editor defaults to on when `editor_enabled` is unset (`default/limine/limine.conf`).
 - Pad: [research/ally-hw-dump.md](research/ally-hw-dump.md). Touch path, not installed here: [buffybox](https://gitlab.postmarketos.org/postmarketOS/buffybox), [AUR buffybox](https://aur.archlinux.org/packages/buffybox). Retired: [Osk-sdl](https://wiki.postmarketos.org/wiki/Osk-sdl).
