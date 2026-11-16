@@ -1,6 +1,6 @@
 #!/bin/bash
 # The Ally profile helper: allowlist, O_NOFOLLOW, exact composite match,
-# ProfileName Default, and the D-Bus policy that replaces the #48 loader.
+# ProfileName Default, and the D-Bus policy for omarchy-inputplumber-profile.
 
 set -uo pipefail
 
@@ -15,7 +15,7 @@ set -euo pipefail
 
 helper=$ROOT/bin/omarchy-inputplumber-profile
 [[ -x $helper ]] || fail "the profile helper is executable"
-[[ ! -e $ROOT/bin/omarchy-ally-pointer-load ]] || fail "the #48 loader is gone"
+[[ ! -e $ROOT/bin/omarchy-ally-pointer-load ]] || fail "the old pointer loader is still shipped"
 grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
   "$ROOT/default/systemd/system/omarchy-ally-pointer.service" ||
   fail "the greeter unit calls the helper"
@@ -27,7 +27,7 @@ grep -q '^ExecCondition=/usr/bin/omarchy-hw-rog-ally$' \
   fail "the greeter unit is gated on the Ally"
 grep -q 'omarchy-ally-pointer-load\|CompositeDevice0\|LoadProfilePath' \
   "$ROOT/default/systemd/system/omarchy-ally-pointer.service" &&
-  fail "the greeter unit still names the #48 loader"
+  fail "the greeter unit still names the old pointer loader"
 grep -q '^BusName=org.omarchy.InputPlumberProfile$' \
   "$ROOT/default/systemd/system/omarchy-inputplumber-profile.service" ||
   fail "the switch service owns its bus name"
@@ -55,7 +55,7 @@ grep -q 'remove-service' "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-s
 if setpriv --reuid=1 --regid=1 --clear-groups "$helper" install-greeter; then
   fail "install as the desktop user is refused"
 fi
-pass "the #48 loader is gone and install is root-only"
+pass "the greeter calls omarchy-inputplumber-profile and install is root-only"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -576,6 +576,41 @@ print("ok - profile loads, skips and policy")
 PY
 pass "profile loads, skips and policy"
 
+warn_bin=$work/warnbin
+mkdir -p "$warn_bin" "$work/warn-sddm"
+cat > "$warn_bin/omarchy-inputplumber-profile" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${WARN_CALLS:?}"
+exit 1
+EOF
+chmod 755 "$warn_bin/omarchy-inputplumber-profile"
+# shellcheck source=/dev/null
+source "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
+: > "$work/warn-calls"
+if ! PATH="$warn_bin:$PATH" WARN_CALLS=$work/warn-calls \
+  OMARCHY_SDDM_CONF_DIR=$work/warn-sddm \
+  post_install >"$work/warn.out" 2>"$work/warn.err"; then
+  fail "a failed profile install still lets post_install return"
+fi
+[[ $(cat "$work/warn-calls") == install-service ]] ||
+  fail "post_install still runs the profile install" "$(cat "$work/warn-calls")"
+grep -F 'warning: InputPlumber profile service install failed; re-run: omarchy-inputplumber-profile install-service' \
+  "$work/warn.err" ||
+  fail "post_install names the failed step and the re-run command" "$(cat "$work/warn.err")"
+printf '[Autologin]\nUser=daniel\n' > "$work/warn-sddm/omarchy-handheld-user.conf"
+: > "$work/warn-calls"
+if ! PATH="$warn_bin:$PATH" WARN_CALLS=$work/warn-calls \
+  OMARCHY_SDDM_CONF_DIR=$work/warn-sddm \
+  post_remove >"$work/warn-remove.out" 2>"$work/warn-remove.err"; then
+  fail "a failed profile removal still lets post_remove return"
+fi
+grep -F 'warning: InputPlumber profile service removal failed; re-run: omarchy-inputplumber-profile remove-service' \
+  "$work/warn-remove.err" ||
+  fail "post_remove names the failed step and the re-run command" "$(cat "$work/warn-remove.err")"
+[[ ! -e $work/warn-sddm/omarchy-handheld-user.conf ]] ||
+  fail "post_remove leaves the handheld User= file"
+pass "a failed profile scriptlet warns and still returns"
+
 pkg=$work/pkg
 mkdir -p "$pkg/usr/bin" "$pkg/usr/share/omarchy/bin" "$pkg/usr/share/omarchy/default" \
   "$pkg/etc/systemd/system" "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules"
@@ -608,9 +643,9 @@ chmod 755 "$pkg/usr/bin/omarchy-hw-rog-ally" "$pkg/usr/bin/omarchy-pkg-present" 
 
 pkg_mounts=()
 pkg_cleanup() {
-  local dest
-  for dest in "${pkg_mounts[@]}"; do
-    umount "$dest" || true
+  local i
+  for (( i=${#pkg_mounts[@]}-1; i>=0; i-- )); do
+    umount "${pkg_mounts[i]}" || true
   done
   rm -rf "$work"
 }
@@ -643,3 +678,50 @@ grep -q 'omarchy-ally-pointer-load' /etc/systemd/system/omarchy-ally-pointer.ser
 [[ -f /usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy ]] || fail "the packaged install skips the polkit action"
 [[ -f /etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules ]] || fail "the packaged install skips the polkit rule"
 pass "a packaged layout installs the greeter unit and the profile service"
+
+# sudo and pacman start this helper with OMARCHY_PATH unset. The files then
+# come from /usr/share/omarchy, not from the directory that holds the binary.
+printf '\n# package-root=/usr/share/omarchy\n' >> \
+  "$pkg/usr/share/omarchy/default/systemd/system/omarchy-ally-pointer.service"
+rm -f /etc/systemd/system/omarchy-ally-pointer.service \
+  /etc/systemd/system/omarchy-inputplumber-profile.service \
+  /usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf \
+  /usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy \
+  /etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules
+mount -t tmpfs tmpfs /usr/share
+pkg_mounts+=("/usr/share")
+mkdir -p /usr/share/omarchy /usr/share/dbus-1/system.d /usr/share/polkit-1/actions
+mount --bind "$pkg/usr/share/omarchy" /usr/share/omarchy
+pkg_mounts+=("/usr/share/omarchy")
+mount --bind "$pkg/dbus" /usr/share/dbus-1/system.d
+pkg_mounts+=("/usr/share/dbus-1/system.d")
+mount --bind "$pkg/polkit-actions" /usr/share/polkit-1/actions
+pkg_mounts+=("/usr/share/polkit-1/actions")
+run_unset() {
+  env -i PATH="$pkg/usr/bin:/usr/bin:/bin" "$@"
+}
+if ! run_unset "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter \
+  >"$pkg/unset-greeter.out" 2>"$pkg/unset-greeter.err"; then
+  fail "install-greeter fails when OMARCHY_PATH is unset" "$(cat "$pkg/unset-greeter.err")"
+fi
+if ! run_unset "$pkg/usr/bin/omarchy-inputplumber-profile" install-service \
+  >"$pkg/unset-service.out" 2>"$pkg/unset-service.err"; then
+  fail "install-service fails when OMARCHY_PATH is unset" "$(cat "$pkg/unset-service.err")"
+fi
+grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
+  /etc/systemd/system/omarchy-ally-pointer.service ||
+  fail "an unset OMARCHY_PATH does not install the greeter unit" \
+  "$(cat /etc/systemd/system/omarchy-ally-pointer.service)"
+grep -q '^# package-root=/usr/share/omarchy$' \
+  /etc/systemd/system/omarchy-ally-pointer.service ||
+  fail "an unset OMARCHY_PATH does not read /usr/share/omarchy" \
+  "$(cat /etc/systemd/system/omarchy-ally-pointer.service)"
+[[ -f /etc/systemd/system/omarchy-inputplumber-profile.service ]] ||
+  fail "an unset OMARCHY_PATH skips the profile service"
+[[ -f /usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf ]] ||
+  fail "an unset OMARCHY_PATH skips the bus policy"
+[[ -f /usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy ]] ||
+  fail "an unset OMARCHY_PATH skips the polkit action"
+[[ -f /etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules ]] ||
+  fail "an unset OMARCHY_PATH skips the polkit rule"
+pass "an unset OMARCHY_PATH reads /usr/share/omarchy"
