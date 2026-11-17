@@ -75,6 +75,11 @@ run_dev_update /usr/share/omarchy
 pass "package-backed updates skip the dev checkout step"
 
 : >"$git_log"
+env -u OMARCHY_PATH TEST_GIT_LOG="$git_log" PATH="$stub_bin:$PATH" "$ROOT/bin/omarchy-update-dev"
+[[ ! -s $git_log ]] || fail "an unset OMARCHY_PATH skips the dev checkout step" "$(cat "$git_log")"
+pass "an unset OMARCHY_PATH is the packaged tree"
+
+: >"$git_log"
 run_dev_update "$checkout"
 grep -Fx -- "-C $checkout pull --ff-only" "$git_log" >/dev/null ||
   fail "dev checkout update pulls its upstream with fast-forward only" "$(cat "$git_log")"

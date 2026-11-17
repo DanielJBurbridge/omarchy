@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# A non-login ssh command does not source env-bootstrap. Unset means the
+# packaged tree, which this step skips.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 [[ $OMARCHY_PATH != "/usr/share/omarchy" ]] || exit 0
 
 if ! git -C "$OMARCHY_PATH" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
