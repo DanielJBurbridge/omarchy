@@ -616,6 +616,7 @@ mkdir -p "$(dirname "$config")" "$home/.local/share/applications"
 cp "$ROOT/default/omarchy/applications/Desktop Keyboard.desktop" \
   "$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
 printf '%s\n' '{"version":1,"bar":{"layout":{"right":["omarchy.clock",{"id":"omarchy.desktop-keyboard"}]}},"plugins":[{"id":"omarchy.desktop-keyboard"}]}' >"$config"
+cp "$config" "$test_tmp/shell-before.json"
 if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
   PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
   "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
@@ -623,14 +624,52 @@ if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
 fi
 [[ ! -e $home/.local/share/applications/omarchy-desktop-keyboard.desktop ]] ||
   fail "keyboard setup removes the launcher it created"
-[[ $(<"$config") != *omarchy.desktop-keyboard* && $(<"$config") == *omarchy.clock* ]] ||
-  fail "keyboard setup removes only the keyboard widget" "$(<"$config")"
+[[ $note == *"next time the shell runs"* ]] ||
+  fail "a stopped shell tells the user to drop the button later" "$note"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "a stopped shell rewrites shell.json" "$(<"$config")"
 printf '%s\n' 'custom launcher' >"$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
 HOME="$home" OMARCHY_PATH="$ROOT" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
   "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove >/dev/null
 [[ $(<"$home/.local/share/applications/omarchy-desktop-keyboard.desktop") == 'custom launcher' ]] ||
   fail "keyboard setup keeps a launcher it did not create"
-pass "removing the keyboard drops the button and only the launcher this setup created"
+pass "removing the keyboard leaves shell.json alone when the shell is down"
+
+cp "$config" "$test_tmp/shell-before.json"
+cat >"$stub/omarchy-plugin-disable" <<'SH'
+#!/bin/bash
+printf 'plugin-disable %s\n' "$*" >>"$PKG_LOG"
+exit 0
+SH
+chmod +x "$stub/omarchy-plugin-disable"
+: >"$pkg_log"
+if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" PKG_LOG="$pkg_log" \
+  OMARCHY_TEST_SHELL_UP=1 WAYLAND_DISPLAY=wayland-test \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "keyboard setup removes the button through the shell" "$note"
+fi
+[[ $note == *"Desktop Keyboard was removed from the bar."* ]] ||
+  fail "keyboard setup removes the button through the shell" "$note"
+[[ $(<"$pkg_log") == *"plugin-disable omarchy.desktop-keyboard"* ]] ||
+  fail "keyboard setup does not call omarchy-plugin-disable" "$(<"$pkg_log")"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "a running shell still rewrites shell.json from setup" "$(<"$config")"
+rm -f "$stub/omarchy-plugin-disable"
+pass "a running shell drops the button through omarchy-plugin-disable"
+
+write_dmi "Dell Inc." "XPS 13" "0A1B"
+cp "$config" "$test_tmp/shell-before.json"
+if note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+  fail "a non-RC71L setup with the shell down still configures the keyboard"
+fi
+[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $note == *"next time the shell runs"* ]] ||
+  fail "a non-RC71L setup with the shell down names the later drop" "$note"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "a non-RC71L setup with the shell down rewrites shell.json" "$(<"$config")"
+pass "a non-RC71L setup leaves shell.json alone when the shell is down"
 
 # A laptop that has wvkbd, or the setup command, still gets neither keyboard row.
 # Dropping the RC71L check from the install row makes this fail.
@@ -820,47 +859,40 @@ power_home="$test_tmp/power-home"
 mkdir -p "$power_home"
 power_marker="$power_home/.local/state/omarchy/migrations/1795075200.sh"
 
+grep -q '1794843321' "$power_migration" || fail "1795075200 does not name the catch-up"
+grep -q 'omarchy-setup-gaming-session' "$power_migration" || fail "1795075200 does not name the retry"
+grep -q 'omarchy-install-rog-ally-powerbutton' "$power_migration" && fail "1795075200 calls the installer"
 : >"$pkg_log"
 write_dmi "$vendor" "ROG Ally RC71L_RC71L" "RC71L"
-FAKE_GAMING_SESSION=0 run_power_migration "$power_stub" >/dev/null
-[[ ! -s $pkg_log ]] || fail "the migration does nothing without the gaming session" "$(<"$pkg_log")"
-pass "the migration does nothing without the gaming session"
-
-: >"$pkg_log"
 FAKE_GAMING_SESSION=1 FAKE_POWER_INSTALL=0 run_power_migration "$power_stub" >/dev/null
-[[ $(<"$pkg_log") == "install-powerbutton" ]] || fail "the migration installs the companion on an RC71L" "$(<"$pkg_log")"
+[[ ! -s $pkg_log ]] || fail "1795075200 installs the companion on an RC71L" "$(<"$pkg_log")"
 : >"$pkg_log"
-write_dmi "$vendor" "ROG Strix G16" "GU605CX"
-FAKE_GAMING_SESSION=1 run_power_migration "$power_stub" >/dev/null
-[[ ! -s $pkg_log ]] || fail "the migration does nothing on a ROG laptop" "$(<"$pkg_log")"
-pass "the migration installs the companion only on the original Ally with the gaming session"
+write_dmi "Dell Inc." "XPS 13" "0A1B"
+FAKE_GAMING_SESSION=1 FAKE_POWER_INSTALL=1 run_power_migration "$power_stub" >/dev/null
+[[ ! -s $pkg_log ]] || fail "1795075200 installs the companion off the Ally" "$(<"$pkg_log")"
+[[ ! -e $power_marker ]] || fail "1795075200 writes its own marker"
+pass "1795075200 is a no-op and names 1794843321"
 
-# A failed build returns 0, writes no marker, and leaves the queue free to continue.
+greeter_migration=$ROOT/migrations/1794830400.sh
+[[ $(basename "$greeter_migration") == 1794830400.sh ]] || fail "the greeter migration stamp changed"
+[[ $(stat -c %a -- "$greeter_migration") == 644 ]] || fail "the greeter migration is mode 0644"
+run_greeter_migration() {
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+    PKG_LOG="$pkg_log" \
+    PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+    bash -euo pipefail "$greeter_migration" >/dev/null
+}
+: >"$pkg_log"
+write_dmi "Dell Inc." "XPS 13" "0A1B"
+run_greeter_migration
+[[ ! -s $pkg_log ]] || fail "qt6-virtualkeyboard is installed off the Ally" "$(<"$pkg_log")"
+: >"$pkg_log"
 write_dmi "$vendor" "ROG Ally" "RC71L"
-: >"$pkg_log"
-rm -rf "$power_home/.local"
-queue=$test_tmp/later-migration
-if ! note=$(FAKE_GAMING_SESSION=1 FAKE_POWER_INSTALL=1 run_power_migration "$power_stub" 2>&1 >/dev/null); then
-  fail "a failed power-button build halts the migration"
-fi
-[[ $note == *"omarchy-setup-gaming-session"* ]] || fail "a failed migration names the online retry" "$note"
-[[ ! -e $power_marker ]] || fail "a failed power-button build records the migration as done"
-printf 'later-migration\n' >"$queue"
-[[ $(<"$queue") == later-migration ]] || fail "a later migration does not run after the soft failure"
-pass "a failed power-button build soft-fails and is not marked done"
-
-: >"$pkg_log"
-if note=$(FAKE_GAMING_SESSION=1 FAKE_CONFLICT=steamos-powerbuttond run_power_migration "$build_stub" 2>&1 >/dev/null); then
-  :
-else
-  fail "a conflicting power daemon halts the migration"
-fi
-[[ $note == *"steamos-powerbuttond"* && $note == *"omarchy-setup-gaming-session"* ]] ||
-  fail "a conflicting handler warns and still returns" "$note"
-[[ $(<"$pkg_log") != *makepkg* && $(<"$pkg_log") != *"pacman -U"* ]] ||
-  fail "a conflicting handler is built over" "$(<"$pkg_log")"
-[[ ! -e $power_marker ]] || fail "a conflicting handler marks the migration done"
-pass "a conflicting power daemon does not halt later migrations"
+run_greeter_migration
+[[ $(<"$pkg_log") == qt6-virtualkeyboard ]] || fail "the Ally catch-up does not install qt6-virtualkeyboard" "$(<"$pkg_log")"
+pass "the greeter keyboard package is installed only on the Ally"
 
 # Setup retries even when the fresh-install marker is already present, and a
 # failed build does not create that marker or skip the next try.
@@ -1150,8 +1182,8 @@ set -e
 [[ ! -e $packaged/packaging ]] || fail "the packaged tree grew a packaging directory"
 pass "a packaged tree ships the power-button recipe"
 
-# 1795075200 is already marked done when the installer fails, and a fresh
-# install pre-marks it. The later migration is the retry for an existing user.
+# 1795075200 is a no-op. 1794843321 is the catch-up for an existing user.
+# A fresh install pre-marks that later migration too.
 rerun=
 for candidate in "$ROOT"/migrations/*.sh; do
   [[ $(basename "$candidate") == 1795075200.sh ]] && continue

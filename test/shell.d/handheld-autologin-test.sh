@@ -313,10 +313,24 @@ grant=$ROOT/packages/omarchy-gaming-session/omarchy-handheld-autologin
 pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
 [[ -f $grant ]] || fail "the gaming-session package is missing the autologin grant"
 [[ ! -e $ROOT/etc/sudoers.d/omarchy-handheld-autologin ]] || fail "the base tree still ships the autologin grant"
-grep -q 'install -Dm440 packages/omarchy-gaming-session/omarchy-handheld-autologin' "$pkgbuild" ||
+grep -q 'install -Dm440 "$srcdir/omarchy-handheld-autologin"' "$pkgbuild" ||
   fail "the package does not install the grant at mode 0440"
 grep -q '"$pkgdir/etc/sudoers.d/omarchy-handheld-autologin"' "$pkgbuild" ||
   fail "the package does not install the grant into sudoers.d"
+grep -q "iproute2" "$pkgbuild" || fail "the gaming session package does not depend on iproute2"
+if grep -q 'SKIP' "$pkgbuild"; then
+  fail "the gaming session package skips a source checksum"
+fi
+(
+  cd "$ROOT/packages/omarchy-gaming-session"
+  # shellcheck disable=SC1091
+  source ./PKGBUILD
+  (( ${#source[@]} == ${#sha256sums[@]} )) || exit 1
+  for i in "${!source[@]}"; do
+    sum=$(sha256sum "${source[$i]}" | awk '{print $1}')
+    [[ ${sha256sums[$i]} == "$sum" ]] || exit 1
+  done
+) || fail "a gaming session source checksum does not match its file"
 grant_rule=$(grep -vE '^[[:space:]]*(#|$)' "$grant")
 [[ $grant_rule == '%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply' ]] ||
   fail "the package grant is not the three autologin verbs" "$grant_rule"

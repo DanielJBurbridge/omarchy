@@ -3,9 +3,9 @@
 # Gamescope's Xwayland takes clients on the abstract socket @/tmp/.X11-unix/Xn
 # as well as the filesystem socket. /proc/net/unix prints that path on the
 # server inode only. The client's fd is socket:[other], with no path, so the
-# client inode is never the one beside the path. ss (iproute2, already in
-# base) is the peer table: a client whose peer is one of those sockets holds
-# the display.
+# client inode is never the one beside the path. ss (iproute2, named by
+# omarchy-gaming-session) is the peer table: a client whose peer is one of
+# those sockets holds the display.
 # gamescopereaper is a subreaper, and Steam's runtime double-forks. The
 # steamwebhelper that owns the UI can sit outside the launcher's children.
 # It stays in the launcher's cgroup. Only steamwebhelper counts. The steam

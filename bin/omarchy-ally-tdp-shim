@@ -7,7 +7,7 @@ TdpLimit1 is loaded from the vendored MIT interface (evlaV/steamos-manager
 85fbd8f, Collabora, Valve, Igalia). The notice sits beside that file. The
 other properties are the public names Steam reads. Their XML text is ours.
 This process never writes sysfs. It pkexecs omarchy-ally-tdp-apply for
---set and --reassert only.
+--set only. Wake reassert is omarchy-ally-tdp-resume.service.
 """
 
 import os
@@ -65,7 +65,7 @@ def interface_xml():
 
 def run_apply(args):
     command = [apply_bin(), *args]
-    if use_pkexec() and args and args[0] in {"--set", "--reassert"}:
+    if use_pkexec() and args and args[0] == "--set":
         command = ["pkexec", apply_bin(), *args]
     return subprocess.run(command, check=False, text=True, capture_output=True)
 
@@ -196,19 +196,6 @@ def main():
             return True
         return False
 
-    def on_sleep(_connection, _sender, _path, _interface, _signal, parameters):
-        sleeping = parameters.unpack()[0]
-        if sleeping:
-            return
-        proc = run_apply(["--reassert"])
-        if proc.returncode != 0:
-            print("omarchy-ally-tdp-shim: reassert after wake failed", file=sys.stderr)
-            return
-        info = parse_show(proc.stdout)
-        if info is None:
-            info = show()
-        emit_tdp(info)
-
     def on_bus(connection, _name):
         state["session"] = connection
         info = current()
@@ -223,20 +210,6 @@ def main():
         if not state["stopping"]:
             state["failed"] = True
             loop.quit()
-
-    try:
-        system = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-        system.signal_subscribe(
-            "org.freedesktop.login1",
-            "org.freedesktop.login1.Manager",
-            "PrepareForSleep",
-            "/org/freedesktop/login1",
-            None,
-            Gio.DBusSignalFlags.NONE,
-            on_sleep,
-        )
-    except GLib.Error as exc:
-        print(f"omarchy-ally-tdp-shim: logind is unavailable: {exc}", file=sys.stderr)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)

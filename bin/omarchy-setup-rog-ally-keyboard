@@ -19,8 +19,10 @@ This flag confirms the AUR installation choice, not a pinned package version.
 Does not start the keyboard, change input permissions or enable a service.
 Adds a visible Keyboard button to the bar when the Omarchy shell is running.
 Super+Ctrl+Y toggles it after Hyprland reload or next login.
---remove drops that button and the launcher this setup created. It also runs
-when this machine is no longer an RC71L, so the button does not stay behind.
+--remove drops the launcher this setup created and, when the shell is running,
+the bar button. It also runs when this machine is no longer an RC71L, so the
+button does not stay behind. The button is removed with omarchy-plugin-disable.
+If the shell is not running, the layout is left alone.
 HELP
     exit 0
     ;;
@@ -29,33 +31,14 @@ HELP
 esac
 (( $# == 1 )) || exit 2
 
-# Drop only the launcher this setup installed, and the bar entry. A launcher
-# the user edited is left in place. With the shell up, disable goes through
-# it; otherwise the config file is edited directly.
-strip_keyboard_widget() {
-  local config tmp
-  config="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"
-  [[ -f $config ]] || return 0
-  tmp=$(mktemp)
-  if jq '
-    def is_keyboard:
-      if type == "string" then . == "omarchy.desktop-keyboard"
-      elif type == "object" then (.id == "omarchy.desktop-keyboard")
-      else false end;
-    def drop: map(select(is_keyboard | not));
-    if (.bar.layout | type) == "object" then
-      .bar.layout |= map_values(if type == "array" then drop else . end)
-    else . end
-    | if (.plugins | type) == "array" then .plugins |= drop else . end
-  ' "$config" >"$tmp"; then
-    mv "$tmp" "$config"
-  else
-    rm -f "$tmp"
-  fi
-}
+# Drop only the launcher this setup installed. A launcher the user edited is
+# left in place. The bar button is removed through the running shell. A
+# stopped shell does not rewrite shell.json.
+keyboard_button_dropped=false
 
 remove_desktop_keyboard() {
   local apps launcher shipped
+  keyboard_button_dropped=false
   if [[ -n ${OMARCHY_PATH:-} ]]; then
     apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     launcher="$apps/omarchy-desktop-keyboard.desktop"
@@ -68,15 +51,21 @@ remove_desktop_keyboard() {
     fi
   fi
   if [[ -n ${WAYLAND_DISPLAY:-} ]] && omarchy-shell shell ping >/dev/null 2>&1; then
-    omarchy-plugin-disable omarchy.desktop-keyboard >/dev/null 2>&1 || strip_keyboard_widget
+    if omarchy-plugin-disable omarchy.desktop-keyboard >/dev/null 2>&1; then
+      keyboard_button_dropped=true
+    else
+      echo 'The shell did not drop the Keyboard button. Drop it with: omarchy plugin disable omarchy.desktop-keyboard'
+    fi
   else
-    strip_keyboard_widget
+    echo 'The shell is not running, so the Keyboard button stays on the bar. Drop it the next time the shell runs: omarchy plugin disable omarchy.desktop-keyboard'
   fi
 }
 
 if [[ $action == --remove ]]; then
   remove_desktop_keyboard
-  echo 'Desktop Keyboard was removed from the bar.'
+  if [[ $keyboard_button_dropped == true ]]; then
+    echo 'Desktop Keyboard was removed from the bar.'
+  fi
   exit 0
 fi
 if ! omarchy-hw-rog-ally; then
