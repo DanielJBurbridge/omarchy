@@ -398,6 +398,7 @@ From the RC71L button press test, 17 Nov 2026. This range is L230–L239.
 From the 17 Nov 2026 low fixes. This range is L240–L249.
 
 - L240. **Fixed.** `keyboard_button_in_shell` in `bin/omarchy-setup-rog-ally-keyboard` read `$HOME/.config/omarchy/shell.json`. A custom `XDG_CONFIG_HOME` hid the Keyboard button, so a stopped shell stayed quiet instead of naming the later drop. The check now uses `${XDG_CONFIG_HOME:-$HOME/.config}`. Source: this fix. Owner: input.
+- L241. **Fixed.** `packages/omarchy-gaming-session` created `/etc/sudoers.d` at 0755 because `install -D` makes parent directories that mode. pacman warns that the directory permissions differ (package 755, filesystem 750, the mode the `sudo` package ships). `package()` now runs `install -dm750` before the grant, and pkgrel is 7. `default/` does not contain `sudoers.d`. `etc/sudoers.d` is what `omarchy-settings` copies with `cp -a etc/.` from omarchy-pkgs, which is not in this tree, and git does not record the directory mode, so that package is unchanged here. Source: this fix. Owner: session.
 
 From the handheld autologin guard, 17 Nov 2026. This range is L250–L259. #82 is not merged, so L220 is not in this file. L250 is that range's medium. L251–L259 are claimed and empty.
 
