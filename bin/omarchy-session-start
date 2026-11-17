@@ -286,7 +286,6 @@ flock -n 9 || {
 scope=omarchy-gamescope-$XDG_SESSION_ID.scope
 gaming_session_target=omarchy-gaming-session.target
 scope_pid='' ready_pid='' return_pid=''
-started_power_units=()
 gaming_target_started=0
 gaming_autologin_ready=0
 gaming_explicit_desktop=0
@@ -312,11 +311,6 @@ stop_gaming() {
   done
   ready_pid='' return_pid=''
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return"
-  # Stop only services this gaming session acquired, policy listener first.
-  for unit in "${started_power_units[@]}"; do
-    systemctl --user stop "$unit" || true
-  done
-  started_power_units=()
   # Drop the session target before the desktop starts, so units bound with
   # PartOf= stop with the gamescope session and stay down on the desktop.
   if (( gaming_target_started )); then
@@ -360,14 +354,6 @@ run_gaming() {
   if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
     omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
     gamescope_args+=(--mangoapp)
-  fi
-  if [[ -f ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/ally-power/enabled ]]; then
-    for unit in steamos-manager.service omarchy-ally-power.service; do
-      if ! systemctl --user is-active --quiet "$unit"; then
-        systemctl --user start "$unit" || return 1
-        started_power_units=("$unit" "${started_power_units[@]}")
-      fi
-    done
   fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" || return 1

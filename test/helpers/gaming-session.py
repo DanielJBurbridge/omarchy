@@ -278,20 +278,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     run(env, selector, 'gaming')
     actions = (directory / 'actions').read_text()
     assert 'input:gamepad' in actions and '--prefer-output DP-2' in actions and '--mangoapp' in actions, actions
-    assert 'start omarchy-ally-power.service' in actions, actions
-    assert 'stop omarchy-ally-power.service' in actions, actions
-    assert 'stop steamos-manager.service' not in actions and 'start steamos-manager.service' not in actions, actions
-    print('PASS optional input, display, overlay and acquired power service ownership')
-
-    directory, env = case('partial-power-failure', POWER_FAIL='omarchy-ally-power.service')
-    marker = directory / 'state/omarchy/ally-power/enabled'
-    marker.parent.mkdir(parents=True)
-    marker.touch()
-    run(env, selector, 'gaming')
-    actions = (directory / 'actions').read_text()
-    assert 'start steamos-manager.service' in actions and 'stop steamos-manager.service' in actions, actions
-    assert 'gamescope:' not in actions and 'desktop:' in actions, actions
-    print('PASS partial power setup failure releases acquired manager and returns desktop')
+    assert 'ally-power' not in actions and 'steamos-manager' not in actions, actions
+    assert 'gamescope:' in actions, actions
+    print('PASS optional input, display and overlay, with no ally-power units')
 
     for name in ('omarchy-launch-gaming-session', 'omarchy-launch-gaming-desktop'):
         run({'PATH': '/usr/bin:/bin'}, repo / 'bin' / name, '--help')
