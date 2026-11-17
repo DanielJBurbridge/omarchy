@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Upgrade
+Operation = Install
+Type = Package
+Target = omarchy-dev
+Target = omarchy-settings-dev
+
+[Action]
+Description = Turning off handheld autologin when omarchy-dev is not a handheld build...
+When = PostTransaction
+Exec = /usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard

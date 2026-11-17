@@ -1,0 +1,64 @@
+#!/bin/bash
+# Drop handheld SDDM autologin when omarchy-dev is no longer a .handheld or
+# dev.* build. Those packages omit the session pieces, and Relogin=true in
+# zz-omarchy-handheld.conf then loops. Bazzite leaves the greeter by removing
+# zz-holo-autologin.conf; this removes the drop-in apply already writes.
+# User=, the sudoers grant and TPM config stay. SDDM is not restarted.
+# OMARCHY_HANDHELD_AUTOLOGIN_ROOT is the test root. Pacman does not set it.
+#
+# A PostTransaction hook runs while pacman holds db.lck. A nested pacman -Q
+# waits on that lock, so the hook reads the local database instead.
+
+set -u
+trap 'exit 0' EXIT
+
+root=${OMARCHY_HANDHELD_AUTOLOGIN_ROOT:-}
+dropin=${root}/etc/sddm.conf.d/zz-omarchy-handheld.conf
+
+log() {
+  logger -t omarchy-handheld-autologin-guard -- "$1" 2>/dev/null || true
+}
+
+local_version() {
+  local db=$1 entry name found=""
+  [[ -d $db && ! -L $db ]] || return 0
+  for entry in "$db"/omarchy-dev-*; do
+    [[ -d $entry && ! -L $entry ]] || continue
+    name=${entry##*/}
+    name=${name#omarchy-dev-}
+    [[ -n $name ]] || continue
+    if [[ -n $found ]]; then
+      log "more than one omarchy-dev in the local database; leaving handheld autologin"
+      return 0
+    fi
+    found=$name
+  done
+  printf '%s\n' "$found"
+}
+
+version=""
+if [[ ! -e ${root}/var/lib/pacman/db.lck ]]; then
+  query=$(pacman -Q omarchy-dev 2>/dev/null) || query=""
+  version=${query#omarchy-dev }
+  version=${version%%[[:space:]]*}
+fi
+if [[ -z $version ]]; then
+  version=$(local_version "${root}/var/lib/pacman/local")
+fi
+
+if [[ -z $version ]]; then
+  log "could not read omarchy-dev; leaving handheld autologin"
+elif [[ $version == dev.* || $version == *".handheld"* ]]; then
+  log "omarchy-dev $version keeps handheld autologin"
+elif [[ -L $dropin ]]; then
+  log "refusing a symlink at $dropin; leaving handheld autologin"
+elif [[ -f $dropin ]]; then
+  rm -f -- "$dropin"
+  if [[ -e $dropin ]]; then
+    log "could not remove $dropin; handheld autologin stays"
+  else
+    log "omarchy-dev $version is not a handheld build; removed $dropin so the next login uses the greeter. Reinstall a .handheld build, then: sudo omarchy-handheld-autologin apply"
+  fi
+else
+  log "omarchy-dev $version is not a handheld build; $dropin is already absent"
+fi
