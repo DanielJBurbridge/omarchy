@@ -15,6 +15,8 @@ IP_WAS_ACTIVE=0
 IP_RESTORED=0
 
 # One shot: INT and TERM both end the shell, and the shell then runs EXIT.
+# HUP does not. An SSH drop has to restore before it exits, and the EXIT
+# trap that follows is a no-op once IP_RESTORED is set.
 restore_capture() {
   if (( IP_RESTORED )); then
     return 0
@@ -31,6 +33,7 @@ echo "Needs sudo once (evtest reads /dev/input as root)."; sudo -v || exit 1
 trap restore_capture EXIT
 trap 'restore_capture; exit 130' INT
 trap 'restore_capture; exit 143' TERM
+trap 'restore_capture; exit 129' HUP
 
 if systemctl is-active --quiet "$IP_UNIT" 2>/dev/null; then
   IP_WAS_ACTIVE=1
