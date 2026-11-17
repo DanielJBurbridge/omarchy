@@ -671,6 +671,60 @@ cmp -s "$config" "$test_tmp/shell-before.json" ||
   fail "a non-RC71L setup with the shell down rewrites shell.json" "$(<"$config")"
 pass "a non-RC71L setup leaves shell.json alone when the shell is down"
 
+rm -f "$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
+printf '%s\n' '{"version":1,"bar":{"layout":{"right":["omarchy.clock"]}}}' >"$config"
+cp "$config" "$test_tmp/shell-before.json"
+if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "removing the keyboard with nothing installed exits 0" "$note"
+fi
+[[ $note != *"next time the shell runs"* && $note != *"Keyboard button"* ]] ||
+  fail "a stopped shell stays quiet when the button was never added" "$note"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "a quiet removal rewrites shell.json" "$(<"$config")"
+if note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+  fail "a non-RC71L setup with no button still configures the keyboard"
+fi
+[[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $note != *"Keyboard button"* && $note != *"next time the shell runs"* ]] ||
+  fail "a non-RC71L setup stays quiet when the button was never added" "$note"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "a quiet non-RC71L setup rewrites shell.json" "$(<"$config")"
+pass "a stopped shell stays quiet when the Keyboard button was never added"
+
+printf '%s\n' '{"version":1,"bar":{"layout":{"right":["omarchy.desktop-keyboard"]}}}' >"$config"
+cp "$config" "$test_tmp/shell-before.json"
+if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "a layout button with the shell down exits 0" "$note"
+fi
+[[ $note == *"next time the shell runs"* ]] ||
+  fail "a stopped shell names the button that is still in the layout" "$note"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "naming the layout button rewrites shell.json" "$(<"$config")"
+printf '%s\n' '{"version":1}' >"$config"
+cp "$ROOT/default/omarchy/applications/Desktop Keyboard.desktop" \
+  "$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
+cp "$config" "$test_tmp/shell-before.json"
+if ! note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "a setup launcher with the shell down exits 0" "$note"
+fi
+[[ $note == *"Removed the Desktop Keyboard launcher created by this setup."* && $note == *"next time the shell runs"* ]] ||
+  fail "a stopped shell names the button when this setup's launcher was installed" "$note"
+[[ ! -e $home/.local/share/applications/omarchy-desktop-keyboard.desktop ]] ||
+  fail "a setup launcher is still removed when the layout has no button"
+cmp -s "$config" "$test_tmp/shell-before.json" ||
+  fail "removing the setup launcher rewrites shell.json" "$(<"$config")"
+pass "a stopped shell names the button only when it is installed"
+
 # A laptop that has wvkbd, or the setup command, still gets neither keyboard row.
 # Dropping the RC71L check from the install row makes this fail.
 menu_log=$test_tmp/gaming-menu
