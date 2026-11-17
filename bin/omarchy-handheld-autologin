@@ -205,8 +205,10 @@ EOF
 stop
 EOF
       apply_dropin
-      restart_greeter
-      load_greeter_pointer
+      if handheld_variant; then
+        restart_greeter
+        load_greeter_pointer
+      fi
     elif [[ $state_count =~ ^[0-9]+$ ]] && (( state_count >= 3 )); then
       # The persisted count already tripped. Pin Relogin off without
       # restarting SDDM: this process is about to open the desktop.

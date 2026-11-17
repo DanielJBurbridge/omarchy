@@ -145,4 +145,4 @@ systemctl --user daemon-reload
 omarchy-pkg-drop omarchy-gaming-session
 ```
 
-Reboot. Autologin is gone, so the greeter is up. A USB keyboard's Enter submits the password. There is no session picker. That leaves Steam's games and saves. `/etc/sudoers.d/omarchy-handheld-autologin` is the passwordless `fail` / `reset` / `apply` grant. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.
+Reboot. Autologin is gone, so the greeter is up. A USB keyboard's Enter submits the password. There is no session picker. That leaves Steam's games and saves. `omarchy-gaming-session` installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, the passwordless `fail` / `reset` / `apply` grant. The base tree does not ship it. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.

@@ -298,3 +298,32 @@ rm -f "$work/bin/getent"
 grep -q '^Relogin=false$' "$dropin" || fail "a persisted count of 3 sets Relogin=false" "$(cat "$dropin")"
 [[ ! -e $work/run/actions ]] || fail "a persisted count of 3 does not restart SDDM" "$(cat "$work/run/actions" 2>/dev/null)"
 pass "a persisted count of 3 pins Relogin off without restarting SDDM"
+
+rm -f "$work/run/stop" "$work/run/failures" "$work/run/actions"
+OMARCHY_AUTOLOGIN_NOW=4000 HW=laptop run_guard fail
+OMARCHY_AUTOLOGIN_NOW=4010 HW=laptop run_guard fail
+OMARCHY_AUTOLOGIN_NOW=4020 HW=laptop run_guard fail
+[[ -f $work/run/stop ]] || fail "three failures off the handheld variant still record the stop"
+if [[ -f $work/run/actions ]] && grep -q 'sddm-restart\|inputplumber-profile' "$work/run/actions"; then
+  fail "a fail off the handheld variant restarts sddm" "$(cat "$work/run/actions")"
+fi
+pass "a fail off the handheld variant does not restart sddm"
+
+grant=$ROOT/packages/omarchy-gaming-session/omarchy-handheld-autologin
+pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
+[[ -f $grant ]] || fail "the gaming-session package is missing the autologin grant"
+[[ ! -e $ROOT/etc/sudoers.d/omarchy-handheld-autologin ]] || fail "the base tree still ships the autologin grant"
+grep -q 'install -Dm440 packages/omarchy-gaming-session/omarchy-handheld-autologin' "$pkgbuild" ||
+  fail "the package does not install the grant at mode 0440"
+grep -q '"$pkgdir/etc/sudoers.d/omarchy-handheld-autologin"' "$pkgbuild" ||
+  fail "the package does not install the grant into sudoers.d"
+grant_rule=$(grep -vE '^[[:space:]]*(#|$)' "$grant")
+[[ $grant_rule == '%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply' ]] ||
+  fail "the package grant is not the three autologin verbs" "$grant_rule"
+if command -v visudo >/dev/null; then
+  visudo -cf "$grant" >/dev/null || fail "the package grant does not parse"
+  pass "the autologin grant ships in the gaming-session package and parses"
+else
+  pass "the autologin grant ships in the gaming-session package"
+  skip "visudo is not installed; skipping the autologin grant parse check"
+fi
