@@ -4,7 +4,7 @@ Research notes for a gaming-first handheld mode on the original ASUS ROG Ally (R
 
 **An earlier independent review rejected stock steamos-manager 26.4.1-3 even when inactive.** ~~It was left as a recommendation under re-assessment.~~ That re-assessment is closed by the note below.
 
-**Superseded (12 Nov 2026).** Do not ship stock steamos-manager and do not fork it. Build backlog #10 (a small root writer for the power limits) and #11 (a session-bus shim implementing the public SteamOSManager1 API, so Steam's QAM performance slider works). The stock package enables a root service on install, its root RootManager API lacks Polkit/caller authorisation, its root daemon manages InputPlumber targets, it has a networking-helper dependency, and its root interface is monolithic.
+**Superseded (12 Nov 2026), and landed on this tip.** Do not ship stock steamos-manager and do not fork it. The writer is `bin/omarchy-ally-tdp-apply`. The session shim is `bin/omarchy-ally-tdp-shim` (`TdpLimit1`, MIT interface from evlaV/steamos-manager `85fbd8f`). The stock package enables a root service on install, its root RootManager API lacks Polkit/caller authorisation, its root daemon manages InputPlumber targets, it has a networking-helper dependency, and its root interface is monolithic. The current contract is [spec 04 §5.1](../04-quick-access-overlay.md).
 
 Per-button codes and paddle mapping are pending a device press test.
 
@@ -12,8 +12,8 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 
 ## Index
 
-- [`feature-parity-audit.md`](feature-parity-audit.md) — User-facing features of Bazzite Deck, CachyOS Handheld and SteamOS, plus touch Hyprland setups. Each row has integ status with a file on this branch, the source repo and SPDX licence, effort, and whether it belongs in Omarchy core or an opt-in handheld package. Ranked gaps at the end.
-- [`parity-gaps-ranked.md`](parity-gaps-ranked.md) — Ranked list of what Bazzite, CachyOS Handheld and SteamOS do on the RC71L that this branch still does not. Each row is open, briefed or partial against the tree, with the brief or spec, the code to reuse and its licence, and the effort. Dated 16 Nov 2026.
+- [`parity-gaps-ranked.md`](parity-gaps-ranked.md) — The current ranked list of what Bazzite, CachyOS Handheld and SteamOS do on the RC71L that this branch still does not. Read at integ `5534cf292`.
+- [`feature-parity-audit.md`](feature-parity-audit.md) — Pointer. The 16 Nov matrix is retired. Status lives in the gaps file.
 - [`brief-speaker-dsp.md`](brief-speaker-dsp.md) — Implementation brief for ranked gap 2, Ally speaker DSP. What CachyOS and Bazzite ship, why those files stay out, the two-volume sink against the CS35L41 pair, and an opt-in tuning under `default/audio/tunings/` that reuses the existing speaker host.
 - [`touch-desktop-and-stick-mouse.md`](touch-desktop-and-stick-mouse.md) — An undocked touch desktop on the Ally (gestures, OSK, menu size, scale, rotation), and how Bazzite and InputPlumber turn sticks into a desktop pointer. Idea list and port candidates.
 - [`prior-art.md`](prior-art.md) — Pizzarchy, cephalization/omarchy-steam-gaming-mode, DeckShift and deckarchy. What each does, its licence, how it starts gamescope and gets back to the desktop, keyboard-free install and login, and a port list for the files on this branch.
@@ -21,9 +21,9 @@ Omarchy is MIT. InputPlumber files (GPL-3.0-or-later), HHD's MCU bytes (LGPL-2.1
 - [`buttons-and-input.md`](buttons-and-input.md) — Ally extra buttons, kernel codes, how InputPlumber and HHD map them, and the InputPlumber recommendation. Paddle codes and the M1/M2 side mapping are marked unverified there and still need the press test.
 - [`inputplumber-profiles-brief.md`](inputplumber-profiles-brief.md) — Implementation brief for the RC71L profiles in [spec 01](../01-controller-button-map.md): the upstream composite device, the `gaming`, `desktop` and `osk` YAML against the InputPlumber 0.84 schema, D-Bus profile loads, and the licence split. OQ-1, OQ-2 and OQ-17 stay TBC.
 - [`brief-power-button.md`](brief-power-button.md) — Implementation brief for ranked gap 3: the RC71L power button in the gamescope session. Short press suspends, a one-second hold opens Steam's power menu, and the desktop path stays lock-then-suspend until K07. Names the upstream files to vendor and the core-fit split.
-- [`brief-tdp-limits.md`](brief-tdp-limits.md) — Implementation brief for ranked gap 1: RC71L PPT limits, the session-bus shim Steam's TDP slider talks to, and the resume and AC reapply. Stock steamos-manager stays out. Reuse the MIT interface and write. Backlog #10 and #11.
-- [`build-tdp-slider.md`](build-tdp-slider.md) — Build brief for dev-blue, ranked gap 1. Compares the TDP code at pinned commits, then names the opt-in package, the bash writer and the session shim. Battery 25 applies 20/20/25 and AC 30 applies 30/43/53. Follow-ups L170–L179.
-- [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and a 10-line recommended Omarchy stack, with the steamos-manager caveat above.
+- [`brief-tdp-limits.md`](brief-tdp-limits.md) — Research for the RC71L PPT limits. Implemented. The contract is spec 04 §5.1. Keeps the kernel tables, the licence notes and the evlaV `85fbd8f` citation.
+- [`build-tdp-slider.md`](build-tdp-slider.md) — Build comparison for the TDP slider. Implemented. The contract is spec 04 §5.1. Keeps the licence table and the evlaV citation. On-device slider check stays open.
+- [`parity-matrix.md`](parity-matrix.md) — Bazzite, CachyOS Handheld, SteamOS and the Omarchy stack. Leads with the landed writer and shim. The stock steamos-manager rejection stays as history.
 - [`distros.md`](distros.md) — How Bazzite, CachyOS Handheld, SteamOS, ChimeraOS and Nobara install, boot into gaming mode, switch to the desktop and handle docking, plus what Omarchy can reuse and under which licence.
 - [`accessibility.md`](accessibility.md) — Handheld accessibility findings for a gamescope + Steam gaming mode and the Hyprland desktop.
 - [`gamescope-external-overlay.md`](gamescope-external-overlay.md) — Whether a Gamescope external overlay draws above a fullscreen game without taking focus, and how Decky, mangoapp and the handheld distros actually draw.
