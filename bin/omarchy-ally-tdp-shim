@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# omarchy:hidden=true
+# omarchy:summary=Session bus owner for Steam's TDP slider on the ROG Ally RC71L
 """Session bus owner for Steam's TDP slider on the ROG Ally RC71L.
 
 TdpLimit1 is loaded from the vendored MIT interface (evlaV/steamos-manager
