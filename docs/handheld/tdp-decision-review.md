@@ -1,5 +1,7 @@
 # Red team: TDP/power path decision review (ROG Ally RC71L)
 
+**Historical (12 Nov 2026).** The current contract is [04-quick-access-overlay.md](04-quick-access-overlay.md) §5.1. The writer is `bin/omarchy-ally-tdp-apply`. The shim is `bin/omarchy-ally-tdp-shim`. Stock steamos-manager is not shipped. This review cites `docs/rog-ally-power.md`, `docs/rog-ally-power-authority.md`, `docs/handheld/tdp-spike-findings.md`, `bin/omarchy-power-ally`, `default/handheld/power.py`, `shell/plugins/panels/power/Handheld.qml` and `feat/ally-power-20261111`. Those paths are not on this branch. The rulings that said the TDP rows stay read-only until a writer lands, and that no branch existed for the writer or the shim, are closed by the files above.
+
 ## Rulings (12 Nov 2026)
 
 These close the open items in the review below. The review text is kept as it was written.
@@ -7,8 +9,8 @@ These close the open items in the review below. The review text is kept as it wa
 - PPD is masked only when the handheld variant (`omarchy-hw-rog-ally` and `omarchy-gaming-session`) and backlog #10 (power writer) are both installed. Not on every RC71L, and not on the handheld pair alone. The setup records the mask and unmasks when either is removed or the device goes desktop-only. The same gate is PR #33.
 - backlog #10 (power writer) owns power. Do not ship stock or patched `steamos-manager`.
 - backlog #11 (Steam TDP shim) is the Steam session-bus shim, and it waits on the spike that shows Steam's QAM TDP slider with a non-Valve owner.
-- TDP rows stay read-only until backlog #10 (power writer) lands.
-- Where the capped-apply rules below differ from [PR #33](https://github.com/DanielJBurbridge/omarchy/pull/33) (`docs/handheld/tdp-spike-findings.md`), the spike is the rule. The single action is `org.omarchy.ally.set-tdp` on `/usr/bin/omarchy-ally-tdp-apply` (`allow_active=yes`, `allow_any=no`, `allow_inactive=no`). The caller passes watts. Root derives SPPT and FPPT.
+- TDP rows stayed read-only until the writer landed. That writer is now `bin/omarchy-ally-tdp-apply`. The contract is spec 04 §5.1, not a file that is absent from this branch.
+- The single action is `org.omarchy.ally.set-tdp` on `/usr/bin/omarchy-ally-tdp-apply` (`allow_active=yes`, `allow_any=no`, `allow_inactive=no` in `default/polkit/org.omarchy.ally.set-tdp.policy`). The caller passes watts. Root derives SPPT and FPPT and clamps to the live firmware limits.
 - SPL ≤ SPPT ≤ FPPT on every write. Battery slider max is 20 W and the applied tuple is at most 20/20/25. AC slider max is 30 W. A request above the cap is clamped, not rejected: on battery `--set 25` applies 20/20/25. A canonical set below 7 W clamps up to 7 W on apply, on AC and on battery: `--set 5` stores 5 and writes SPL 7. On battery, SPPT = clamp(derived, max(SPL, sppt_min), 20) and FPPT = clamp(derived, max(SPPT, fppt_min), 25). `--reassert` after an unplug clamps to 20/20/25 and keeps the stored AC request. Any battery tuple above 20/20/25, including the spike's 25/30/35, needs measured data and dev-red sign-off before it ships.
 
 Reviewer: dev-red. Date: Thu 12 Nov 2026 (AWST). Written as a read-only review; this file is the copy in the repo.
