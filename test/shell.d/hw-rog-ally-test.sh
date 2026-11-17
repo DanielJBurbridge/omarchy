@@ -725,6 +725,27 @@ cmp -s "$config" "$test_tmp/shell-before.json" ||
   fail "removing the setup launcher rewrites shell.json" "$(<"$config")"
 pass "a stopped shell names the button only when it is installed"
 
+xdg_config="$test_tmp/xdg-config"
+rm -f "$home/.local/share/applications/omarchy-desktop-keyboard.desktop"
+printf '%s\n' '{"version":1}' >"$config"
+mkdir -p "$xdg_config/omarchy"
+xdg_shell="$xdg_config/omarchy/shell.json"
+printf '%s\n' '{"version":1,"bar":{"layout":{"right":["omarchy.desktop-keyboard"]}}}' >"$xdg_shell"
+cp "$xdg_shell" "$test_tmp/xdg-shell-before.json"
+cp "$config" "$test_tmp/home-shell-before.json"
+if ! note=$(HOME="$home" XDG_CONFIG_HOME="$xdg_config" OMARCHY_PATH="$ROOT" \
+  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --remove 2>&1); then
+  fail "a custom XDG_CONFIG_HOME with the shell down exits 0" "$note"
+fi
+[[ $note == *"next time the shell runs"* ]] ||
+  fail "a stopped shell reads the Keyboard button from XDG_CONFIG_HOME" "$note"
+cmp -s "$xdg_shell" "$test_tmp/xdg-shell-before.json" ||
+  fail "a custom XDG_CONFIG_HOME shell.json is rewritten" "$(<"$xdg_shell")"
+cmp -s "$config" "$test_tmp/home-shell-before.json" ||
+  fail "the default config is rewritten when XDG_CONFIG_HOME is set" "$(<"$config")"
+pass "a stopped shell reads shell.json from XDG_CONFIG_HOME"
+
 # A laptop that has wvkbd, or the setup command, still gets neither keyboard row.
 # Dropping the RC71L check from the install row makes this fail.
 menu_log=$test_tmp/gaming-menu
