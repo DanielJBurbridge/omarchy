@@ -8,7 +8,7 @@
 
 ## Recommendation
 
-The opt-in package is [`packaging/rog-ally-tdp/PKGBUILD`](../../../packaging/rog-ally-tdp/PKGBUILD) (`omarchy-rog-ally-tdp`). It does not install copies of the writer or the shim. Those ship in omarchy. Its scriptlet runs `omarchy-ally-tdp-install hardware`, then `session` when `omarchy-gaming-session` is present. `install/hardware/asus/ally-tdp.sh` runs the same commands. The package is not in `install/omarchy-base.packages`. Laptops keep `power-profiles-daemon`.
+There is no `omarchy-rog-ally-tdp` package. The writer and the shim ship in omarchy. The vendored interface and its MIT notice are [`default/ally-tdp/`](../../../default/ally-tdp/). The shim reads that XML from `$OMARCHY_PATH/default/ally-tdp/`. [`install/hardware/asus/ally-tdp.sh`](../../../install/hardware/asus/ally-tdp.sh) runs `omarchy-ally-tdp-install`. `packages/omarchy-gaming-session` runs `omarchy-ally-tdp-install session` from its install scriptlet, the packaged-install fallback when the package arrives after the hardware leaf. Laptops keep `power-profiles-daemon`.
 
 The smallest reuse that Steam will actually talk to is two MIT pieces from [evlaV/steamos-manager](https://github.com/evlaV/steamos-manager) `85fbd8f97719277c4df326cf27e4803d4cb31ef9`, not the daemon:
 
@@ -19,7 +19,7 @@ The watts are §5.1, not `max(limit, min)` alone. Read `min_value`, `max_value` 
 
 The writer is bash: `bin/omarchy-ally-tdp-apply`. The shim is `bin/omarchy-ally-tdp-shim`, a `bin/` script that owns the session name the way [`bin/omarchy-inputplumber-profile`](../../../bin/omarchy-inputplumber-profile) already does, with `Gio` (`python3`, `python-gobject`). That is the bus owner this tree already has. A bash loop cannot emit `PropertiesChanged` and hold the name. Do not add a Rust crate.
 
-This is the shape that can land in Omarchy: one opt-in package, `omarchy-*` names, a shell writer, two oneshots and one user unit, polkit with no `NOPASSWD` and an explicit `sddm` denial, no GPL or LGPL in the tree, and no daemon on a laptop.
+This is the shape that can land in Omarchy: `omarchy-*` names, a shell writer, two oneshots and one user unit, polkit with no `NOPASSWD` and an explicit `sddm` denial, no GPL or LGPL in the tree, and no daemon on a laptop. The interface stays in `default/ally-tdp/`.
 
 ## What was compared
 
@@ -40,14 +40,12 @@ Sizes are `wc -l` of the file at the pin, read on 16 Nov 2026. "Steam drives it"
 
 ## Files
 
-The drop-in `default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf` stays as it is. The 16 Nov list below is what was proposed. The tree differs in three places: `packaging/rog-ally-tdp/` installs only the notice and the XML under `/usr/share`, and the same two files also live in `default/ally-tdp/`; `default/udev/99-omarchy-ally-tdp.rules` is two `Mains` rules, not a `USB` pair; the polkit rule is written by `omarchy-ally-tdp-install` to `/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules` and is not a file under `default/polkit/`.
+The drop-in `default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf` stays as it is. The 16 Nov list below is what was proposed. The tree differs from that list: the notice and the XML live only in `default/ally-tdp/`, and the shim reads them from `$OMARCHY_PATH`; `default/udev/99-omarchy-ally-tdp.rules` is two `Mains` rules, not a `USB` pair; the polkit rule is written by `omarchy-ally-tdp-install` to `/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules` and is not a file under `default/polkit/`. The shim does not subscribe to logind `PrepareForSleep`. Wake reassert is only `omarchy-ally-tdp-resume.service` `ExecStop=`.
 
 | Path | Role |
 |---|---|
-| `packaging/rog-ally-tdp/PKGBUILD` | `pkgname=omarchy-rog-ally-tdp`. `license=('MIT')`. `depends=('omarchy' 'python-gobject' 'polkit' 'systemd')`. `conflicts=('steamos-manager')`. Installs the rows below and the MIT notice under `/usr/share/licenses/omarchy-rog-ally-tdp/`. Not listed in `install/omarchy-base.packages` |
-| `packaging/rog-ally-tdp/omarchy-rog-ally-tdp.install` | `post_install` and `post_remove`, below |
-| `packaging/rog-ally-tdp/NOTICE.steamos-manager` | The MIT copyright and permission notice, next to the vendored interface |
-| `packaging/rog-ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml` | The vendored `TdpLimit1` interface only |
+| `default/ally-tdp/NOTICE.steamos-manager` | The MIT copyright and permission notice, next to the vendored interface |
+| `default/ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml` | The vendored `TdpLimit1` interface only. The shim reads this file |
 | `bin/omarchy-ally-tdp-apply` | `#!/bin/bash`. The writer. Installed at `/usr/bin/omarchy-ally-tdp-apply` |
 | `bin/omarchy-ally-tdp-shim` | `#!/usr/bin/python3`. The session-bus owner. Installed at `/usr/bin/omarchy-ally-tdp-shim` |
 | `default/systemd/user/omarchy-ally-tdp-shim.service` | `Type=dbus`, `BusName=com.steampowered.SteamOSManager1`, `ExecStart=/usr/bin/omarchy-ally-tdp-shim`. `PartOf=` and `WantedBy=` `graphical-session.target` and `omarchy-gaming-session.target`. `ExecCondition=/usr/bin/omarchy-hw-rog-ally` |
@@ -68,7 +66,7 @@ On startup of a source, snapshot `default_value`, `min_value` and `max_value` fo
 
 Write order, after that clamp: SPL `current_value`, then SPPT, then FPPT. Keep SPL ≤ SPPT ≤ FPPT after the write and read them back. A tuple that would break that order writes nothing. AC is a `Mains` or `USB` supply with `online` 1. Do not write `platform_profile` or the deprecated `asus-nb-wmi` files.
 
-`--set` and `--reassert` take an exclusive `flock` on `/run/omarchy-ally-tdp.lock` before the first store and hold it until the readback finishes. Logind, the resume `ExecStop=` and the udev oneshot can call `--reassert` at once. The second call waits. The three stores are not interleaved. If the lock cannot be opened, the writer exits and writes nothing. `--show` does not take the lock.
+`--set` and `--reassert` take an exclusive `flock` on `/run/omarchy-ally-tdp.lock` before the first store and hold it until the readback finishes. The resume `ExecStop=` and the udev oneshot can call `--reassert` at once. The second call waits. The three stores are not interleaved. If the lock cannot be opened, the writer exits and writes nothing. `--show` does not take the lock.
 
 Refuse `--set` and `--reassert` while any of these is active: `power-profiles-daemon` (when it is not the mask below), `powerstation`, `hhd`, `adjustor`, `asusd`, `tlp`, `auto-cpufreq`, `tuned`, `gamemoded`. That is the overlay conflict list.
 
@@ -76,11 +74,11 @@ Refuse `--set` and `--reassert` while any of these is active: `power-profiles-da
 
 The shim claims `com.steampowered.SteamOSManager1` before Steam, which the session restart above already does when the unit is installed. It exports `TdpLimit1` from the vendored XML. `TdpLimitMin` and `TdpLimitMax` follow the live window and the policy ceiling: 20 on battery, 30 on AC, also bounded by the live max and the boot-captured max. `PerformanceProfile1` advertises only `performance`, and a set of that string succeeds without writing `platform_profile`. `GpuPerformanceLevel1` advertises only `auto`. `ManualGpuClock` returns `NotSupported`. `DeviceModel` is `("rog_ally", "RC71L")`. No factory-reset, storage, Wi-Fi, session or BIOS methods. `PropertiesChanged` only after the writer readback, including min and max when the source changes the window.
 
-The shim never writes sysfs. It `pkexec`s only `--set` and `--reassert`. On logind `PrepareForSleep(false)` it calls `--reassert`. The resume unit's `ExecStop=` calls `--reassert` after wake. Both take the writer's lock, so the stores are not interleaved.
+The shim never writes sysfs. It `pkexec`s only `--set`. Wake `--reassert` is the resume unit's `ExecStop=`, which also covers the desktop. The shim does not subscribe to logind `PrepareForSleep`.
 
 ## Install and removal
 
-The package is opt-in. `install/hardware/asus/ally-tdp.sh` runs `omarchy-ally-tdp-install`. It does not `omarchy-pkg-add` this package. An Ally owner can also install `omarchy-rog-ally-tdp`, whose scriptlet runs the same installer.
+`install/hardware/asus/ally-tdp.sh` runs `omarchy-ally-tdp-install`. The gaming-session install scriptlet runs `session` when the package is installed later. That scriptlet is the packaged-install fallback. It does not install a second TDP package.
 
 `omarchy-ally-tdp-install session` masks `power-profiles-daemon` and records the previous unit state at `/var/lib/omarchy/handheld/power-profiles-daemon.state`. Hardware install does not mask it. While that record exists, `omarchy-powerprofiles-set` runs `omarchy-ally-tdp-apply --reassert`, not `powerprofilesctl`.
 
@@ -101,12 +99,12 @@ Read package power under load. These tuples are the acceptance, on the stock tab
 
 - Steam never calls the shim. The name was claimed after Steam's startup check, or `TdpLimit1` is missing, so the client treats the feature as unsupported. The session restart is before the gamescope scope. Confirm the name is owned before `steam` starts. A Deck-identity check beyond the four flags is **unverified**. There is no second slider implementation if Steam ignores the name.
 - `asus-armoury` is missing. The writer exits. The shim does not advertise a writable `TdpLimit`. Do not fall through to RyzenAdj, the deprecated platform files, or `ppt_platform_sppt`.
-- Resume. `omarchy-ally-tdp-resume.service` follows [systemd.special(7)](https://www.freedesktop.org/software/systemd/man/latest/systemd.special.html): `Before=sleep.target`, `WantedBy=sleep.target`, `RemainAfterExit=yes`, `StopWhenUnneeded=yes`, and `--reassert` is `ExecStop=`, so it runs after wake. `ExecStart=` is `/bin/true` and writes nothing. Logind `PrepareForSleep(false)` also calls `--reassert`. The flock serialises those calls with the udev oneshot. The dumped unit's MCU is below 319 ([ally-hw-dump.md](ally-hw-dump.md)). Update it before treating a stuck wattage as this package.
+- Resume. `omarchy-ally-tdp-resume.service` follows [systemd.special(7)](https://www.freedesktop.org/software/systemd/man/latest/systemd.special.html): `Before=sleep.target`, `WantedBy=sleep.target`, `RemainAfterExit=yes`, `StopWhenUnneeded=yes`, and `--reassert` is `ExecStop=`, so it runs after wake. `ExecStart=` is `/bin/true` and writes nothing. The shim does not call `--reassert` on wake. The flock serialises the resume unit with the udev oneshot. The dumped unit's MCU is below 319 ([ally-hw-dump.md](ally-hw-dump.md)). Update it before treating a stuck wattage as this package.
 - AC replug. The udev oneshot runs `--reassert` only for a `Mains` or `USB` supply whose event has `POWER_SUPPLY_ONLINE` of 0 or 1. A stored 30 comes back as 30/43/53. If the EC has already changed the live value, the readback still has to match that tuple. Whether the EC swaps the limit by itself is **unverified**.
 
 ## Licences
 
-This note and the new scripts are MIT, like Omarchy. The vendored interface and the ported write order are MIT and ship with the notice, inside `omarchy-rog-ally-tdp` only. HHD is `LGPL-2.1-or-later`. InputPlumber and PowerStation are `GPL-3.0-or-later`. chwd is `GPL-3.0-only`. RyzenAdj is `LGPL-3.0`. asusctl is `MPL-2.0`. Bazzite's scripts are `Apache-2.0`. None of those are copied.
+This note and the new scripts are MIT, like Omarchy. The vendored interface and the ported write order are MIT and ship with the notice, inside `default/ally-tdp/` only. HHD is `LGPL-2.1-or-later`. InputPlumber and PowerStation are `GPL-3.0-or-later`. chwd is `GPL-3.0-only`. RyzenAdj is `LGPL-3.0`. asusctl is `MPL-2.0`. Bazzite's scripts are `Apache-2.0`. None of those are copied.
 
 ## Follow-ups
 

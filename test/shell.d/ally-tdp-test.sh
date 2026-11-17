@@ -20,7 +20,10 @@ grep -q '^WantedBy=sleep.target$' "$resume" || fail "resume is wanted by sleep"
 grep -q '^RemainAfterExit=yes$' "$resume" || fail "resume stays active across sleep"
 grep -q '^StopWhenUnneeded=yes$' "$resume" || fail "resume stops when sleep goes away"
 grep -q 'ExecStart=.*--reassert' "$resume" && fail "resume writes on the way into sleep"
-pass "resume reasserts after wake"
+if grep -q 'PrepareForSleep\|--reassert' "$ROOT/bin/omarchy-ally-tdp-shim"; then
+  fail "the shim reasserts on sleep"
+fi
+pass "resume reasserts after wake and the shim does not"
 
 rules=$ROOT/default/udev/99-omarchy-ally-tdp.rules
 grep -q 'ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="0"' "$rules" || fail "udev matches mains going offline"
@@ -462,11 +465,14 @@ from pathlib import Path
 import re
 root = Path("$ROOT")
 pattern = re.compile(r"<interface name=\"com.steampowered.SteamOSManager1.TdpLimit1\">.*</interface>", re.S)
-left = pattern.search((root / "default/ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml").read_text()).group(0)
-right = pattern.search((root / "packaging/rog-ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml").read_text()).group(0)
-raise SystemExit(0 if left == right else 1)
+xml = (root / "default/ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml").read_text()
+notice = (root / "default/ally-tdp/NOTICE.steamos-manager").read_text()
+if pattern.search(xml) is None or "MIT" not in notice:
+    raise SystemExit(1)
+if (root / "packaging").exists():
+    raise SystemExit(1)
 PY
-pass "the shim compiles and the vendored interface matches"
+pass "the shim compiles and the vendored interface is the default tree"
 
 cat >"$work/shim-session.sh" <<EOF
 #!/bin/bash

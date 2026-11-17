@@ -28,7 +28,7 @@ setup; independently seeds `/etc/skel`).
 
 Some trees ship in neither package and exist only in the repo: `manual/`
 (user manual chapters), `agents/skills/` (contributor task guides), `docs/`,
-`test/`, `plans/`, and `packaging/`.
+`test/` and `plans/`.
 
 Three layers populate `$HOME`:
 
@@ -154,7 +154,7 @@ logo.{txt,svg}, icon.{txt,png}  ──► omarchy-settings    /usr/share/omarchy
 
 The hardware-conditional `force-igpu` and `keyboard-backlight` sources also live under `default/systemd/system-sleep/`, but their setup commands publish root-owned copies only on machines that need them; they are not installed by `omarchy-settings`.
 
-`default/rog-ally/powerbutton/` is the RC71L power-button recipe (`PKGBUILD`, the hwdb and the udev rule). `omarchy-settings` and `omarchy-settings-dev` `package()` copy the whole `default/` tree with `cp -a default/.` to `/usr/share/omarchy/default/`, so a packaged install has it at `$OMARCHY_PATH/default/rog-ally/powerbutton`. It compiles Valve's powerbuttond v4.2 (`9392e688`, BSD-2-Clause, copyright 2023 Valve Software) and the recipe installs that upstream LICENSE with the binary. `omarchy` and `omarchy-dev` `package()` copy `install`, `themes`, `icons` when that directory exists, `migrations`, `shell` and `version` into `/usr/share/omarchy`. They do not copy `default/`, `share/` or `packaging/`.
+`default/rog-ally/powerbutton/` is the RC71L power-button recipe (`PKGBUILD`, the hwdb and the udev rule). `omarchy-settings` and `omarchy-settings-dev` `package()` copy the whole `default/` tree with `cp -a default/.` to `/usr/share/omarchy/default/`, so a packaged install has it at `$OMARCHY_PATH/default/rog-ally/powerbutton`. It compiles Valve's powerbuttond v4.2 (`9392e688`, BSD-2-Clause, copyright 2023 Valve Software) and the recipe installs that upstream LICENSE with the binary. `omarchy` and `omarchy-dev` `package()` copy `install`, `themes`, `icons` when that directory exists, `migrations`, `shell` and `version` into `/usr/share/omarchy`. They do not copy `default/` or `share/`.
 
 ### Platform root
 
