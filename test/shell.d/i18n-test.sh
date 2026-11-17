@@ -287,6 +287,10 @@ export OMARCHY_LANGUAGE_FILE=$work/language
 export OMARCHY_LOCALE_GEN=$work/locale.gen
 export OMARCHY_LOCALE_REGISTRY=$ROOT/default/i18n/locales.json
 export XDG_CONFIG_HOME=$work/config
+unset_note=$(env -u OMARCHY_PATH HOME="${HOME:-/tmp}" "$ROOT/bin/omarchy-i18n" update.ready 2>&1) ||
+  fail "omarchy-i18n runs when OMARCHY_PATH is unset" "$unset_note"
+[[ $unset_note != *unbound* ]] || fail "omarchy-i18n defaults an unset OMARCHY_PATH" "$unset_note"
+pass "omarchy-i18n defaults an unset OMARCHY_PATH"
 session_env=$XDG_CONFIG_HOME/uwsm/env.d/50-omarchy-language
 printf '#da_DK.UTF-8 UTF-8\n' >"$OMARCHY_LOCALE_GEN"
 

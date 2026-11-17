@@ -23,4 +23,5 @@ grep -F 'IP_RESTORED' "$script" >/dev/null || fail "the press test restore runs 
 grep -F 'trap restore_capture EXIT' "$script" >/dev/null || fail "the press test restores inputplumber on EXIT"
 grep -F "trap 'restore_capture; exit 130' INT" "$script" >/dev/null || fail "the press test restores inputplumber on INT"
 grep -F "trap 'restore_capture; exit 143' TERM" "$script" >/dev/null || fail "the press test restores inputplumber on TERM"
+grep -F "trap 'restore_capture; exit 129' HUP" "$script" >/dev/null || fail "the press test restores inputplumber on HUP"
 pass "the press test restores inputplumber from an idempotent trap"

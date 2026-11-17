@@ -315,6 +315,8 @@ pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
 [[ ! -e $ROOT/etc/sudoers.d/omarchy-handheld-autologin ]] || fail "the base tree still ships the autologin grant"
 grep -q 'install -Dm440 "$srcdir/omarchy-handheld-autologin"' "$pkgbuild" ||
   fail "the package does not install the grant at mode 0440"
+grep -q 'install -dm750 "$pkgdir/etc/sudoers.d"' "$pkgbuild" ||
+  fail "the package does not create sudoers.d at mode 0750"
 grep -q '"$pkgdir/etc/sudoers.d/omarchy-handheld-autologin"' "$pkgbuild" ||
   fail "the package does not install the grant into sudoers.d"
 grep -q "iproute2" "$pkgbuild" || fail "the gaming session package does not depend on iproute2"

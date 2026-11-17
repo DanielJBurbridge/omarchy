@@ -39,7 +39,7 @@ keyboard_button_dropped=false
 
 # Read-only. Missing, unreadable, or invalid JSON counts as no button.
 keyboard_button_in_shell() {
-  local config=$HOME/.config/omarchy/shell.json
+  local config="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"
   [[ -f $config && -r $config ]] || return 1
   jq -e --arg id omarchy.desktop-keyboard '
     [.. | select(. == $id or (type == "object" and .id == $id))] | length > 0

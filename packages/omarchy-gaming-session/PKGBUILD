@@ -2,7 +2,7 @@
 # Checksums are of the files below. Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=7
+pkgrel=8
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -42,6 +42,9 @@ package() {
   if command -v visudo >/dev/null; then
     visudo -cf "$srcdir/omarchy-handheld-autologin"
   fi
+  # install -D creates missing parents at 0755. sudo ships this directory
+  # at 0750, and pacman warns when the package and the filesystem disagree.
+  install -dm750 "$pkgdir/etc/sudoers.d"
   install -Dm440 "$srcdir/omarchy-handheld-autologin" \
     "$pkgdir/etc/sudoers.d/omarchy-handheld-autologin"
   install -Dm755 "$srcdir/omarchy-handheld-autologin-guard" \

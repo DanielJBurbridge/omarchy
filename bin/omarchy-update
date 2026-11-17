@@ -8,6 +8,11 @@
 
 set -e
 
+# A non-login ssh command does not source env-bootstrap. Export the packaged
+# default so set -u children (omarchy-i18n, omarchy-update-dev) and the
+# reboot helper below are not left with an unset OMARCHY_PATH.
+export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+
 update_stay_awake_stopped=0
 sudo_keepalive_pid=""
 
