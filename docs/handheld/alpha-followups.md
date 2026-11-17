@@ -386,6 +386,11 @@ From the autologin grant moving into `omarchy-gaming-session` 1.0.0-5 or later, 
 
 From the 17 Nov 2026 cleanup. This range is L210–L219. It is claimed and empty. The cleanup items in that change were fixed there, and nothing was left open.
 
+From the handheld pkgver sort, 17 Nov 2026. This range is L220–L229.
+
+- L220. **Fixed.** `omarchy update` replaced handheld `omarchy-dev` and `omarchy-settings-dev` at `dev.<yyyymmddHHMM>.<sha8>` with upstream `4.0.0.r7967.g3b36b9e`. vercmp ranks a leading number above `dev.`, and sddm went into a relogin loop. pkgver is now `<base>.<yyyymmddHHMM>.r<count>.handheld.<sha8>`, with `.alpha` stripped from the `version` file. The stamp sorts above `4.0.0.r*` and above `dev.*`, and `4.0.1` or a later base sorts above it. Source: this fix. Owner: packaging.
+- L221. **Open.** Medium. The yield at the next upstream base version (4.0.1) silently brings back the sddm relogin loop when `omarchy update` replaces the `.handheld.` builds. Proposed fix (not in this PR): a gaming-session pacman hook on `omarchy-dev` and `omarchy-settings-dev` upgrades that turns off handheld autologin when the installed pkgver lacks `.handheld`. Source: PR #82, review 5932603045. Owner: session.
+
 From the RC71L button press test, 17 Nov 2026. This range is L230–L239.
 
 - L230. **Open.** On Daniel's RC71L, with inputplumber stopped, M2 (the left back paddle) sent F15, M1 (the right back paddle) sent nothing, A was not reported while a paddle was held, and a 1 s hold of Command Centre sent nothing. The capture script had M1 and M2 swapped, did not put `inputplumber.service` back, and did not read the volume-button device (`AT Translated Set 2 keyboard`). The script now does those three. The readings stay pending a re-run with that script. Source: Daniel, 17 Nov 2026. Owner: hardware.
