@@ -25,8 +25,11 @@ Examples:
   omarchy dev pkg-test omarchy-settings-dev
   omarchy dev pkg-test omarchy-dev ~/Work/omarchy/omarchy-installer
 
-The pkgver of the built package is tagged 'dev.<short-sha>[.dirty]' so
-'pacman -Q' makes it obvious where the installed version came from.
+The pkgver of the built package is
+'<base>.<commit UTC yyyymmddHHMM>.r<count>.handheld.<sha8>[.dirty]'.
+<base> is the checkout's version file with a trailing .alpha removed.
+pacman -Q shows the commit, and vercmp keeps the build above upstream
+omarchy-dev 4.0.0.r* until that package's base moves to 4.0.1 or later.
 
 PKGBUILDs are read from \${OMARCHY_PKGBUILDS_DIR:-~/Work/omarchy/omarchy-pkgs/pkgbuilds}/<package-name>/.
 USAGE
@@ -71,6 +74,60 @@ dev_package_name() {
   esac
 }
 
+# Upstream omarchy-dev is 4.0.0.r<count>.g<sha> (omarchy-pkgs: r is the total
+# commit count and must not go down). vercmp ranks a numeric segment above
+# the letter r, and ranks 4.0.1 above 4.0.0. The UTC stamp therefore sits in
+# front of r<count>. A dev.<date>.<sha> pkgver sorts below 4.0.0, and
+# `omarchy update` then replaces the handheld build.
+handheld_pkgver_base() {
+  local version="$1"
+
+  version=${version%%$'\n'*}
+  version=${version//[[:space:]]/}
+  if [[ $version == *.alpha ]]; then
+    version=${version%.alpha}
+  fi
+  if [[ -z $version ]]; then
+    version=0
+  fi
+  printf '%s\n' "$version"
+}
+
+handheld_pkgver() {
+  local base="$1" stamp="$2" rev="$3" sha="$4" dirty="${5:-}"
+
+  printf '%s.%s.r%s.handheld.%s%s\n' "$base" "$stamp" "$rev" "$sha" "$dirty"
+}
+
+handheld_pkgver_for_checkout() {
+  local checkout="$1"
+  local version="" base stamp rev sha dirty=""
+
+  if [[ -f "$checkout/version" ]]; then
+    version=$(<"$checkout/version")
+  fi
+  base=$(handheld_pkgver_base "$version")
+
+  if git -C "$checkout" rev-parse --verify HEAD >/dev/null 2>&1; then
+    stamp=$(date -u -d "@$(git -C "$checkout" show -s --format=%ct HEAD)" +%Y%m%d%H%M)
+    rev=$(git -C "$checkout" rev-list --count HEAD)
+    sha=$(git -C "$checkout" rev-parse --short=8 HEAD)
+    if [[ -n "$(git -C "$checkout" status --porcelain)" ]]; then
+      dirty=".dirty"
+    fi
+  else
+    stamp=$(date -u +%Y%m%d%H%M)
+    rev=0
+    sha=local
+  fi
+
+  handheld_pkgver "$base" "$stamp" "$rev" "$sha" "$dirty"
+}
+
+if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
+  return 0
+fi
+
 if (( $# == 0 )); then
   PKGS=(omarchy-settings-dev omarchy-dev)
   CHECKOUT="$HOME/Work/omarchy/omarchy-installer"
@@ -98,13 +155,7 @@ done
 build_dir=$(mktemp -d -t omarchy-dev-pkg-test.XXXXXX)
 trap 'rm -rf "$build_dir"' EXIT
 
-# pkgver=dev.<sha>[.dirty] so pacman -Q makes the source obvious.
-short_sha=$(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null || echo "local")
-dirty=""
-if [[ -d "$CHECKOUT/.git" ]] && [[ -n "$(git -C "$CHECKOUT" status --porcelain)" ]]; then
-  dirty=".dirty"
-fi
-new_pkgver="dev.${short_sha}${dirty}"
+new_pkgver=$(handheld_pkgver_for_checkout "$CHECKOUT")
 
 for PKG in "${PKGS[@]}"; do
   PKGBUILD_DIR="$PKGBUILDS_ROOT/$PKG"

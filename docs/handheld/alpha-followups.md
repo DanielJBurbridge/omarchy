@@ -385,3 +385,7 @@ From the autologin grant moving into `omarchy-gaming-session` 1.0.0-5 or later, 
 - L200. **Open.** Medium. `/etc/sudoers.d/omarchy-handheld-autologin` changes owner from `omarchy-settings` and `omarchy-settings-dev`, which install it with `cp -a etc/.`, to `omarchy-gaming-session` 1.0.0-5 or later. Installing the two separately either hits a pacman file conflict, when the new package arrives while the settings package still owns the file, or drops the grant, when settings is upgraded alone. A missing grant makes the relogin fallback's `sudo -n` refuse, which recreates the L145 black-screen relogin loop when desktop-lock is on. Install both packages in one `pacman -U`. Source: PR #79, review 5931524047. Owner: session.
 
 From the 17 Nov 2026 cleanup. This range is L210–L219. It is claimed and empty. The cleanup items in that change were fixed there, and nothing was left open.
+
+From the handheld pkgver sort, 17 Nov 2026. This range is L220–L229.
+
+- L220. **Fixed.** `omarchy update` replaced handheld `omarchy-dev` and `omarchy-settings-dev` at `dev.<yyyymmddHHMM>.<sha8>` with upstream `4.0.0.r7967.g3b36b9e`. vercmp ranks a leading number above `dev.`, and sddm went into a relogin loop. pkgver is now `<base>.<yyyymmddHHMM>.r<count>.handheld.<sha8>`, with `.alpha` stripped from the `version` file. The stamp sorts above `4.0.0.r*` and above `dev.*`, and `4.0.1` or a later base sorts above it. Source: this fix. Owner: packaging.
