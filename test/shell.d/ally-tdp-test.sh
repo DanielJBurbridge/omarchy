@@ -304,6 +304,8 @@ export SYSTEMCTL_LOG
 HW=laptop OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
   PATH="$work/bin:$PATH" bash -euo pipefail "$migration"
 [[ ! -e $dest/etc/udev/rules.d/99-omarchy-ally-tdp.rules ]] || fail "a laptop migration installs udev"
+[[ ! -e $dest/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy ]] || fail "a laptop migration installs the TDP policy"
+[[ ! -e $dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules ]] || fail "a laptop migration installs the TDP rule"
 pass "a laptop migration does nothing"
 
 rm -rf "$dest"
@@ -319,13 +321,21 @@ unset SYSTEMCTL_FAIL
 rm -rf "$dest"
 mkdir -p "$dest"
 : >"$SYSTEMCTL_LOG"
+mkdir -p "$dest/etc/sddm.conf.d" "$dest/usr/share/polkit-1/actions"
+printf 'User=ally\n' >"$dest/etc/sddm.conf.d/omarchy-handheld-user.conf"
+cp "$ROOT/default/polkit/org.omarchy.ally.set-tdp.policy" \
+  "$dest/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy"
 HW=ally GAMING=0 OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
   PATH="$work/bin:$PATH" bash -euo pipefail "$migration"
 [[ -f $dest/etc/systemd/system/omarchy-ally-tdp-resume.service ]] || fail "hardware install skips the resume unit"
 [[ -f $dest/etc/udev/rules.d/99-omarchy-ally-tdp.rules ]] || fail "hardware install skips udev"
 [[ ! -e $dest/etc/systemd/user/omarchy-ally-tdp-shim.service ]] || fail "hardware install adds the shim without the gaming session"
 grep -q 'mask power-profiles-daemon' "$SYSTEMCTL_LOG" && fail "hardware install masks power-profiles-daemon"
-pass "hardware install leaves the gaming session alone"
+hardware_rule=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
+grep -q 'return polkit.Result.NO;' <<<"$hardware_rule" || fail "a desktop-only Ally does not return NO"
+grep -q 'polkit.Result.YES' <<<"$hardware_rule" && fail "a desktop-only Ally authorizes a user" "$hardware_rule"
+grep -q 'subject.user == "ally"' <<<"$hardware_rule" && fail "hardware install grants the handheld user"
+pass "hardware install leaves the gaming session alone and denies TDP"
 
 rm -rf "$dest"
 mkdir -p "$dest/etc/sddm.conf.d"
@@ -345,6 +355,13 @@ grep -q 'subject.user == "sddm"' <<<"$rule" || fail "the rule does not refuse sd
 grep -q 'polkit.Result.NO' <<<"$rule" || fail "the rule does not return NO"
 grep -q 'polkit.Result.YES' <<<"$rule" && fail "sddm becomes the YES user"
 grep -q 'wheel' <<<"$rule" && fail "the rule grants wheel"
+[[ -f $dest/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy ]] || fail "session install skips the policy"
+PATH="$work/bin:$PATH" HW=ally GAMING=1 OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
+  "$install" remove-session
+removed=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
+grep -q 'polkit.Result.YES' <<<"$removed" && fail "removing the session leaves YES"
+grep -q 'return polkit.Result.NO;' <<<"$removed" || fail "removing the session drops the deny rule"
+[[ -f $dest/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy ]] || fail "removing the session drops the hardware policy"
 pass "the gaming session masks power-profiles-daemon and refuses sddm"
 
 yes_dest=$work/yes-dest
@@ -363,12 +380,21 @@ if unshare --user --map-root-user --mount --propagation private bash -c '
   export OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest
   export SYSTEMCTL_LOG=$dest/systemctl.log
   : >"$SYSTEMCTL_LOG"
-  PATH=$stub "$root/bin/omarchy-ally-tdp-install" session
+  PATH=$stub "$root/bin/omarchy-ally-tdp-install" hardware
+  wide=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
+  grep -q "polkit.Result.YES" <<<"$wide" && exit 1
+  grep -q "return polkit.Result.NO;" <<<"$wide"
+  PATH=$stub bash "$root/migrations/1794842519.sh"
   rule=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
   grep -q "subject.user == \"ally\"" <<<"$rule"
   grep -q "polkit.Result.YES" <<<"$rule"
   grep -q "subject.user == \"sddm\"" <<<"$rule"
   grep -q "return polkit.Result.NO;" <<<"$rule"
+  grep -F -q "%s" <<<"$rule"
+  grep -F -q "\\n" <<<"$rule"
+  if grep -q "@USER@" <<<"$rule"; then
+    exit 1
+  fi
 ' bash "$yes_dest" "$ROOT" "$work/bin:$PATH"; then
   pass "only the recorded handheld user is YES"
 else
@@ -380,23 +406,51 @@ printf 'enabled\n' >"$marker"
 POWERPROFILES_LOG=$work/profiles
 : >"$POWERPROFILES_LOG"
 export POWERPROFILES_LOG
+profile_env=(
+  HW=ally
+  OMARCHY_ALLY_TDP_PPD_RECORD=$marker
+  OMARCHY_ALLY_TDP_FIXTURE=1
+  OMARCHY_ALLY_TDP_ARMOURY=$armoury
+  OMARCHY_ALLY_TDP_POWER=$work/supply
+  OMARCHY_ALLY_TDP_STATE=$state
+  OMARCHY_ALLY_TDP_RUN=$run
+  OMARCHY_ALLY_TDP_LOCK=$lock
+  OMARCHY_ALLY_TDP_BOOT_ID=boot
+  OMARCHY_POWERPROFILES_STATE_DIR=$work/profiles-state
+  PATH="$work/bin:$ROOT/bin:$PATH"
+)
+set_profile() {
+  env "${profile_env[@]}" "$ROOT/bin/omarchy-powerprofiles-set" "$@"
+}
 reset_state
 battery_table
-printf '20\n' >"$state/request"
-HW=ally OMARCHY_ALLY_TDP_PPD_RECORD=$marker \
-  OMARCHY_ALLY_TDP_FIXTURE=1 \
-  OMARCHY_ALLY_TDP_ARMOURY=$armoury \
-  OMARCHY_ALLY_TDP_POWER=$work/supply \
-  OMARCHY_ALLY_TDP_STATE=$state \
-  OMARCHY_ALLY_TDP_RUN=$run \
-  OMARCHY_ALLY_TDP_LOCK=$lock \
-  OMARCHY_ALLY_TDP_BOOT_ID=boot \
-  OMARCHY_POWERPROFILES_STATE_DIR=$work/profiles-state \
-  PATH="$work/bin:$ROOT/bin:$PATH" \
-  "$ROOT/bin/omarchy-powerprofiles-set" battery performance
+mkdir -p "$work/profiles-state"
+printf 'balanced\n' >"$work/profiles-state/battery"
+if OMARCHY_ALLY_TDP_CONFLICT=asusd.service set_profile battery performance; then
+  fail "a refused TDP write still reports success"
+fi
+[[ $(<"$work/profiles-state/battery") == balanced ]] || fail "a refused profile is recorded" "$(<"$work/profiles-state/battery")"
+[[ $(tuple) == 15/20/25 ]] || fail "a refused profile still writes" "$(tuple)"
+unset OMARCHY_ALLY_TDP_CONFLICT
+set_profile battery performance
 [[ ! -s $POWERPROFILES_LOG ]] || fail "a masked daemon still calls powerprofilesctl" "$(cat "$POWERPROFILES_LOG")"
-[[ $(tuple) == 20/20/25 ]] || fail "a masked profile switch does not reassert" "$(tuple)"
-pass "a masked profile switch calls the TDP writer"
+[[ $(tuple) == 20/20/25 ]] || fail "battery performance does not clamp to 20/20/25" "$(tuple)"
+[[ $(stored) == 30 ]] || fail "battery performance does not request the AC policy" "$(stored)"
+[[ $(<"$work/profiles-state/battery") == performance ]] || fail "battery performance is not recorded"
+set_profile battery power-saver
+[[ $(tuple) == 7/15/15 ]] || fail "battery power-saver does not apply the live floor" "$(tuple)"
+[[ $(stored) == 7 ]] || fail "battery power-saver does not store the floor" "$(stored)"
+[[ $(<"$work/profiles-state/battery") == power-saver ]] || fail "battery power-saver is not recorded"
+ac_table
+set_profile ac balanced
+[[ $(tuple) == 20/29/35 ]] || fail "AC balanced does not apply the battery policy" "$(tuple)"
+[[ $(stored) == 20 ]] || fail "AC balanced does not store the battery policy" "$(stored)"
+[[ $(<"$work/profiles-state/ac") == balanced ]] || fail "AC balanced is not recorded"
+set_profile ac performance
+[[ $(tuple) == 30/43/53 ]] || fail "AC performance does not apply 30/43/53" "$(tuple)"
+[[ $(stored) == 30 ]] || fail "AC performance does not store 30" "$(stored)"
+[[ $(<"$work/profiles-state/ac") == performance ]] || fail "AC performance is not recorded"
+pass "a masked profile switch applies the mapped TDP and records only that"
 
 python3 -m py_compile "$ROOT/bin/omarchy-ally-tdp-shim"
 if grep -q 'current_value' "$ROOT/bin/omarchy-ally-tdp-shim"; then
@@ -447,6 +501,7 @@ kill "\$pid"
 wait "\$pid" 2>/dev/null || true
 EOF
 chmod +x "$work/shim-session.sh"
+battery_table
 if dbus-run-session -- bash "$work/shim-session.sh"; then
   [[ $(tuple) == 20/20/25 ]] || fail "the shim set does not apply 20/20/25" "$(tuple)"
   [[ $(stored) == 25 ]] || fail "the shim set does not store 25" "$(stored)"

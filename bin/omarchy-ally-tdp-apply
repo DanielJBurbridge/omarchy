@@ -374,6 +374,8 @@ emit_status() {
   printf 'min=%s\n' "$min"
   printf 'max=%s\n' "$max"
   printf 'writable=%s\n' "$writable"
+  printf 'spl_policy_battery=%s\n' "$BATTERY_SPL_POLICY"
+  printf 'spl_policy_ac=%s\n' "$AC_SPL_POLICY"
 }
 
 acquire_lock() {

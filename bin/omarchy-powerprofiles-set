@@ -55,11 +55,41 @@ if [[ -z ${profile:-} ]] || ! profile_available "$profile"; then
   fi
 fi
 
-# While the Ally TDP package has masked power-profiles-daemon, the capped
-# writer is the profile switch. Laptops have no marker and keep powerprofilesctl.
+# While the Ally TDP install has masked power-profiles-daemon, the profile is
+# a request to the capped writer. The watts are that writer's own window: the
+# live floor, the battery SPL policy, and the AC SPL policy. The writer clamps.
+# A failed apply does not record the profile. Laptops have no marker and keep
+# powerprofilesctl.
+ally_tdp_watts() {
+  local show line key value floor battery ac watts
+  show=$(omarchy-ally-tdp-apply --show) || return 1
+  floor=
+  battery=
+  ac=
+  while IFS= read -r line; do
+    [[ $line == *=* ]] || continue
+    key=${line%%=*}
+    value=${line#*=}
+    case $key in
+      min) floor=$value ;;
+      spl_policy_battery) battery=$value ;;
+      spl_policy_ac) ac=$value ;;
+    esac
+  done <<<"$show"
+  case $1 in
+    power-saver) watts=$floor ;;
+    balanced) watts=$battery ;;
+    performance) watts=$ac ;;
+    *) return 1 ;;
+  esac
+  [[ $watts =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$watts"
+}
+
 ppd_record=${OMARCHY_ALLY_TDP_PPD_RECORD:-/var/lib/omarchy/handheld/power-profiles-daemon.state}
 if [[ -f $ppd_record ]]; then
-  omarchy-ally-tdp-apply --reassert || exit
+  watts=$(ally_tdp_watts "$profile") || exit 1
+  omarchy-ally-tdp-apply --set "$watts" || exit
 else
   powerprofilesctl set "$profile" || exit
 fi
