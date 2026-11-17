@@ -27,7 +27,7 @@ Captured 12 Nov 2026 13:27 AWST over `ssh <ally>` from `<workstation>`. Nothing 
 - `asus_wmi: fan_curve_get_factory_default (0x00110032) failed: -19`: no fan-curve control via asus-wmi on this unit.
 - `xpad 1-2:1.0: timed out waiting for output URB to complete` (12:18): controller hiccup, possibly rumble or LED write.
 - `Unmapped Asus vendor usagepage code 0xa2` (13:11, twice): vendor usage 0xa2 isn't in mainline hid-asus's keymap (it maps 0x38→PROG1 ROG key, 0xa5→F15 left back, 0xa6→F16 QAM, 0xa7/0xa8→F17/F18 ROG long press/release). It also isn't handled in HHD `rog_ally/base.py` (0xA6, 0x38/0x93/0xA0, 0xA7/0xA4, 0xA8) or InputPlumber `ally_type1.yaml`. Source is still unknown; the press test captures raw hidraw to pin it down.
-- Mapping conflict to check: kernel comment says 0xa5/F15 = left back, while InputPlumber aly1 maps F14 = left paddle and F15 = right paddle.
+- Mapping conflict to check: kernel comment says 0xa5/F15 = left back, while InputPlumber aly1 maps F14 = left paddle and F15 = right paddle. 17 Nov, with inputplumber stopped: M2 (left) sent F15 and M1 (right) sent nothing. Pending a re-run ([spec 01](../01-controller-button-map.md)).
 - `asus_wmi` warns that `/sys/bus/platform/asus_wmi` attributes are deprecated; use `/sys/class/firmware-attributes`.
 
 ## Already in Omarchy dev on the device (not enabled)
@@ -48,7 +48,8 @@ A per-button press test is needed to pin each extra button to its exact code and
 ## Press test
 On the device the script is `~/ally-press-test.sh`. The repo copy is [`tools/ally-press-test.sh`](tools/ally-press-test.sh) (`docs/handheld/research/tools/ally-press-test.sh`). It is a device-only research tool and not part of the product.
 - It installs evtest via one-off sudo and logs that to `~/omarchy-handheld-deploy.log`.
-- It takes 17 prompted steps of 5 s each (`SECS` defaults to 5). The steps are `armoury_short`, `armoury_long`, `cc_short`, `cc_long`, `cc_hold_0.5s`, `cc_hold_1s`, `armoury_hold_0.5s`, `armoury_hold_1s`, `vol_up`, `vol_down`, `paddle_left`, `paddle_right`, `paddle_left_plus_A`, `paddle_right_plus_A`, `armoury_plus_A`, `cc_plus_A` and `idle`. Each step records evtest on all N-KEY interfaces, WMI and the pad, plus raw hidraw and dmesg.
+- It takes 17 prompted steps of 5 s each (`SECS` defaults to 5). The steps are `armoury_short`, `armoury_long`, `cc_short`, `cc_long`, `cc_hold_0.5s`, `cc_hold_1s`, `armoury_hold_0.5s`, `armoury_hold_1s`, `vol_up`, `vol_down`, `paddle_left`, `paddle_right`, `paddle_left_plus_A`, `paddle_right_plus_A`, `armoury_plus_A`, `cc_plus_A` and `idle`. M2 is the left back paddle and M1 is the right. Each step records evtest on all N-KEY interfaces, WMI, the pad and the `AT Translated Set 2 keyboard` (found by name), plus raw hidraw and dmesg. It stops `inputplumber.service` when that unit is active and starts it again on the way out.
+- 17 Nov 2026, Daniel's RC71L, observed with inputplumber stopped and pending a re-run with that script: M2 (left) sent F15, M1 (right) sent nothing, A was not reported while a paddle was held, and a 1 s Command Centre hold sent nothing. Recorded in [spec 01](../01-controller-button-map.md).
 - Output goes to `~/ally-press-test/<timestamp>.tar.gz`.
 
 ## Open questions from dev-ux's button map (12 Nov, 13:37 AWST)

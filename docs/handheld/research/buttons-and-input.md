@@ -47,7 +47,7 @@ From [`ally_type1.yaml`](https://github.com/ShadowBlip/InputPlumber/blob/main/ro
 | Command Centre (L) hold | Ctrl+Alt+Del (or F20 with `hid-asus-ally`) | `Keyboard` | OSK (target-dependent) |
 | Armoury (R) tap | PROG1 (or F19) | `QuickAccess` | QAM: a native "…" button on the Steam Deck targets, a **Guide+South chord** on Xbox/DualSense targets ([xpad.rs](https://github.com/ShadowBlip/InputPlumber/blob/main/src/input/target/xpad.rs), [dualsense.rs](https://github.com/ShadowBlip/InputPlumber/blob/main/src/input/target/dualsense.rs), [steam_deck.rs](https://github.com/ShadowBlip/InputPlumber/blob/main/src/input/target/steam_deck.rs)) |
 | Armoury (R) hold | F17 | `QuickAccess2` | OGUI overlay (Bazzite/ChimeraOS) |
-| M1 / M2 | F15 / F14 (after MCU remap) | `RightPaddle1` / `LeftPaddle1` (note: M1 is programmed to F15, and the map labels F15 "Right Paddle". Which physical side that is remains **unverified**) | Paddles on Elite/DS Edge/Deck targets |
+| M1 / M2 | F15 / F14 (after MCU remap) | `RightPaddle1` / `LeftPaddle1` (M1 is programmed to F15, and the map labels F15 "Right Paddle". Physical sides, 17 Nov 2026, inputplumber stopped: M2 is the left paddle and sent F15; M1 is the right paddle and sent nothing. Pending a re-run, [spec 01](../01-controller-button-map.md)) | Paddles on Elite/DS Edge/Deck targets |
 
 Default targets are `xbox-elite`, `mouse` and `keyboard`. IMU: `bmi323-imu` (iio). LED: `ally:rgb:joystick_rings` (needs `hid-asus-ally`). Auto-start is enabled by DMI `rnRC71L` in [60-inputplumber-autostart.hwdb](https://github.com/ShadowBlip/InputPlumber/blob/main/rootfs/usr/lib/udev/hwdb.d/60-inputplumber-autostart.hwdb).
 

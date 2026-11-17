@@ -45,7 +45,7 @@ Lock-screen and greeter UI stay with AUTH. Disk unlock for a handheld install is
 | AC | Armoury Crate button. **Right** side of the RC71L screen, below Menu. InputPlumber `QuickAccess` (tap) / `QuickAccess2` (long). The long press is a real firmware key (`KEY_F17`). |
 | CC | Command Centre button. **Left** side of the RC71L screen, below View. InputPlumber `Guide` (tap) / `Keyboard` (long). The long press is not a separate hold code: firmware sends Ctrl+Alt+Delete, or `KEY_F20` when `hid-asus-ally` is present. |
 | View / Menu | Xbox-style Select / Start (`BTN_SELECT` / `BTN_START`). These have a real press and release. CC and AC do not. |
-| M1 / M2 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). Not on the xpad pad; they arrive via the ASUS N-KEY HID interface, and on the stock Omarchy kernel they may not arrive at all. |
+| M2 / M1 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). Not on the xpad pad; they arrive via the ASUS N-KEY HID interface, and on the stock Omarchy kernel they may not arrive at all. |
 | N-KEY | ASUS USB HID device `0b05:1abe` (driver `hid-asus`); interface 2 carries the OEM buttons and paddles. |
 | Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). Controller in the `gaming` profile (DualSense Edge target; spec 01). `gamepad` (Xbox Elite) remains the shipped fallback. |
 | Desktop mode | Omarchy Hyprland session. Controller in `desktop` profile (mouse + keyboard targets only). |
