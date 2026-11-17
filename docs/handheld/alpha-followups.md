@@ -385,3 +385,7 @@ From the autologin grant moving into `omarchy-gaming-session` 1.0.0-5 or later, 
 - L200. **Open.** Medium. `/etc/sudoers.d/omarchy-handheld-autologin` changes owner from `omarchy-settings` and `omarchy-settings-dev`, which install it with `cp -a etc/.`, to `omarchy-gaming-session` 1.0.0-5 or later. Installing the two separately either hits a pacman file conflict, when the new package arrives while the settings package still owns the file, or drops the grant, when settings is upgraded alone. A missing grant makes the relogin fallback's `sudo -n` refuse, which recreates the L145 black-screen relogin loop when desktop-lock is on. Install both packages in one `pacman -U`. Source: PR #79, review 5931524047. Owner: session.
 
 From the 17 Nov 2026 cleanup. This range is L210–L219. It is claimed and empty. The cleanup items in that change were fixed there, and nothing was left open.
+
+From the RC71L button press test, 17 Nov 2026. This range is L230–L239.
+
+- L230. **Open.** On Daniel's RC71L, with inputplumber stopped, M2 (the left back paddle) sent F15, M1 (the right back paddle) sent nothing, A was not reported while a paddle was held, and a 1 s hold of Command Centre sent nothing. The capture script had M1 and M2 swapped, did not put `inputplumber.service` back, and did not read the volume-button device (`AT Translated Set 2 keyboard`). The script now does those three. The readings stay pending a re-run with that script. Source: Daniel, 17 Nov 2026. Owner: hardware.

@@ -50,7 +50,7 @@ Keep v4.2 unmodified. Bazzite's 4.2-2 debounce patch is the build that stops for
 
 ### 4. Paddles, RGB, vibration
 
-The 12 Nov dump saw no paddle codes on the xpad pad. `0xa2` is unmapped, and the kernel comment and the `aly1` map disagree on which grip is F15. [`tools/ally-press-test.sh`](tools/ally-press-test.sh) has not been run.
+The 12 Nov dump saw no paddle codes on the xpad pad. `0xa2` is unmapped, and the kernel comment and the `aly1` map disagree on which grip is F15. On 17 Nov, with inputplumber stopped, M2 (left) sent F15 and M1 (right) sent nothing ([spec 01](../01-controller-button-map.md)). That reading is pending a re-run of [`tools/ally-press-test.sh`](tools/ally-press-test.sh).
 [buttons-and-input.md](buttons-and-input.md) §5 ranks the paths best first as `linux-cachyos-deckify` (B on this list; the OGC kernel is the same kind of opt-in kernel), then a DKMS module (A; §5 records that no AUR DKMS exists), then a hidraw oneshot that must run again after resume (C).
 `hid-asus-ally.c` and `.h` are `GPL-2.0-or-later`. HHD's MCU bytes are `LGPL-2.1-or-later`. Either one lives in its own package, with its own `LICENSE`. That driver is also what exposes `ally:rgb:joystick_rings` and `gamepad_vibration_intensity`. `gaming.yaml` maps neither grip until the press test.
 
