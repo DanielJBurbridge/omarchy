@@ -33,7 +33,7 @@ Capability map [`ally_type1.yaml`](https://github.com/ShadowBlip/InputPlumber/bl
 | Left Paddle | `KeyF14` | `LeftPaddle1` |
 | Right Paddle | `KeyF15` | `RightPaddle1` |
 
-`KeyF19` and the paddle codes need `hid-asus-ally`. `KeyProg1`, `KeyF16`, `KeyF17` and the Ctrl+Alt+Delete chord are on the N-Key include list, so they can arrive on the stock kernel. Design for both CC-long codes (spec §4). Do not assume `LeftPaddle1` / `KeyF14` is the left grip. The kernel comment on `0xa5` → `KEY_F15` says "left back", and `aly1` labels `KeyF15` as the right paddle (spec §4).
+`KeyF19` and the paddle codes need `hid-asus-ally`. `KeyProg1`, `KeyF16`, `KeyF17` and the Ctrl+Alt+Delete chord are on the N-Key include list, so they can arrive on the stock kernel. Design for both CC-long codes (spec §4). Do not assume `LeftPaddle1` / `KeyF14` is the left grip. The kernel comment on `0xa5` → `KEY_F15` says "left back", and `aly1` labels `KeyF15` as the right paddle (spec §4). 17 Nov, with inputplumber stopped: M2 is the left paddle and sent F15; M1 is the right paddle and sent nothing. Pending a re-run ([spec 01](../01-controller-button-map.md)).
 
 The Ally driver refuses to start unless the parent driver is `asus_rog_ally` or `asus_ally_hid`. On interface `02` it writes `btn_m1/remap` = `KB_F15` and `btn_m2/remap` = `KB_F14` ([`driver.rs`](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/drivers/rog_ally/driver.rs)). That driver is out of tree. Kernel `7.2.15-2-omarchy` does not have it ([`ally-hw-dump.md`](ally-hw-dump.md), [`buttons-and-input.md`](buttons-and-input.md)). Until OQ-17, the desktop profile maps neither grip.
 

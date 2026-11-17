@@ -70,7 +70,7 @@ Confirmed from the ASUS RC71L manual (items 6 and 7) and the 12 Nov research. OQ
 | Command Centre (CC) | **Left** of the screen, below View | No press/release. Tap and long are different firmware events. |
 | Armoury Crate (AC) | **Right** of the screen, below Menu | Long press is a real firmware key (`0xa7` → `KEY_F17`). `KEY_F18` is the release. This is the only OEM long-press key. |
 | View / Menu | Above CC / above AC | Real press and release. Can be a modifier. |
-| M1 / M2 | **Back grips**, left / right | Real press and release. Can be a modifier. |
+| M2 / M1 | **Back grips**, left / right | Real press and release. Can be a modifier. |
 | Face, sticks, shoulders, triggers | Standard Xbox layout | Real press and release. Passed through in the gaming session (P4). |
 
 Do not swap CC and AC in tables, diagrams or profile comments. Windows uses the same sides: Command Centre tap opens Command Centre, Armoury tap opens Armoury Crate SE.
@@ -93,10 +93,21 @@ Paddles and View/Menu have real press/release, so they can be modifiers. A syste
 
 Upstream key map, used as the design assumption until the press test (OQ-1). Mainline `hid-asus`: `0x38`→`KEY_PROG1` (Armoury tap), `0xa6`→`KEY_F16` (Command Centre tap), `0xa7`→`KEY_F17` (Armoury long), `0xa8`→`KEY_F18` (Armoury long release). `0xa5`→`KEY_F15` is commented "left back" in the kernel, while `aly1` labels `KEY_F15` as the right paddle and `KEY_F14` as the left. **Do not treat those names as the physical sides.**
 
+Observed 17 Nov 2026 on Daniel's RC71L, with inputplumber stopped. Pending a re-run with the fixed script (`docs/handheld/research/tools/ally-press-test.sh`), which stops `inputplumber.service` for the capture and starts it again afterwards.
+
+| Control | Seen |
+|---|---|
+| M2 (left back paddle) | `KEY_F15` |
+| M1 (right back paddle) | nothing |
+| A while a paddle is held | A is not reported |
+| Command Centre, held about 1 s | nothing |
+
+M2 is the left back paddle and M1 is the right. `KEY_F15` on M2 matches the kernel comment "left back". It does not match `aly1`, which labels `KEY_F15` as the right paddle.
+
 ## 5. Button map: actions per button per mode
 
 Modes: **Game** = gaming session (Gamescope + Steam, `gaming` profile; see §12). **Desktop** = Hyprland, `desktop` profile. **Menu** = an Omarchy menu or panel is open on the desktop. **OSK** = wvkbd visible on the desktop.
-Raw codes are the upstream assumption. **This unit is untested (OQ-1).** OQ-2 stays open for which Command Centre long code this firmware sends; the design does not wait on it.
+Raw codes are the upstream assumption. The 17 Nov paddle and Command Centre notes are in §4, observed with inputplumber stopped and pending a re-run. **The rest of this unit is untested (OQ-1).** OQ-2 stays open for which Command Centre long code this firmware sends; the design does not wait on it.
 
 ### 5.1 OEM buttons
 
@@ -136,10 +147,10 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 
 | Paddle | Raw (TBC) | Game default | Game suggested | Desktop baseline | Desktop proposed | Δ |
 |---|---|---|---|---|---|---|
-| M1 (left grip) | Whichever capability the press test shows is the left grip. Do not assume `LeftPaddle1` or `KEY_F14`. | Xbox Elite passthrough on the shipped `gamepad` profile. On `ds5-edge`, passthrough unless the press test shows the `dualsense.yaml` paddle-2 remap is required. | Unbound in Steam Input until a game layout uses it | `LeftPaddle1` → Left Shift, **if** that capability is this grip | **Left Super (held), only after OQ-17.** Until then, no mapping. | **Δ7**, gated |
-| M2 (right grip) | The other paddle capability. `aly1`'s F14/F15 labels may be swapped relative to the kernel comment. | Same, other side | Same | `RightPaddle1` → Left Ctrl, if that capability is this grip | Left Ctrl (held), only once OQ-17 confirms the grip arrives. Until then, no mapping. | Keep the action. Same gate as Δ7. |
+| M1 (right grip) | 17 Nov, inputplumber stopped: nothing. Pending a re-run with the fixed script. Do not assume `RightPaddle1` or `KEY_F15`. | Xbox Elite passthrough on the shipped `gamepad` profile. On `ds5-edge`, passthrough unless the press test shows the `dualsense.yaml` paddle-2 remap is required. | Unbound in Steam Input until a game layout uses it | `RightPaddle1` → Left Ctrl, **if** that capability is this grip | **Left Super (held), only after OQ-17.** Until then, no mapping. | **Δ7**, gated |
+| M2 (left grip) | 17 Nov, inputplumber stopped: `KEY_F15`. Pending a re-run. Do not assume `LeftPaddle1` or `KEY_F14`. The kernel calls F15 "left back"; `aly1` labels it the right paddle. | Same, other side | Same | `LeftPaddle1` → Left Shift, **if** that capability is this grip | Left Ctrl (held), only once OQ-17 confirms the grip arrives. Until then, no mapping. | Keep the action. Same gate as Δ7. |
 
-Δ7 rationale: Omarchy is driven by Super. Shift-as-paddle only helps Shift+click (A-drag already selects). Super on the left grip unlocks existing Hyprland binds (§8). Shift remains on the OSK (one-shot). Steam Deck precedent: L5 = Super in desktop. A bare tap is Super down and Super up, and Super alone is unbound, so a tap does nothing.
+Δ7 rationale: Omarchy is driven by Super. Shift-as-paddle only helps Shift+click (A-drag already selects). Super on M1 (the right grip) unlocks existing Hyprland binds (§8). M2 is the left grip. Shift remains on the OSK (one-shot). Steam Deck precedent: L5 = Super in desktop. A bare tap is Super down and Super up, and Super alone is unbound, so a tap does nothing.
 
 **Gate (OQ-17).** Grip-Super applies only once paddles are confirmed working. InputPlumber programs Ally paddles through the out-of-tree `hid-asus-ally` driver (`asus_rog_ally` / `asus_ally_hid`). That driver is not in mainline and not in kernel `7.2.15-2-omarchy`. HHD can program paddles over hidraw without it. While OQ-17 is open, or if the press test shows no grip events, the desktop profile maps neither grip: no Super from M1, no Ctrl from M2. The desktop uses only the non-paddle bindings (sticks, face buttons, bumpers, triggers, View, Menu, and the OEM buttons). Δ8 is off with Δ7, because it needs the grip. Close a window from the Omarchy menu or the quick-access overlay (spec 04). Do not install the Super mapping on a kernel that does not deliver the grips. When the grips are mapped, the bridge's persistent uinput keyboard presses Super and Ctrl (§8.1). InputPlumber's virtual keyboard does not.
 
@@ -190,7 +201,7 @@ No CC/AC chords (§4). No system action is reachable only by holding a button or
 
 ### 8.1 Releasing held modifiers
 
-Δ7 makes the left grip a held Super. If that grip is down across a profile switch, or across an InputPlumber crash, Super can stay latched. The next A or RT is then `Super + mouse:272` (window move), and the next X is the Δ8 close. A masked or crash-looping InputPlumber must not leave the desktop in that state.
+Δ7 makes M1, the right grip, a held Super. If that grip is down across a profile switch, or across an InputPlumber crash, Super can stay latched. The next A or RT is then `Super + mouse:272` (window move), and the next X is the Δ8 close. A masked or crash-looping InputPlumber must not leave the desktop in that state.
 
 wlroots and Hyprland keep key state **per keyboard**. A key-up clears a key only on the keyboard that pressed it. Removing a keyboard is the other release, and it does not always clear the seat, so this spec does not rely on removal alone. A key-up from a different device does not count.
 
@@ -432,8 +443,8 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 
 | # | Question | Blocks | Owner | Status |
 |---|---|---|---|---|
-| OQ-1 | Exact raw codes on this BIOS/MCU for CC tap, CC long, AC tap, AC long, and each grip. Which event is `0xa2`? Which InputPlumber paddle name is the left grip? `evtest` needs the `input` group or sudo. Script on the device: `~/ally-press-test.sh`. Also confirm whether Guide+West opens the OSK or the Steam menu. | Raw-code column, Δ7 wiring, Appendix A | Daniel + dev-research | Open. Press test. |
-| OQ-2 | Does **this** unit's CC long send `KEY_F20` or Ctrl+Alt+Delete? Both are handled. The answer does not gate Δ9. | Which source event to expect in the log | dev-research | Open. Press test. Design already covers both. |
+| OQ-1 | Exact raw codes on this BIOS/MCU for CC tap, CC long, AC tap, AC long, and each grip. Which event is `0xa2`? Which InputPlumber paddle name is the left grip? `evtest` needs the `input` group or sudo. Script on the device: `~/ally-press-test.sh`. Also confirm whether Guide+West opens the OSK or the Steam menu. | Raw-code column, Δ7 wiring, Appendix A | Daniel + dev-research | Open. 17 Nov, inputplumber stopped: M2 (left) sent F15, M1 (right) sent nothing, and A was not reported while a paddle was held. Pending a re-run with the fixed script. |
+| OQ-2 | Does **this** unit's CC long send `KEY_F20` or Ctrl+Alt+Delete? Both are handled. The answer does not gate Δ9. | Which source event to expect in the log | dev-research | Open. 17 Nov, inputplumber stopped: a 1 s Command Centre hold sent nothing. Pending a re-run with the fixed script. Design already covers both. |
 | OQ-3 | Firmware long-press threshold (ms), and whether a long press also emits a tap on some firmware. | §4, AC 1 | Press test | Open |
 | OQ-4 | Is MCU firmware below 319? | Suspend | dev-research | **Resolved.** The kernel warning is printed only below 319, and `mcu_powersave` was 0. Exact integer was not logged. Button codes are not shown to depend on it. Suspend stays with RELIABILITY. Update via Armoury Crate / MyASUS on Windows before chasing suspend bugs. |
 | OQ-5 | Physical placement | Docs | Daniel | **Resolved.** CC left, AC right, M1/M2 back grips. ASUS RC71L manual. |
@@ -448,7 +459,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 | OQ-14 | Gyro source and Steam visibility? | §9 | dev-research | **Resolved for capability.** `bmi323-imu` is present and is a legal IP 0.84 source. Steam sees motion only on `ds5-edge` / DualSense / `deck-uhid`, not on Xbox Elite. Mount matrix and a real Steam client are untested. |
 | OQ-15 | Why is `asusd` running? | Power ownership | dev-research | **Resolved.** asusctl was installed on this unit; its udev rule starts `asusd` on ROG DMI. The `rog-ally.sh` skip does not stop that. It writes the platform profile. Recommendation: keep asusctl off the RC71L (D6, C11). |
 | OQ-16 | Ally X / Legion Go / Deck / Claw role mapping | Secondary devices | Later | Open |
-| OQ-17 | Do M1/M2 events arrive on kernel `7.2.15-2-omarchy` without `hid-asus-ally`? | Δ7, Δ8, AC 10, AC 15 | Press test | Open. **Gates Δ7.** Grip-Super stays off until this is confirmed. Options if the grips do not arrive: an opt-in handheld kernel that already carries the driver, a DKMS package of `hid-asus-ally` (GPL-2.0-or-later), or a small hidraw remap of the MCU paddle slots. HHD does not need the driver; InputPlumber's Ally driver does. |
+| OQ-17 | Do M1/M2 events arrive on kernel `7.2.15-2-omarchy` without `hid-asus-ally`? | Δ7, Δ8, AC 10, AC 15 | Press test | Open. **Gates Δ7.** 17 Nov, inputplumber stopped: M2 (left) sent F15 and M1 (right) sent nothing. Not confirmed. Pending a re-run with the fixed script. Grip-Super stays off until this is confirmed. Options if the grips do not arrive: an opt-in handheld kernel that already carries the driver, a DKMS package of `hid-asus-ally` (GPL-2.0-or-later), or a small hidraw remap of the MCU paddle slots. HHD does not need the driver; InputPlumber's Ally driver does. |
 
 ## Appendix A · Profile sketch
 

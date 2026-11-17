@@ -1,17 +1,44 @@
 #!/bin/bash
 # Device-only research tool for the test Ally. Not part of the product.
 # ROG Ally RC71L button press test (Omarchy Handheld research). Run ON the Ally: bash ~/ally-press-test.sh
-# Captures evtest (N-KEY kbd/if02, WMI hotkeys, Xbox pad) + raw hidraw for each prompted button.
+# Captures evtest (N-KEY kbd/if02, WMI hotkeys, Xbox pad, AT Translated Set 2 keyboard) + raw hidraw for each prompted button.
 # OQ-2 (CC long: F20 vs Ctrl+Alt+Del), OQ-3 (long-press threshold), OQ-8 (volume rocker) covered.
-# Grabs the N-KEY/WMI devices during each capture so presses don't trigger desktop actions.
+# Grabs the N-KEY, WMI and volume-keyboard devices during each capture so presses don't trigger desktop actions.
+# Stops inputplumber.service for the capture when it is active, and starts it again on the way out.
 # Remove afterwards: rm -r ~/ally-press-test.sh ~/ally-press-test ; sudo pacman -Rns evtest
 set -u
 OUT=~/ally-press-test/$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 LOG=~/omarchy-handheld-deploy.log
 SECS=${SECS:-5}
+IP_UNIT=inputplumber.service
+IP_WAS_ACTIVE=0
+IP_RESTORED=0
+
+# One shot: INT and TERM both end the shell, and the shell then runs EXIT.
+restore_capture() {
+  if (( IP_RESTORED )); then
+    return 0
+  fi
+  IP_RESTORED=1
+  if (( IP_WAS_ACTIVE )); then
+    sudo systemctl start "$IP_UNIT" || echo "press-test: could not restart $IP_UNIT" >&2
+  fi
+  kill "$KEEP" 2>/dev/null || true
+}
 
 echo "Needs sudo once (evtest reads /dev/input as root)."; sudo -v || exit 1
-( while true; do sudo -n -v; sleep 50; done ) & KEEP=$!; trap 'kill $KEEP 2>/dev/null' EXIT
+( while true; do sudo -n -v; sleep 50; done ) & KEEP=$!
+trap restore_capture EXIT
+trap 'restore_capture; exit 130' INT
+trap 'restore_capture; exit 143' TERM
+
+if systemctl is-active --quiet "$IP_UNIT" 2>/dev/null; then
+  IP_WAS_ACTIVE=1
+  if ! sudo systemctl stop "$IP_UNIT"; then
+    echo "press-test: could not stop $IP_UNIT" >&2
+    exit 1
+  fi
+fi
 
 { date -Is; pacman -Q omarchy-dev 2>/dev/null; uname -r; cat /sys/class/dmi/id/bios_version; } > "$OUT/state.txt"
 if ! command -v evtest >/dev/null; then
@@ -24,8 +51,9 @@ dev() { awk -v pat="$1" -v want="$2" 'BEGIN{RS=""} $0 ~ pat && (want=="" || $0 ~
 PAD=$(dev 'X-Box 360 pad' '' | head -1)
 WMI=$(dev 'Asus WMI hotkeys' '' | head -1)
 NKEY=$(dev 'N-KEY Device' '' )   # all three N-KEY interfaces
+VOL=$(dev 'AT Translated Set 2 keyboard' '' | head -1)   # volume rocker; event number changes
 HIDRAW=$(for h in /sys/class/hidraw/hidraw*; do grep -q '0B05:00001ABE' "$h/device/uevent" 2>/dev/null && [[ $(readlink -f "$h/device") == *:1.2/* ]] && echo /dev/$(basename "$h"); done | head -1)
-echo "pad=$PAD wmi=$WMI nkey=$(echo $NKEY) hidraw=$HIDRAW" | tee "$OUT/devices.txt"
+echo "pad=$PAD wmi=$WMI vol=$VOL nkey=$(echo $NKEY) hidraw=$HIDRAW" | tee "$OUT/devices.txt"
 cat /proc/bus/input/devices > "$OUT/proc-input-devices.txt"
 
 STEPS=(
@@ -39,10 +67,10 @@ STEPS=(
  "armoury_hold_1s|HOLD Armoury Crate about ONE second, then release"
  "vol_up|Press VOLUME UP twice"
  "vol_down|Press VOLUME DOWN twice"
- "paddle_left|Press the LEFT back paddle (M1) twice"
- "paddle_right|Press the RIGHT back paddle (M2) twice"
- "paddle_left_plus_A|Hold LEFT paddle, press A, release both"
- "paddle_right_plus_A|Hold RIGHT paddle, press A, release both"
+ "paddle_left|Press the LEFT back paddle (M2) twice"
+ "paddle_right|Press the RIGHT back paddle (M1) twice"
+ "paddle_left_plus_A|Hold the LEFT back paddle (M2), press A, release both"
+ "paddle_right_plus_A|Hold the RIGHT back paddle (M1), press A, release both"
  "armoury_plus_A|Hold Armoury Crate, press A, release both"
  "cc_plus_A|Hold Command Centre, press A, release both"
  "idle|Press NOTHING (baseline / catches stray 0xa2 reports)"
@@ -53,7 +81,10 @@ for s in "${STEPS[@]}"; do
   echo; read -rp "[$n/$total] $msg. Press Enter, then do it within ${SECS}s (s=skip): " a
   [[ $a == s ]] && continue
   pids=()
-  for d in $NKEY $WMI; do sudo timeout "$SECS" stdbuf -oL evtest --grab "$d" > "$OUT/$id.$(basename $d).txt" 2>&1 & pids+=($!); done
+  for d in $NKEY $WMI $VOL; do
+    [[ -n $d ]] || continue
+    sudo timeout "$SECS" stdbuf -oL evtest --grab "$d" > "$OUT/$id.$(basename "$d").txt" 2>&1 & pids+=($!)
+  done
   [[ -n $PAD ]] && { sudo timeout "$SECS" stdbuf -oL evtest "$PAD" > "$OUT/$id.pad.txt" 2>&1 & pids+=($!); }
   [[ -n $HIDRAW ]] && { sudo timeout "$SECS" stdbuf -oL od -An -tx1 -w64 -v "$HIDRAW" > "$OUT/$id.hidraw.txt" 2>&1 & pids+=($!); }
   journalctl -k -f -n0 --no-pager > "$OUT/$id.dmesg.txt" 2>&1 & jp=$!
