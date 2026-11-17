@@ -1,10 +1,10 @@
 # TDP and AC/battery limits on the RC71L
 
-16 Nov 2026. Brief for gap 4 in [feature-parity-audit.md](feature-parity-audit.md): AC and battery watts, a charge limit, and a reapply after resume, so Steam's Quick Access slider works under gamescope. Docs only. Nothing here was run on the device.
+**Implemented. The current contract is [spec 04 §5.1](../04-quick-access-overlay.md).** The writer is `bin/omarchy-ally-tdp-apply`. The shim is `bin/omarchy-ally-tdp-shim`. This note keeps the kernel tables, the licence notes, and the evlaV `85fbd8f` citation. Nothing here was run on the device.
 
-Standing decision, [tdp-decision-review.md](../tdp-decision-review.md): do not ship stock or forked steamos-manager. Build backlog #10 (root writer) and #11 (session-bus shim for the public SteamOSManager1 API). Reuse existing code, in the Omarchy shape: shell and units, `omarchy-*` names, opt-in on this hardware. Goal 1 is a working slider. Goal 2 is a later core fit. The apply contract is [04-quick-access-overlay.md](../04-quick-access-overlay.md) §5.1, written out under #10. Read `min_value`, `max_value` and `default_value` live and clamp to them. Do not hard-code the caps. Port the MIT write order.
+16 Nov 2026 research for the RC71L watts, a charge limit, and a reapply after resume, so Steam's Quick Access slider works under gamescope. Stock steamos-manager stays out. The MIT interface and the SPL, then SPPT, then FPPT write are what the writer and the shim use. Read `min_value`, `max_value` and `default_value` live and clamp to them.
 
-[`bin/omarchy-session-start`](../../../bin/omarchy-session-start) already copies [`10-gaming-session.conf`](../../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf) and restarts `omarchy-ally-tdp-shim.service` only when that unit exists, before `gamescope`. The unit is not in the tree. [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam) runs `steam -steamos3 -steampal -steamdeck -gamepadui` and sets no fake Deck capability flags.
+[`bin/omarchy-session-start`](../../../bin/omarchy-session-start) copies [`10-gaming-session.conf`](../../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf) and restarts `omarchy-ally-tdp-shim.service` when that unit is installed, before `gamescope`. The unit is `default/systemd/user/omarchy-ally-tdp-shim.service`. [`bin/omarchy-gaming-steam`](../../../bin/omarchy-gaming-steam) runs `steam -steamos3 -steampal -steamdeck -gamepadui` and sets no fake Deck capability flags.
 
 ## (a) Kernel interfaces
 
