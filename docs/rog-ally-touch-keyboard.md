@@ -37,9 +37,11 @@ Gaming Mode uses Steam's keyboard: `Guide + X` (West), or Steam's text-field UI.
 
 Desktop wvkbd is not a greeter, lock-screen or disk-unlock keyboard. AUTH owns those surfaces. Omarchy's full-screen menus and Apps grid currently use exclusive overlay focus. Their interaction with wvkbd needs explicit acceptance, including opening the keyboard before and after the menu. The bar summon control avoids needing menu search to open the keyboard; it does not establish menu typing compatibility. Do not change authentication or generic overlay policy to mask a failure.
 
-## Why automatic activation is off
+## Optional keyboard on menu search
 
-wvkbd supports `--auto` through `zwp_input_method_v2`, but [Hyprland permits a single input method](https://github.com/hyprwm/Hyprland/blob/main/src/managers/input/InputMethodRelay.cpp). Omarchy already starts Fcitx5. [wvkbd v0.21](https://github.com/jjsullivan5196/wvkbd/blob/v0.21/main.c) has an empty `im_unavailable` handler, so enabling another input method can silently fail. Manual mode avoids claiming that slot. K05 remains unsupported in this integration: a supported adapter through the existing input-method owner and real application tests are prerequisites. Focused-window events and timers cannot tell whether a text field is active.
+Add `"menu": { "onScreenKeyboard": true }` to your `shell.json` to show the keyboard when you deliberately tap or click Omarchy menu search. A keyboard opened this way hides when search loses focus or the menu closes. The bar, app and keyboard shortcuts still provide manual control. This setting defaults to off.
+
+Other applications use manual summon. Omarchy starts Fcitx5, which uses Hyprland's single input-method slot. Both manual summon and menu search use wvkbd's virtual-keyboard path. Application-wide activation needs a supported adapter through the existing input-method owner and real application tests. [Hyprland input-method implementation](https://github.com/hyprwm/Hyprland/blob/main/src/managers/input/InputMethodRelay.cpp) · [wvkbd v0.21](https://github.com/jjsullivan5196/wvkbd/blob/v0.21/main.c)
 
 ## Install and rollback for the rollout owner
 

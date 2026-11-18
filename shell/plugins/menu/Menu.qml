@@ -108,6 +108,35 @@ Item {
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
   onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null }
+
+  readonly property bool canShowSearchKeyboard: root.shell?.shellConfig?.menu?.onScreenKeyboard === true
+    && root.opened && root.mode === "menu" && !root.deleteConfirmOpen && filterInput.activeFocus
+    && filterInput.Window.active && panel.contentRevealed
+  property bool searchKeyboardRequested: false
+  property string pendingSearchKeyboardAction: ""
+  onCanShowSearchKeyboardChanged: {
+    if (!canShowSearchKeyboard) requestSearchKeyboard(searchKeyboardRequested ? "hide-for-menu" : "")
+  }
+
+  function requestSearchKeyboard(action) {
+    root.pendingSearchKeyboardAction = action
+    root.syncSearchKeyboard()
+  }
+
+  function syncSearchKeyboard() {
+    if (searchKeyboardProcess.running || !root.pendingSearchKeyboardAction) return
+    var action = root.pendingSearchKeyboardAction
+    root.pendingSearchKeyboardAction = ""
+    root.searchKeyboardRequested = action === "show-for-menu"
+    searchKeyboardProcess.command = ["omarchy-toggle-desktop-keyboard", action]
+    searchKeyboardProcess.running = true
+  }
+
+  Process {
+    id: searchKeyboardProcess
+    onRunningChanged: if (!running) Qt.callLater(root.syncSearchKeyboard)
+  }
+
   // Bound to the central [menu] section in shell.toml via Commons.Color.qml.
   // Each color already includes its alpha companion (composed in the
   // singleton), so consumers can drop them straight into a Rectangle.
@@ -1425,6 +1454,14 @@ Item {
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             elide: Text.ElideRight
+          }
+
+          // FilterInput already owns keyboard focus and keeps the caret at
+          // the end. A press on its header just requests the optional keyboard.
+          MouseArea {
+            anchors.fill: parent
+            enabled: root.canShowSearchKeyboard
+            onClicked: root.requestSearchKeyboard("show-for-menu")
           }
 
         }

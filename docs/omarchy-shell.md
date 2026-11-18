@@ -194,6 +194,8 @@ machine-level `~/.config/omarchy/shell.toml` is watched live by the
 shell and its keys win over the active theme's `shell.toml`, so
 overrides like `omarchy display text size` survive theme switches.
 
+With the optional desktop keyboard installed, set `"menu": { "onScreenKeyboard": true }` in `shell.json` to show it when you tap or click Omarchy's menu search field. Leaving the field hides a keyboard opened by that click. A manually opened keyboard keeps its normal controls. This setting defaults to off and applies only to Omarchy's menu search.
+
 ## Theme tokens
 
 Shell and plugin QML must qualify the palette singleton because Qt 6.12 introduces its own `Color` type. Import `qs.Commons` with an alias and use `Commons.Color` for palette properties and signal connections:

@@ -16,8 +16,9 @@ Install it through the optional ROG Ally keyboard setup after reviewing AUR.
 No automatic startup, input-device permissions or system service is needed.
 
 Tap Desktop Keyboard in the bar or open it from Apps. On a configured RC71L,
-Super+Ctrl+Y also toggles it. There is no swipe-up gesture or automatic
-text-field activation. Tap the bottom-left keyboard symbol to change layouts:
+Super+Ctrl+Y also toggles it. Enable menu.onScreenKeyboard in shell.json to
+summon it when you click or tap menu search. Use the bottom-left symbol to
+change layouts:
 full has Ctrl/Esc/arrows; special has Alt, Sup (Super) and AltGr. Abc returns
 to letters. The keyboard symbol changes layouts; it does not hide the keyboard.
 Cmp plus a letter opens accents; Cmp plus Space opens the layout index.
@@ -27,7 +28,7 @@ Steam owns its keyboard in Gaming Mode; this command never starts Steam.
 HELP
     exit 0
     ;;
-  toggle | show | hide | stop) action=${1:-toggle} ;;
+  toggle | show | hide | stop | show-for-menu | hide-for-menu) action=${1:-toggle} ;;
   *) echo 'Unknown action; use --help.' >&2; exit 2 ;;
 esac
 (( $# <= 1 )) || { echo 'Too many arguments; use --help.' >&2; exit 2; }
@@ -42,7 +43,7 @@ fail() {
   fi
   exit 1
 }
-if [[ $action == "show" || $action == "toggle" ]]; then
+if [[ $action == "show" || $action == "toggle" || $action == "show-for-menu" ]]; then
   desktop=${XDG_CURRENT_DESKTOP:-}
   [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && ${desktop,,} != *gamescope* ]] ||
     fail 'show it in the Hyprland desktop; use the Steam keyboard in Gaming Mode.'
@@ -80,20 +81,56 @@ if [[ -f $state/process ]]; then
   if identity; then alive=true; else rm -f "$state/process"; fi
 fi
 
+# Only hide a keyboard the menu showed. A manual action takes over its
+# visibility, including one issued while the window is still mapping.
+visibility=unknown
+if $alive && [[ -f $state/visibility ]]; then
+  read -r visibility < "$state/visibility" || true
+fi
+
+case "$action" in
+  show-for-menu)
+    [[ $visibility != "manual" ]] || exit 0
+    [[ $(omarchy-shell lock isLocked 2>/dev/null) == "false" ]] || exit 0
+    if omarchy-hyprland-session-locked; then
+      exit 0
+    else
+      # Exit 1 is the explicit unlocked result. Skip an unknown compositor.
+      (( $? == 1 )) || exit 0
+    fi
+    layers=$(hyprctl -j layers 2>/dev/null) || exit 0
+    jq -e 'type == "object" and ([.[] | .levels[][] | .namespace] |
+      index("omarchy-menu") != null and index("omarchy-polkit") == null and index("wvkbd") == null)' \
+      <<<"$layers" >/dev/null 2>&1 || exit 0
+    ;;
+  hide-for-menu)
+    [[ $visibility == "menu" ]] || exit 0
+    action=hide
+    ;;
+esac
+
 if $alive; then
   case "$action" in
-    toggle) kill -RTMIN "$pid" ;;
-    show) kill -USR2 "$pid" ;;
+    toggle)
+      kill -RTMIN "$pid"
+      case "$visibility" in
+        "manual" | "menu") visibility=hidden ;;
+        "hidden") visibility=manual ;;
+      esac
+      ;;
+    show | show-for-menu) kill -USR2 "$pid" ;;
     hide) kill -USR1 "$pid" ;;
     stop)
       # hide() releases held keys before removing the surface in wvkbd 0.21.
       kill -USR1 "$pid"
       sleep 0.1
       if identity; then kill -TERM "$pid"; fi
-      rm -f "$state/process"
+      rm -f "$state/process" "$state/visibility"
+      exit 0
       ;;
   esac
 elif [[ $action == hide || $action == stop ]]; then
+  rm -f "$state/visibility"
   exit 0
 else
   omarchy-cmd-present wvkbd-mobintl || fail 'wvkbd-mobintl is missing; use optional ROG Ally keyboard setup.'
@@ -154,4 +191,12 @@ else
   done
   $ready || fail "startup failed; see $state/output.log"
   printf '%s %s %s\n' "$pid" "$started" "$binary" > "$state/process"
+  if [[ $action == "toggle" ]]; then visibility=manual; fi
 fi
+
+case "$action" in
+  show) visibility=manual ;;
+  hide) visibility=hidden ;;
+  show-for-menu) visibility=menu ;;
+esac
+printf '%s\n' "$visibility" > "$state/visibility"

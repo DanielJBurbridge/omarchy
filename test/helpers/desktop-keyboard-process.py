@@ -145,6 +145,19 @@ def main():
         notifier = root / 'omarchy-notification-send'
         notifier.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >"$NOTIFY_LOG"\n')
         notifier.chmod(0o755)
+        locked = root / 'omarchy-hyprland-session-locked'
+        locked.symlink_to(repo / 'bin/omarchy-hyprland-session-locked')
+        shell = root / 'omarchy-shell'
+        shell.write_text('#!/bin/bash\nprintf "%s\\n" "${SHELL_LOCK:-false}"\n')
+        shell.chmod(0o700)
+        hyprctl = root / 'hyprctl'
+        hyprctl.write_text("""#!/bin/bash
+case $2 in
+  monitors) printf '[{"solitaryBlockedBy":["%s"]}]\\n' "${MONITOR_BLOCKER:-CANDIDATE}" ;;
+  layers) printf '{"eDP-1":{"levels":{"3":[{"namespace":"omarchy-menu"},{"namespace":"%s"}]}}}\\n' "${LAYER:-omarchy-notifications}" ;;
+esac
+""")
+        hyprctl.chmod(0o700)
         env = os.environ | {'PATH': str(root), 'NOTIFY_LOG': str(notify),
                             'HOME': str(root / 'home'),
                             'OMARCHY_PATH': str(repo),
@@ -187,11 +200,33 @@ def main():
             print('[Haki] PASS help, invalid arguments, missing session, inactive hide/stop')
 
             # A dedicated Steam compositor must not acquire a desktop OSK.
-            for action in ('show', 'toggle'):
+            for action in ('show', 'toggle', 'show-for-menu'):
                 run(action, ok=False, extra={'HYPRLAND_INSTANCE_SIGNATURE': ''})
                 run(action, ok=False, extra={'XDG_CURRENT_DESKTOP': 'Gamescope'})
                 assert not record.exists() and not (root / 'signals').exists()
             print('[Haki] PASS non-Hyprland and Gamescope launches rejected before starting a process')
+
+            for guard in ({'SHELL_LOCK': 'true'}, {'SHELL_LOCK': 'unknown'},
+                          {'MONITOR_BLOCKER': 'LOCK'}, {'MONITOR_BLOCKER': 'WORKSPACE'},
+                          {'LAYER': 'omarchy-polkit'}, {'LAYER': 'wvkbd'}):
+                run('show-for-menu', extra=guard)
+                assert not record.exists(), guard
+
+            run('show-for-menu')
+            wait_for(lambda: events().endswith('E'))
+            run('hide-for-menu')
+            wait_for(lambda: events().endswith('EH'))
+            run('show-for-menu')
+            wait_for(lambda: events().endswith('EHS'))
+            run('show')
+            wait_for(lambda: events().endswith('EHSS'))
+            before = events()
+            run('hide-for-menu')
+            run('show-for-menu')
+            assert events() == before
+            run('stop')
+            wait_for(lambda: events().endswith('EHSSHX'))
+            print('[Haki] PASS menu cleanup hides its own keyboard, preserves manual show and skips lock and polkit')
 
             for _ in range(3):
                 run('show')
@@ -227,6 +262,11 @@ def main():
             assert argv[argv.index(b'--text') + 1] == b'f6dcac', argv
             assert argv[argv.index(b'--press') + 1] == b'faa968', argv
             assert argv[argv.index(b'--text-press') + 1] == b'05182e', argv
+            run('stop')
+            run('show-for-menu')
+            pid = int(record.read_text().split()[0])
+            menu_argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[1:-1]
+            assert menu_argv == argv, (argv, menu_argv)
             run('stop')
             colors.write_text('background = "05182e"\nforeground = "#f6dcac"\n')
             run('show')
