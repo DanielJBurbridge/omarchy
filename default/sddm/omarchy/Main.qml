@@ -13,11 +13,20 @@ Rectangle {
   property bool authenticating: false
   property bool keyboardRequested: false
   property bool keyboardUnavailable: false
-  readonly property bool handheldPanel: /^eDP-[0-9]+$/.test(root.Screen.name)
-    && StandardPaths.locate(StandardPaths.RuntimeLocation, "omarchy-greeter-rc71l").toString() !== ""
+  readonly property bool handheld: StandardPaths.locate(StandardPaths.RuntimeLocation, "omarchy-greeter-rc71l").toString() !== ""
+  readonly property bool handheldPanel: handheld && /^eDP-[0-9]+$/.test(root.Screen.name)
   readonly property bool showTouchActions: handheldPanel || config.boolValue("ShowKeyboard")
   readonly property color foreground: "#ffffff"
   property int sessionIndex: {
+    if (!handheld) {
+      // Keep Quattro's session choice on desktops with the optional companion.
+      for (let i = 0; i < sessionModel.rowCount(); i++) {
+        const name = sessionModel.data(sessionModel.index(i, 0), Qt.DisplayRole) || ""
+        if (name.toString().includes("uwsm")) return i
+      }
+      return sessionModel.lastIndex
+    }
+
     // SDDM exposes the desktop filename through FileRole, not DisplayRole.
     const fileRole = Qt.UserRole + 2
     let desktopIndex = -1

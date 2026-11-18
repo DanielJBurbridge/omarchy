@@ -63,6 +63,19 @@ grep -q 'objectName: "greeterKeyboard"' "$ROOT/default/sddm/omarchy/Main.qml" ||
   fail "the greeter has an on-screen keyboard"
 pass "handheld drop-in autologins into gaming with Relogin=true"
 
+# SDDM's actual FileRole and Quattro's optional uwsm DisplayRole can identify
+# different sessions when the gaming companion is installed on a desktop.
+mkdir -m 700 "$work/greeter-runtime"
+for machine in desktop ally; do
+  if [[ $machine == "ally" ]]; then
+    touch "$work/greeter-runtime/omarchy-greeter-rc71l"
+  fi
+  HOME="$work/home" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software XDG_RUNTIME_DIR="$work/greeter-runtime" \
+    timeout 10 /usr/lib/qt6/bin/qml "$here/fixtures/handheld-greeter/SessionChoice.qml" -- "$machine" ||
+    fail "sign-in session choice on $machine"
+done
+pass "sign-in preserves the desktop user's session choice and the Ally's managed controls"
+
 printf 'on\n' > "$work/desktop-lock"
 run_guard apply
 grep -qx 'Relogin=false' "$dropin" || fail "required desktop sign-in disables relogin" "$(cat "$dropin")"
