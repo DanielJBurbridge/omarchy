@@ -95,12 +95,15 @@ desktop() {
     echo 'Desktop lock is required. Sign in to Hyprland from the greeter.' >> "$gaming_state/session.log"
     return 10
   fi
-  local status=0 restore_pointer=0
+  local status=0 restore_pointer=0 profile=desktop
+  if (( ${gaming_fallback:-0} )); then
+    profile=osk
+  fi
   # Polkit checks the actual local login. Request the profile here, before
-  # UWSM starts the desktop in the user manager. Recovery selects OSK itself.
-  if (( ! ${gaming_fallback:-0} )) && gaming_handheld_variant &&
+  # UWSM starts the desktop in the user manager.
+  if gaming_handheld_variant &&
     systemctl is-active --quiet omarchy-inputplumber-profile.service &&
-    load_handheld_input_profile desktop; then
+    load_handheld_input_profile "$profile"; then
     restore_pointer=1
   fi
   start_hyprland || status=$?
@@ -121,21 +124,14 @@ note_root_failure() {
   fi
 }
 
-# Hyprland's own socket appears under $XDG_RUNTIME_DIR/hypr/<signature>/.
-# The Wayland display is the sibling wayland-N socket. Both are what the
-# on-screen keyboard helper requires, and neither exists until uwsm has
-# started the compositor.
+# Wayland sockets share the runtime directory with other compositors. Read
+# the socket of the new Hyprland instance rather than taking the first one.
 gaming_wayland_display() {
-  local entry name
-  [[ -n ${XDG_RUNTIME_DIR:-} ]] || return 1
-  for entry in "$XDG_RUNTIME_DIR"/wayland-*; do
-    [[ -S $entry ]] || continue
-    name=$(basename -- "$entry")
-    [[ $name == wayland-* ]] || continue
-    printf '%s\n' "$name"
-    return 0
-  done
-  return 1
+  local display
+  display=$(hyprctl instances -j 2>/dev/null |
+    jq -er --arg instance "$1" '.[] | select(.instance == $instance) | .wl_socket | strings') || return 1
+  [[ $display =~ ^wayland-[[:alnum:]_.-]+$ && -S $XDG_RUNTIME_DIR/$display ]] || return 1
+  printf '%s\n' "$display"
 }
 
 gaming_start_osk() {
@@ -153,24 +149,14 @@ gaming_start_osk() {
           fi
         done <<< "$before"
         if (( found == 0 )); then
-          signature=$(basename -- "$(dirname -- "$entry")")
-          display=$(gaming_wayland_display || true)
-          export HYPRLAND_INSTANCE_SIGNATURE=$signature
-          export XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
-          if [[ -n $display ]]; then
-            export WAYLAND_DISPLAY=$display
-          fi
-          if omarchy-cmd-present omarchy-inputplumber-profile; then
-            omarchy-inputplumber-profile load osk ||
-              printf '%s\n' 'osk profile did not load' >> "$gaming_state/fallback.log"
-          fi
+          signature=${entry%/*}
+          signature=${signature##*/}
+          display=$(gaming_wayland_display "$signature") || continue
           if omarchy-cmd-present omarchy-toggle-desktop-keyboard; then
-            if [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+            HYPRLAND_INSTANCE_SIGNATURE=$signature WAYLAND_DISPLAY=$display \
+              XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland \
               omarchy-toggle-desktop-keyboard show ||
-                printf '%s\n' 'on-screen keyboard did not start' >> "$gaming_state/fallback.log"
-            else
-              printf '%s\n' 'on-screen keyboard waited for a Wayland display' >> "$gaming_state/fallback.log"
-            fi
+              printf '%s\n' 'on-screen keyboard did not start' >> "$gaming_state/fallback.log"
           else
             printf '%s\n' 'on-screen keyboard helper is missing' >> "$gaming_state/fallback.log"
           fi

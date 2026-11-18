@@ -47,7 +47,7 @@ import os, socket
 rt = os.environ["XDG_RUNTIME_DIR"]
 hypr = os.path.join(rt, "hypr", "fallback")
 os.makedirs(hypr, exist_ok=True)
-paths = [os.path.join(hypr, ".socket.sock"), os.path.join(rt, "wayland-1")]
+paths = [os.path.join(hypr, ".socket.sock"), os.path.join(rt, "wayland-0"), os.path.join(rt, "wayland-1")]
 for path in paths:
     try:
         os.unlink(path)
@@ -74,7 +74,12 @@ EOF
 cat > "$HANDHELD_STUB/omarchy-inputplumber-profile" <<'EOF'
 #!/bin/bash
 printf 'profile:%s\n' "$*" >> "$HANDHELD_ACTIONS"
-exit 0
+exit 1
+EOF
+cat > "$HANDHELD_STUB/hyprctl" <<'EOF'
+#!/bin/bash
+[[ $* == "instances -j" ]] || exit 1
+printf '%s\n' '[{"instance":"unrelated","wl_socket":"wayland-0"},{"instance":"fallback","wl_socket":"wayland-1"}]'
 EOF
 cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
@@ -82,10 +87,15 @@ cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 EOF
 cat > "$HANDHELD_STUB/busctl" <<'EOF'
 #!/bin/bash
+[[ $* == '--timeout=3s --auto-start=no call org.omarchy.InputPlumberProfile /org/omarchy/InputPlumberProfile org.omarchy.InputPlumberProfile Load s '* ]] || exit 1
 printf 'broker:%s\n' "${@: -1}" >> "$HANDHELD_ACTIONS"
+if [[ ${@: -1} == "osk" ]]; then
+  exit "${HANDHELD_OSK_BROKER_STATUS:-0}"
+fi
 EOF
 chmod +x "$HANDHELD_STUB/uwsm" "$HANDHELD_STUB/omarchy-toggle-desktop-keyboard" \
-  "$HANDHELD_STUB/omarchy-inputplumber-profile" "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/busctl"
+  "$HANDHELD_STUB/omarchy-inputplumber-profile" "$HANDHELD_STUB/omarchy-pkg-present" \
+  "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/hyprctl"
 handheld_gaming_env
 
 state=$HANDHELD_HOME/.local/state/omarchy/gaming-session
@@ -154,17 +164,17 @@ if grep -q '^gamescope$' "$HANDHELD_LOG"; then
 fi
 grep -q '^uwsm:start -g -1 -e -D Hyprland hyprland.desktop$' "$HANDHELD_LOG" ||
   fail "the fail limit does not start the Hyprland desktop" "$(detail "$work/limit-err")"
-grep -q '^profile:load osk$' "$HANDHELD_LOG" ||
-  fail "the fail limit does not load the on-screen keyboard profile" "$(detail "$work/limit-err")"
-if grep -q '^broker:desktop$' "$HANDHELD_LOG"; then
-  fail "the regular desktop profile replaces the fail-limit profile" "$(detail "$work/limit-err")"
+mapfile -t profile_actions < <(grep -E '^(broker:|uwsm:|profile:)' "$HANDHELD_LOG")
+if [[ ${profile_actions[0]:-} != "broker:osk" || ${profile_actions[1]:-} != uwsm:* ||
+      ${profile_actions[2]:-} != "broker:pointer" ]] || grep -q '^profile:' "$HANDHELD_LOG"; then
+  fail "recovery loads the OSK profile through the broker before Hyprland and restores the greeter pointer afterward" "$(detail "$work/limit-err")"
 fi
 grep -q '^osk:show:fallback:wayland-1$' "$HANDHELD_LOG" ||
-  fail "the fail limit does not show the on-screen keyboard" "$(detail "$work/limit-err")"
+  fail "recovery shows the keyboard on its own compositor rather than an unrelated Wayland display" "$(detail "$work/limit-err")"
 [[ $(cat "$state/recovery" 2>/dev/null) == "$latch" ]] ||
   fail "the fail limit does not record its recovery latch" "$(detail "$work/limit-err")"
 : > "$HANDHELD_LOG"
-run_session "$work/again-err" relogin
+HANDHELD_OSK_BROKER_STATUS=1 run_session "$work/again-err" relogin
 [[ $(cat "$failures" 2>/dev/null) == 3 ]] ||
   fail "a later fallback counts as another failure" "$(detail "$work/again-err")"
 if grep -q '^gamescope$' "$HANDHELD_LOG"; then
@@ -172,6 +182,9 @@ if grep -q '^gamescope$' "$HANDHELD_LOG"; then
 fi
 [[ $(cat "$state/recovery" 2>/dev/null) == "$latch" ]] ||
   fail "a later fallback drops the recovery latch" "$(detail "$work/again-err")"
+grep -q '^broker:osk$' "$HANDHELD_LOG" && ! grep -q '^broker:pointer$' "$HANDHELD_LOG" &&
+  grep -q '^osk:show:fallback:wayland-1$' "$HANDHELD_LOG" ||
+  fail "a denied profile switch leaves the recovery touch keyboard available and does not overwrite the previous profile" "$(detail "$work/again-err")"
 pass "three early exits open the desktop with the on-screen keyboard and do not loop"
 
 mkdir -p "$work/retry-stop"
@@ -358,7 +371,7 @@ for keyboard_status in 1 0; do
   [[ $lock_status == 99 ]] && fail "the desktop-lock file is not root-owned" "$lock_detail"
   [[ -n $lock_status && $lock_status != 0 && $lock_status != 124 ]] ||
     fail "a locked fail-limit desktop does not exit to the greeter" "$lock_detail"
-  if grep -Eq '^(uwsm:|osk:|lock:|gamescope$)' "$HANDHELD_LOG"; then
+  if grep -Eq '^(uwsm:|osk:|lock:|broker:|gamescope$)' "$HANDHELD_LOG"; then
     fail "a required lock must not open or try to lock a new desktop from the supervisor" "$lock_detail"
   fi
   grep -q 'not starting the fail-limit desktop' "$state/session.log" ||
