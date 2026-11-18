@@ -5,7 +5,7 @@
 
 TdpLimit1 is loaded from the vendored MIT interface (evlaV/steamos-manager
 85fbd8f, Collabora, Valve, Igalia). The notice sits beside that file. The
-other properties are the public names Steam reads. Their XML text is ours.
+device model is reported through the SteamOS Manager interface.
 This process never writes sysfs. It pkexecs omarchy-ally-tdp-apply for
 --set only. Wake reassert is omarchy-ally-tdp-resume.service.
 """
@@ -19,8 +19,6 @@ from pathlib import Path
 BUS = "com.steampowered.SteamOSManager1"
 OBJECT = "/com/steampowered/SteamOSManager1"
 TDP = BUS + ".TdpLimit1"
-PROFILE = BUS + ".PerformanceProfile1"
-GPU = BUS + ".GpuPerformanceLevel1"
 MANAGER = BUS + ".Manager2"
 PROPS = "org.freedesktop.DBus.Properties"
 NOT_SUPPORTED = "org.freedesktop.DBus.Error.NotSupported"
@@ -45,19 +43,7 @@ OBJECT_MANAGER_XML = """<node>
 """
 
 # Property names match the public SteamOS Manager API. The text is ours.
-OTHER_XML = """<node>
-  <interface name="com.steampowered.SteamOSManager1.PerformanceProfile1">
-    <property name="AvailablePerformanceProfiles" type="as" access="read"/>
-    <property name="PerformanceProfile" type="s" access="readwrite"/>
-    <property name="SuggestedDefaultPerformanceProfile" type="s" access="read"/>
-  </interface>
-  <interface name="com.steampowered.SteamOSManager1.GpuPerformanceLevel1">
-    <property name="AvailableGpuPerformanceLevels" type="as" access="read"/>
-    <property name="GpuPerformanceLevel" type="s" access="readwrite"/>
-    <property name="ManualGpuClock" type="u" access="readwrite"/>
-    <property name="ManualGpuClockMin" type="u" access="read"/>
-    <property name="ManualGpuClockMax" type="u" access="read"/>
-  </interface>
+MANAGER_XML = """<node>
   <interface name="com.steampowered.SteamOSManager1.Manager2">
     <property name="DeviceModel" type="(ss)" access="read"/>
   </interface>
@@ -170,18 +156,6 @@ def main():
             info = state["last"]
             if info is not None and name in TDP_PROPERTIES:
                 return GLib.Variant("u", int(info[TDP_PROPERTIES[name]]))
-        if interface == PROFILE:
-            if name == "AvailablePerformanceProfiles":
-                return GLib.Variant("as", ["performance"])
-            if name in {"PerformanceProfile", "SuggestedDefaultPerformanceProfile"}:
-                return GLib.Variant("s", "performance")
-        if interface == GPU:
-            if name == "AvailableGpuPerformanceLevels":
-                return GLib.Variant("as", ["auto"])
-            if name == "GpuPerformanceLevel":
-                return GLib.Variant("s", "auto")
-            if name in {"ManualGpuClock", "ManualGpuClockMin", "ManualGpuClockMax"}:
-                return None
         if interface == MANAGER and name == "DeviceModel":
             return GLib.Variant("(ss)", ("rog_ally", "RC71L"))
         return None
@@ -190,12 +164,6 @@ def main():
         return get_property(interface, name)
 
     def on_set(_connection, _sender, _path, interface, name, value):
-        if interface == GPU and name == "ManualGpuClock":
-            return False
-        if interface == PROFILE and name == "PerformanceProfile":
-            return value.get_string() == "performance"
-        if interface == GPU and name == "GpuPerformanceLevel":
-            return value.get_string() == "auto"
         if interface == TDP and name == "TdpLimit":
             watts = value.get_uint32()
             proc = run_apply(["--set", str(watts)])
@@ -214,7 +182,7 @@ def main():
         state["session"] = connection
         info = show()
         state["last"] = info
-        nodes = [Gio.DBusNodeInfo.new_for_xml(OTHER_XML)]
+        nodes = [Gio.DBusNodeInfo.new_for_xml(MANAGER_XML)]
         if info is not None:
             nodes.append(Gio.DBusNodeInfo.new_for_xml(tdp_xml))
         interfaces = [interface for node in nodes for interface in node.interfaces]

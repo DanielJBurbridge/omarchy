@@ -608,8 +608,8 @@ assert tdp is not None, "Steam discovery could not find TdpLimit1"
 for name, value in {"TdpLimit": 30, "TdpLimitMin": 7, "TdpLimitMax": 30}.items():
     prop = tdp.get_cached_property(name)
     assert prop is not None and prop.get_uint32() == value, name
-gpu = manager.get_interface(path, bus + ".GpuPerformanceLevel1")
-assert gpu.get_cached_property("ManualGpuClock") is None
+assert manager.get_interface(path, bus + ".GpuPerformanceLevel1") is None
+assert manager.get_interface(path, bus + ".PerformanceProfile1") is None
 PY
 busctl --user set-property "\$bus" "\$object" "\$interface" TdpLimit u 30
 [[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
