@@ -703,9 +703,7 @@ pass "a running shell drops the button through omarchy-plugin-disable"
 
 write_dmi "Dell Inc." "XPS 13" "0A1B"
 cp "$config" "$test_tmp/shell-before.json"
-if note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
-  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
-  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+if note=$(run_keyboard_setup 0 2>&1); then
   fail "a non-RC71L setup with the shell down still configures the keyboard"
 fi
 [[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $note == *"next time the shell runs"* ]] ||
@@ -726,12 +724,7 @@ fi
   fail "a stopped shell stays quiet when the button was never added" "$note"
 cmp -s "$config" "$test_tmp/shell-before.json" ||
   fail "a quiet removal rewrites shell.json" "$(<"$config")"
-if note=$(HOME="$home" OMARCHY_PATH="$ROOT" \
-  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
-  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
-  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
-  PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
-  "$ROOT/bin/omarchy-setup-rog-ally-keyboard" --configure-reviewed-package 2>&1); then
+if note=$(run_keyboard_setup 0 2>&1); then
   fail "a non-RC71L setup with no button still configures the keyboard"
 fi
 [[ $note == *"This optional setup is for ASUS ROG Ally RC71L."* && $note != *"Keyboard button"* && $note != *"next time the shell runs"* ]] ||
