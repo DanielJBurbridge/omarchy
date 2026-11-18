@@ -166,7 +166,14 @@ def main():
         shell.chmod(0o700)
         hyprctl = root / 'hyprctl'
         hyprctl.write_text("""#!/bin/bash
-if [[ -n $EDGE_IPC ]]; then exec cat "$EDGE_IPC/$2"; fi
+if [[ -n $EDGE_IPC && $1 == "--batch" ]]; then
+  IFS=';' read -ra requests <<<"$2"
+  for request in "${requests[@]}"; do
+    cat "$EDGE_IPC/${request#j/}" || exit 1
+    echo
+  done
+  exit 0
+fi
 case $2 in
   monitors) printf '[{"solitaryBlockedBy":["%s"]}]\\n' "${MONITOR_BLOCKER:-CANDIDATE}" ;;
   layers) printf '{"eDP-1":{"levels":{"3":[{"namespace":"omarchy-menu"},{"namespace":"%s"}]}}}\\n' "${LAYER:-omarchy-notifications}" ;;

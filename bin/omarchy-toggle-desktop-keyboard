@@ -96,21 +96,19 @@ fi
 # Wayland delivers a seat's touch events without the hardware identity, and
 # wvkbd chooses its own output. Require an unambiguous panel and touchscreen.
 edge_can_show() {
-  local panel
   [[ :${desktop,,}: == *:hyprland:* ]] || return 1
   omarchy-hw-rog-ally || return 1
-  panel=$(hyprctl -j monitors | jq -er --argjson transform "$1" 'select(length == 1) | .[0] |
-    select($transform == null or .transform == $transform) |
-    select(.focused == true and .dpmsStatus == true and (.solitaryBlockedBy |
-      type == "array" and index("WINDOWED") != null and index("LOCK") == null and index("WORKSPACE") == null)) |
-    .name | select(test("^eDP-[0-9]+$"))') || return 1
-  hyprctl -j devices | jq -e '.touch | length == 1 and (.[0].name |
-    test("^nvtk0603:00-0603:f200($|-touchscreen$)"))' >/dev/null || return 1
-  hyprctl -j activewindow | jq -e '.mapped == true and
-    ([.class, .initialClass] | all(type == "string" and length > 0 and
-      (ascii_downcase | contains("gamescope") | not)))' >/dev/null || return 1
-  hyprctl -j layers | jq -e --arg panel "$panel" '
-    .[$panel].levels as $l | keys == [$panel] and ($l["1"] | any(.namespace == "omarchy-keyboard-edge"))
+  hyprctl --batch 'j/monitors;j/devices;j/activewindow;j/layers' | jq -se --argjson transform "$1" '
+    select(length == 4) | . as [$monitors, $devices, $window, $layers] |
+    ($monitors | select(length == 1) | .[0] |
+      select(($transform == null or .transform == $transform) and .focused == true and .dpmsStatus == true) |
+      select(.solitaryBlockedBy | type == "array" and index("WINDOWED") != null and index("LOCK") == null and index("WORKSPACE") == null) |
+      .name | select(test("^eDP-[0-9]+$"))) as $panel |
+    $layers[$panel].levels as $l |
+    ($devices.touch | length == 1 and (.[0].name | test("^nvtk0603:00-0603:f200($|-touchscreen$)")))
+    and ($window | .mapped == true and ([.class, .initialClass] | all(type == "string" and length > 0 and
+      (ascii_downcase | contains("gamescope") | not))))
+    and (($layers | keys) == [$panel]) and ($l["1"] | any(.namespace == "omarchy-keyboard-edge"))
     and ($l["2"] | type == "array" and all(.namespace == "omarchy-bar" or .namespace == "omarchy-dock"))
     and ($l["3"] | type == "array" and all(.namespace == "omarchy-notifications"))' >/dev/null
 }
