@@ -42,7 +42,7 @@ PanelWindow {
       }
       try {
         const levels = JSON.parse(snapshot.text)[edge.screen.name].levels
-        // wvkbd reserves the space for its own keys down to the panel edge.
+        // Release the strip so the keyboard can reach the bottom of the panel.
         if (code === 0) edge.keyboardMapped = Object.values(levels).some(level => level.some(s => s.namespace === "wvkbd"))
         edge.layersClear = code === 0 && levels["2"].every(s => s.namespace === "omarchy-bar" || s.namespace === "omarchy-dock")
           && levels["3"].every(s => s.namespace === "omarchy-notifications")
