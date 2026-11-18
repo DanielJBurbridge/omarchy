@@ -20,6 +20,7 @@
 set -euo pipefail
 
 ATTRS=(ppt_pl1_spl ppt_pl2_sppt ppt_pl3_fppt)
+SNAPSHOT_FIELDS=(default_value min_value max_value)
 CONFLICT_UNITS=(
   power-profiles-daemon.service
   powerstation.service
@@ -235,28 +236,61 @@ conflict_owner() {
   return 1
 }
 
-snap_path() {
-  local source=$1 attr=$2 field=$3
-  printf '%s\n' "$run_dir/boot/$boot_id/$source/$attr.$field"
-}
+boot_cache=$run_dir/boot/$boot_id
 
-ensure_snapshot() {
-  local source=$1 attr field value path
+snapshot_complete() {
+  local directory=$1 attr field
+  [[ -d $directory ]] || return 1
+  # Earlier writers populated the directory one file at a time.
   for attr in "${ATTRS[@]}"; do
-    for field in default_value min_value max_value; do
-      path=$(snap_path "$source" "$attr" "$field")
-      if [[ ! -f $path ]]; then
-        value=$(read_int "$armoury/$attr/$field") || return 1
-        mkdir -p -- "$(dirname -- "$path")"
-        printf '%s\n' "$value" >"$path"
-      fi
+    for field in "${SNAPSHOT_FIELDS[@]}"; do
+      read_int "$directory/$attr.$field" >/dev/null || return 1
     done
   done
 }
 
+firmware_limits() {
+  local attr field
+  for attr in "${ATTRS[@]}"; do
+    for field in "${SNAPSHOT_FIELDS[@]}"; do
+      read_int "$armoury/$attr/$field" || return 1
+    done
+  done
+}
+
+ensure_snapshot() {
+  local source=$1 directory=$boot_cache/$1 pending=$boot_cache/.$1.pending
+  local first confirmed attr field index=0
+  local -a values
+  snapshot_complete "$directory" && return 0
+
+  # A charger transition can change the firmware table between sysfs reads.
+  first=$(firmware_limits) || return 1
+  verify_power_source "$source" "firmware snapshot discarded" || return 1
+  confirmed=$(firmware_limits) || return 1
+  if [[ $first != "$confirmed" ]]; then
+    log "firmware limits changed during snapshot"
+    return 1
+  fi
+
+  # Only the lock holder writes here. Readers see the live ceiling until
+  # the complete snapshot replaces any partial directory from an old writer.
+  mkdir -p -- "$pending" || return 1
+  mapfile -t values <<<"$confirmed"
+  for attr in "${ATTRS[@]}"; do
+    for field in "${SNAPSHOT_FIELDS[@]}"; do
+      printf '%s\n' "${values[index++]}" >"$pending/$attr.$field" || return 1
+    done
+  done
+  verify_power_source "$source" "firmware snapshot discarded" || return 1
+  if [[ -d $directory ]]; then
+    rm -r -- "$directory" || return 1
+  fi
+  mv -T -- "$pending" "$directory"
+}
+
 load_snap() {
-  local source=$1 attr=$2 field=$3
-  read_int "$(snap_path "$source" "$attr" "$field")"
+  read_int "$boot_cache/$1/$2.$3"
 }
 
 request_file=$state_dir/request
@@ -420,7 +454,7 @@ apply_tdp_tuple() {
 }
 
 slider_bounds() {
-  local source=$1 live_min live_max boot_max policy ceil snap_max
+  local source=$1 live_min live_max boot_max policy ceil
   live_min=$(read_int "$armoury/ppt_pl1_spl/min_value") || return 1
   live_max=$(read_int "$armoury/ppt_pl1_spl/max_value") || return 1
   if [[ $source == battery ]]; then
@@ -429,8 +463,7 @@ slider_bounds() {
     policy=$AC_SPL_POLICY
   fi
   boot_max=$live_max
-  snap_max=$(snap_path "$source" ppt_pl1_spl max_value)
-  if [[ -f $snap_max ]]; then
+  if snapshot_complete "$boot_cache/$source"; then
     boot_max=$(load_snap "$source" ppt_pl1_spl max_value) || return 1
   fi
   ceil=$(lowest "$policy" "$live_max" "$boot_max")

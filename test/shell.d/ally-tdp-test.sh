@@ -248,6 +248,39 @@ pass "unplug clamps a stored 30 and replug restores it"
 
 reset_state
 ac_table
+write_attr ppt_pl1_spl 7 25 25 25
+printf 'unavailable\n' >"$armoury/ppt_pl3_fppt/min_value"
+if run_apply --set 30 >/dev/null 2>"$work/err"; then fail "a partial firmware read succeeded"; fi
+[[ $(tuple) == 25/43/53 && -z $(stored) ]] || fail "a failed capture changed the limits or saved request"
+ac_table
+# An older release could already have left its SPL ceiling behind.
+mkdir -p "$run/boot/boot/ac"
+printf '25\n' >"$run/boot/boot/ac/ppt_pl1_spl.max_value"
+show=$(run_apply --show)
+grep -Fxq 'max=30' <<<"$show" || fail "a partial AC snapshot caps the Steam slider" "$show"
+run_apply --set 30 >/dev/null
+[[ $(tuple) == 30/43/53 ]] || fail "a partial previous snapshot caps the next AC request" "$(tuple)"
+pass "an incomplete capture is ignored and a steady AC request recovers"
+
+reset_state
+ac_table
+cat >"$work/unplug-at-read" <<'EOF'
+read() {
+  if [[ /dev/stdin -ef $OMARCHY_ALLY_TDP_ARMOURY/ppt_pl2_sppt/default_value ]]; then
+    printf '0\n' >"$OMARCHY_ALLY_TDP_POWER/ADP1/online"
+  fi
+  builtin read "$@"
+}
+EOF
+if BASH_ENV="$work/unplug-at-read" run_apply --snapshot >/dev/null 2>"$work/err"; then
+  fail "an AC snapshot was published across unplug"
+fi
+[[ $(<"$work/supply/ADP1/online") == 0 && ! -d $run/boot/boot/ac ]] ||
+  fail "the charger changed but left a published AC snapshot"
+pass "an unplug during collection discards the AC snapshot"
+
+reset_state
+ac_table
 printf 'USB\n' >"$work/supply/ADP1/type"
 printf 'Device\n' >"$work/supply/ADP1/scope"
 run_apply --set 30 >/dev/null
