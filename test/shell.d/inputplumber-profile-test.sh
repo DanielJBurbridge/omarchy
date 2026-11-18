@@ -129,8 +129,8 @@ profiles = root / "default/inputplumber/profiles"
 gamepads = {"ds5", "ds5-edge", "deck", "deck-uhid", "xbox-elite"}
 shipped = {
   "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer", ["xbox-elite", "mouse", "keyboard"]),
-  "desktop.yaml": ("Omarchy Ally desktop", ["xbox-elite", "mouse", "keyboard"]),
-  "osk.yaml": ("Omarchy Ally osk", ["xbox-elite", "mouse", "keyboard"]),
+  "desktop.yaml": ("Omarchy Ally desktop v2", ["xbox-elite", "mouse", "keyboard"]),
+  "osk.yaml": ("Omarchy Ally osk v2", ["xbox-elite", "mouse", "keyboard"]),
   "gaming.yaml": ("Omarchy Ally gaming", ["ds5-edge", "mouse", "keyboard"]),
 }
 for filename, expected in shipped.items():
@@ -277,17 +277,23 @@ if load_calls:
   check(load_calls[0][-1] == desktop_yaml, "the load sends the file bytes")
 check("LoadProfilePath" not in bus.methods() and "SetTargetDevices" not in bus.methods(), "no path load and no SetTargetDevices")
 
-bus.reset()
-prop(c1, "ProfileName", 's "Omarchy Ally desktop"')
-check(mod.load("desktop") == 0, "a matching desktop profile is skipped")
-check(bus.methods() == [], "a skip does not call the daemon")
+for name in ("desktop", "osk"):
+  bus.reset()
+  prop(c1, "ProfileName", f's "Omarchy Ally {name}"')
+  check(mod.load(name) == 0 and bus.methods() == ["LoadProfileFromYaml"], f"{name} replaces the previous X/Y mapping")
+  loaded = [call for call in bus.calls if call[0] == "call"]
+  if loaded:
+    applied, _ = mod.profile_meta(loaded[0][-1])
+    prop(c1, "ProfileName", f's "{applied}"')
+  bus.reset()
+  check(mod.load(name) == 0 and not bus.methods(), f"{name} keeps the applied mapping on a repeated request")
 
 bus.reset()
 prop(c1, "ProfileName", 's "Default"')
 check(mod.load("desktop") == 0 and bus.methods() == ["LoadProfileFromYaml"], "Default is not treated as ours")
 
 bus.reset()
-prop(c1, "ProfileName", 's "Omarchy Ally desktop"')
+prop(c1, "ProfileName", f's "{mod.profile_meta(desktop_yaml)[0]}"')
 prop(c1, "TargetDevices", f'as 1 "{keyboard}"')
 check(mod.load("desktop") == 0 and bus.methods() == ["LoadProfileFromYaml"], "a missing mouse target is reloaded")
 prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{xbox}"')

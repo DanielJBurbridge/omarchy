@@ -4,7 +4,7 @@
 # No grip targets. The session bridge owns KeyLeftMeta and KeyLeftCtrl.
 version: 1
 kind: "DeviceProfile"
-name: "Omarchy Ally osk"
+name: "Omarchy Ally osk v2"
 target_devices:
   - "xbox-elite"
   - "mouse"

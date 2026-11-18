@@ -5,7 +5,7 @@
 # LB/RB use mouse.wheel, which the schema omits and the daemon implements for buttons.
 version: 1
 kind: "DeviceProfile"
-name: "Omarchy Ally desktop"
+name: "Omarchy Ally desktop v2"
 target_devices:
   - "xbox-elite"
   - "mouse"
