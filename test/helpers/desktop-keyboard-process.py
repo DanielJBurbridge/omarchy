@@ -396,6 +396,20 @@ esac
             menu_argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[1:-1]
             assert menu_argv == argv, (argv, menu_argv)
             run('stop')
+            # This palette has a legible foreground, but blending it into
+            # the modifier key at full strength makes its label less legible.
+            colors.write_text('background = "#2d353b"\nforeground = "#d3c6aa"\naccent = "#7fbbb3"\n')
+            run('show')
+            pid = int(record.read_text().split()[0])
+            flags = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            def luminance(flag):
+                colour = bytes.fromhex(flags[flags.index(flag) + 1].decode())
+                values = [v / 255 for v in colour]
+                linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in values]
+                return sum(x * y for x, y in zip(linear, (0.2126, 0.7152, 0.0722)))
+            dark, light = sorted((luminance(b'--fg-sp'), luminance(b'--text-sp')))
+            assert (light + 0.05) / (dark + 0.05) >= 4.5, flags
+            run('stop')
             colors.write_text('background = "05182e"\nforeground = "#f6dcac"\n')
             run('show')
             pid = int(record.read_text().split()[0])

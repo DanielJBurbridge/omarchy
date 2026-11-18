@@ -207,15 +207,23 @@ else
       function luminance(hex) {
         return .2126 * linear(channel(hex, 1)) + .7152 * linear(channel(hex, 3)) + .0722 * linear(channel(hex, 5))
       }
+      function contrast(a, b,    first, second) {
+        first = luminance(a) + .05
+        second = luminance(b) + .05
+        return first >= second ? first / second : second / first
+      }
       $2 ~ /^#[[:xdigit:]]{6}$/ { palette[$1] = substr($2, 2) }
       END {
         bg = palette["background"]; text = palette["foreground"]; press = palette["accent"]
         if (!bg || !text) exit
         if (!press) press = mix(bg, text, .44)
-        luma = luminance(press)
-        ratio = (luma + .05) / (luminance(bg) + .05)
-        pressed_text = ratio >= 4.5 || ratio <= 1/4.5 ? bg : (luma >= .179 ? "000000" : "ffffff")
-        printf "--bg\n%s\n--fg\n%s\n--fg-sp\n%s\n--text\n%s\n--text-sp\n%s\n", bg, mix(bg, text, .14), mix(bg, text, .23), text, text
+        normal = mix(bg, text, .14)
+        special = mix(bg, text, .23)
+        # Keep the modifier closer to the normal key if its label loses contrast.
+        for (t = 22; t >= 14 && contrast(text, special) < 4.5; t--)
+          special = mix(bg, text, t / 100)
+        pressed_text = contrast(press, bg) >= 4.5 ? bg : (luminance(press) >= .179 ? "000000" : "ffffff")
+        printf "--bg\n%s\n--fg\n%s\n--fg-sp\n%s\n--text\n%s\n--text-sp\n%s\n", bg, normal, special, text, text
         printf "--press\n%s\n--press-sp\n%s\n--text-press\n%s\n--text-press-sp\n%s\n", press, press, pressed_text, pressed_text
         print "--fn\nmonospace 18\n-R\n6"
       }')
