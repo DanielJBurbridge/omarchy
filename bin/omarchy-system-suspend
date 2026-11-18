@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# omarchy:summary=Request desktop suspend after checking the RC71L lock policy
+# omarchy:args=[--power-button]
+# omarchy:hidden=true
+
+set -euo pipefail
+
+request=${1:-}
+if (( $# > 1 )) || [[ -n $request && $request != "--power-button" ]]; then
+  echo "Usage: omarchy-system-suspend [--power-button]" >&2
+  exit 2
+fi
+
+if omarchy-hw-rog-ally; then
+  # The menu, desktop power button and Gamescope's power-button daemon
+  # share ownership of the suspend request through this lock.
+  exec 9>"$XDG_RUNTIME_DIR/omarchy-power-button.lock"
+  flock -n 9 || exit 0
+
+  if omarchy-sleep-disabled || omarchy-toggle-enabled suspend-off; then
+    if [[ $request == "--power-button" ]]; then
+      omarchy-menu toggle system
+    fi
+  elif "$OMARCHY_PATH/bin/omarchy-system-sleep-lock"; then
+    systemctl suspend
+  else
+    echo "Suspend cancelled because the desktop did not lock." >&2
+    exit 1
+  fi
+elif [[ $request == "--power-button" ]]; then
+  omarchy-menu toggle system
+else
+  systemctl suspend
+fi

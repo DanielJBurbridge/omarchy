@@ -331,9 +331,8 @@ run_gaming_invitation guided 1
   fail "the Ally invitation uses Gaming Setup when available"
 pass "first-login invitation is hardware-gated, once-only and independently usable"
 
-# Power-button routing must never suspend a desktop whose lock failed, or
-# replace the ordinary laptop/desktop power menu. The existing sleep-lock
-# suite exercises secure-lock IPC; this exercises the caller's decision.
+# The Suspend row and power button must share the same lock decision on an
+# RC71L. The existing sleep-lock suite exercises secure-lock IPC.
 power_omarchy="$test_tmp/power-omarchy"
 mkdir -p "$power_omarchy/bin" "$test_tmp/runtime"
 cat >"$power_omarchy/bin/omarchy-system-sleep-lock" <<'SH'
@@ -361,13 +360,29 @@ SH
 chmod +x "$power_omarchy/bin/omarchy-system-sleep-lock" "$stub/omarchy-menu" \
   "$stub/systemctl" "$stub/omarchy-sleep-disabled" "$stub/omarchy-toggle-enabled"
 
-run_power_button() {
+run_desktop_action() {
   OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
     OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
     OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
     XDG_RUNTIME_DIR="$test_tmp/runtime" OMARCHY_PATH="$power_omarchy" \
     PKG_LOG="$pkg_log" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
-    "$ROOT/bin/omarchy-system-power-button"
+    "$@"
+}
+
+run_power_button() {
+  run_desktop_action omarchy-system-power-button
+}
+
+menu_suspend=$(run_node_test <<'JS'
+const fs = require('fs')
+const menu = requireFromRoot('shell/plugins/menu/MenuModel.js')
+const items = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8'))
+process.stdout.write(items.find(item => item.id === 'system.suspend').action)
+JS
+)
+
+run_menu_suspend() {
+  run_desktop_action bash -c "$menu_suspend"
 }
 
 for product in "ROG Strix G16" "ROG Ally X RC72LA"; do
@@ -375,21 +390,25 @@ for product in "ROG Strix G16" "ROG Ally X RC72LA"; do
   : >"$pkg_log"
   run_power_button
   [[ $(<"$pkg_log") == "menu toggle system" ]] || fail "power button preserves $product power menu"
+  : >"$pkg_log"
+  FAKE_LOCK_RESULT=1 run_menu_suspend
+  [[ $(<"$pkg_log") == "systemctl suspend" ]] || fail "the Suspend row keeps the existing $product behavior"
 done
-pass "non-RC71L power buttons retain the existing system menu"
+pass "non-RC71L power buttons and Suspend rows retain their existing behavior"
 
 write_dmi "$vendor" "ROG Ally" "RC71L"
-: >"$pkg_log"
-run_power_button
-[[ $(<"$pkg_log") == $'lock\nsystemctl suspend' ]] || fail "RC71L locks before requesting suspend"
-pass "RC71L power button locks before requesting suspend"
+for entry in run_power_button run_menu_suspend; do
+  : >"$pkg_log"
+  "$entry"
+  [[ $(<"$pkg_log") == $'lock\nsystemctl suspend' ]] || fail "$entry must lock the RC71L before requesting suspend"
 
-: >"$pkg_log"
-if FAKE_LOCK_RESULT=1 run_power_button; then
-  fail "a failed lock cancels the power-button suspend"
-fi
-[[ $(<"$pkg_log") == "lock" ]] || fail "a failed lock never reaches systemctl"
-pass "failed desktop lock cancels suspend"
+  : >"$pkg_log"
+  if FAKE_LOCK_RESULT=1 "$entry"; then
+    fail "a failed lock must cancel $entry"
+  fi
+  [[ $(<"$pkg_log") == "lock" ]] || fail "a failed lock never reaches systemctl"
+done
+pass "the RC71L Suspend row and power button both cancel suspend when the desktop lock fails"
 
 : >"$pkg_log"
 FAKE_SLEEP_DISABLED=0 run_power_button
@@ -398,12 +417,18 @@ FAKE_SUSPEND_OFF=0 run_power_button
 pass "RC71L honours disabled suspend settings"
 
 : >"$pkg_log"
+FAKE_SLEEP_DISABLED=0 run_menu_suspend
+FAKE_SUSPEND_OFF=0 run_menu_suspend
+[[ ! -s $pkg_log ]] || fail "a stale Suspend row cannot request sleep while disabled"
+pass "the RC71L Suspend row rechecks availability before requesting sleep"
+
 (
   flock 9
   run_power_button
+  run_menu_suspend
 ) 9>"$test_tmp/runtime/omarchy-power-button.lock"
-[[ ! -s $pkg_log ]] || fail "overlapping power-button events are ignored"
-pass "overlapping power-button events cannot race the desktop lock"
+[[ ! -s $pkg_log ]] || fail "both entries observe the shared power-button lock"
+pass "overlapping menu and power-button requests cannot race the desktop lock"
 
 # A gaming daemon on the desktop would handle the same press a second time.
 # Run the real launch guard with the real DMI predicate and a recording daemon.

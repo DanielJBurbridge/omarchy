@@ -4,7 +4,7 @@ Source behaviour and physical acceptance are separate. No suspend, reboot, servi
 
 ## Desktop power button (R01, R03)
 
-The default Hyprland power-button binding calls `omarchy-system-power-button`. On the original RC71L, it takes a non-blocking process lock, checks suspend availability, calls the existing secure-lock helper and requests `systemctl suspend` only after that helper succeeds. A failed lock cancels this button-initiated suspend. Concurrent button events are ignored while the request is in progress. If sleep is disabled or Suspend is hidden, the existing power menu opens. Other hardware, including ROG laptops and the Ally X, retains the power menu.
+The original RC71L’s desktop power button and **System → Suspend** both run `omarchy-system-suspend`. It shares the power-button process lock, checks suspend availability and asks the secure-lock helper to apply the current handheld policy before requesting sleep. A failed lock cancels the request. If sleep is disabled or Suspend is hidden, the button opens the power menu. Other hardware, including ROG laptops and the Ally X, retains the power menu on button press and goes directly to systemd from the Suspend row.
 
 Keep `/etc/systemd/logind.conf.d/10-ignore-power-button.conf` with `HandlePowerKey=ignore`: logind must not handle the same press. Keep the existing `omarchy-sleep-lock.service` in the Hyprland session: it still protects suspend requested through the menu or another application. Its delay inhibitor is bounded by logind and cannot veto every externally requested suspend if locking fails. The new power-button path can cancel its own request before reaching logind.
 
