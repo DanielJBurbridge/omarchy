@@ -5,9 +5,10 @@
 # omarchy:args=hardware | power-source | session | remove-session | remove
 
 # hardware is every Ally, including a deny-all polkit rule beside the policy.
-# session is the gaming-session package: the shim, the handheld user's YES
-# rule and the power-profiles-daemon mask. A non-root process may
-# write only into OMARCHY_ALLY_TDP_DEST while OMARCHY_ALLY_TDP_FIXTURE=1.
+# session reconciles the reapply units too, for package installs that missed
+# hardware setup. It also sets up the shim, user rule and power daemon mask.
+# A non-root process may write only into OMARCHY_ALLY_TDP_DEST while
+# OMARCHY_ALLY_TDP_FIXTURE=1.
 # Root ignores that destination unless the fixture flag is also set.
 
 set -euo pipefail
@@ -64,7 +65,7 @@ unit_state() {
 enable_unit() {
   local unit=$1 state
   state=$(unit_state "$unit")
-  if [[ $state == masked ]]; then
+  if [[ $state == masked* ]]; then
     log "leaving masked unit $unit in place"
     return 0
   fi
@@ -241,18 +242,24 @@ install_power_source() {
   fi
 }
 
+install_reapply_units() {
+  local resume=omarchy-ally-tdp-resume.service
+  if [[ $(unit_state "$resume") != masked* ]]; then
+    copy_file "$OMARCHY_PATH/default/systemd/system/$resume" "/etc/systemd/system/$resume"
+  fi
+  install_power_source
+  enable_unit "$resume"
+}
+
 install_hardware() {
   omarchy-hw-rog-ally || return 0
-  copy_file "$OMARCHY_PATH/default/systemd/system/omarchy-ally-tdp-resume.service" \
-    /etc/systemd/system/omarchy-ally-tdp-resume.service
   # The deny rule lands before the policy. A desktop-only Ally, and the
   # moment before the session install, stay NO. Session replaces this with
   # the handheld user's YES.
   write_deny_rule
   copy_file "$OMARCHY_PATH/default/polkit/org.omarchy.ally.set-tdp.policy" \
     /usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy
-  install_power_source
-  enable_unit omarchy-ally-tdp-resume.service
+  install_reapply_units
 }
 
 install_session() {
@@ -271,7 +278,7 @@ install_session() {
   write_rule
   copy_file "$OMARCHY_PATH/default/polkit/org.omarchy.ally.set-tdp.policy" \
     /usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy
-  reload_systemd
+  install_reapply_units
   enable_shim
   mask_ppd
   if [[ -z $prefix ]]; then

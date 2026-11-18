@@ -416,6 +416,10 @@ chmod 644 "$dest/etc/sddm.conf.d/omarchy-handheld-user.conf"
 HW=ally GAMING=1 OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
   PATH="$work/bin:$PATH" "$install" session
 [[ -f $dest/etc/systemd/user/omarchy-ally-tdp-shim.service ]] || fail "session install skips the shim"
+grep -q 'enable omarchy-ally-tdp-source.path$' "$SYSTEMCTL_LOG" ||
+  fail "session install without hardware setup leaves power changes unwatched"
+grep -q 'enable omarchy-ally-tdp-resume.service$' "$SYSTEMCTL_LOG" ||
+  fail "session install without hardware setup leaves resume unwatched"
 [[ -f $dest/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service ]] || fail "session install skips activation"
 grep -q 'SystemdService=omarchy-ally-tdp-shim.service' \
   "$dest/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service" ||
@@ -433,7 +437,13 @@ removed=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
 grep -q 'polkit.Result.YES' <<<"$removed" && fail "removing the session leaves YES"
 grep -q 'return polkit.Result.NO;' <<<"$removed" || fail "removing the session drops the deny rule"
 [[ -f $dest/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy ]] || fail "removing the session drops the hardware policy"
-pass "the gaming session masks power-profiles-daemon and refuses sddm"
+pass "the gaming session sets up power reapply, masks power-profiles-daemon and refuses sddm"
+
+HW=ally OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
+  PATH="$work/bin:$PATH" "$install" remove
+[[ ! -e $dest/etc/systemd/system/omarchy-ally-tdp-source.path && ! -e $dest/etc/systemd/system/omarchy-ally-tdp-resume.service ]] ||
+  fail "full TDP removal leaves reapply units installed"
+pass "full TDP removal clears the reapply units"
 
 yes_dest=$work/yes-dest
 rm -rf "$yes_dest"
