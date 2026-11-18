@@ -131,13 +131,15 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         directory.mkdir()
         (directory / 'runtime').mkdir()
         (directory / 'actions').touch()
-        env = dict(os.environ, HOME=str(directory), XDG_STATE_HOME=str(directory / 'state'),
+        # Start from a fresh login, even when the suite runs inside a managed desktop.
+        # The real profile observer may only reach the fixture's private D-Bus.
+        bus = os.environ['DBUS_SESSION_BUS_ADDRESS']
+        env = dict(HOME=str(directory), XDG_STATE_HOME=str(directory / 'state'),
                    XDG_RUNTIME_DIR=str(directory / 'runtime'), XDG_SESSION_ID='c71',
+                   DBUS_SESSION_BUS_ADDRESS=bus, DBUS_SYSTEM_BUS_ADDRESS=bus,
                    OMARCHY_PATH=str(repo), TEST_ROOT=str(directory), MODE='normal',
                    OMARCHY_GAMING_READY_TIMEOUT='0.2', OMARCHY_GAMING_RETRY_GAP='0',
                    PATH=f'{bindir}:{repo / "bin"}:/usr/bin:/bin')
-        for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE'):
-            env.pop(key, None)
         env.update(updates)
         return directory, env
 
