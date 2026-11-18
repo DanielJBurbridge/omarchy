@@ -374,7 +374,7 @@ From the TDP slider build on 16 Nov 2026. L170–L179 stay as they are. This ran
 - L183. **Open.** Nothing in this build was run on an RC71L. The acceptance tuples are fixture tests against the stock AC and DC tables. Source: this build. Owner: hardware.
 - L184. **Open.** D1's `allow_active=yes` is still unsigned (L106, L178). The generated rule returns NO for every user except the recorded handheld user, so the policy default cannot authorize a different active session. `sddm` is NO and there is no `wheel` grant. Source: this build. Owner: dev-red.
 - L185. **Open.** `ManualGpuClock` is rejected by the property setter. Whether Steam sees that failure as `NotSupported`, or only as a generic property error, was not checked against the client. Source: this build. Owner: power.
-- L186. **Open.** A mid-tuple write failure has no rollback. If SPL is written and SPPT or FPPT then fails, the writer exits 1 and the three stores can be left mid-tuple. Recovery is `--reassert` once the conflict is gone. Source: review 5922419420. Owner: hardware.
+- L186. **Partial.** The writer now tries to restore the attempted fields when a store or readback fails on the same power source. Fixture coverage includes an SPPT refusal and a source change during failure. The saved request survives, and a remaining mismatch is logged. Physical verification is pending, and a power-source change requires a fresh reassert for the new source. Source: review 5922419420. Owner: hardware.
 
 From the packaged install of the RC71L power-button recipe in merged #67, 16 Nov 2026. This range is L190–L199.
 
