@@ -4,7 +4,7 @@
 
 Parity means a usable handheld on Omarchy: boot, play, suspend and return to a controller-friendly Hyprland desktop. Bazzite and CachyOS Handheld set the reference for the experience. The [prior-art audit](research/parity-gaps-ranked.md) records their implementations and licences. [Bazzite ASUS handhelds](https://docs.bazzite.gg/Handheld_and_HTPC_edition/Handheld_Wiki/ASUS_ROG_Ally/) · [CachyOS Handheld](https://wiki.cachyos.org/installation/installation_handheld/)
 
-The Ally currently runs `dev.202611170222.e742281c-1`, gaming-session `1.0.0-5`, kernel `7.2.15-2-omarchy` and InputPlumber `0.84.0-1`. A read-only inspection on 18 November confirmed the backend and hardware capabilities below. **Source** means code in this branch. **Fixture** means an automated test of that path. **Older hardware** means an earlier build or desktop-only path was observed. **Gap** means the feature is absent, incomplete or blocked. Close each row against the exact candidate package versions.
+The Ally now has runtime and settings candidate `4.0.0.202611180201.r8097.handheld.3fce96f6-1` and gaming-session `1.0.0-9`, on kernel `7.2.15-2-omarchy` and InputPlumber `0.84.0-1`. The package transaction on 18 November verified all three archives, left EFI file digests unchanged and took root snapshot #12. The baseline packages at `~/omarchy-handheld-pkgs/e742281c` support rollback. **Source** means code in this branch. **Fixture** means an automated test of that path. **Older hardware** means an earlier build or desktop-only path was observed. **Gap** means the feature is absent, incomplete or blocked. Close each row against the exact candidate package versions.
 
 ## First release gates
 
