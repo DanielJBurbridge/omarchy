@@ -11,6 +11,9 @@ hl.layer_rule({ match = { namespace = "omarchy-bar" }, no_anim = true, animation
 -- for normal open/close, and skip it for panel handoff.
 hl.layer_rule({ match = { namespace = "^(omarchy-menu|omarchy-image-selector|omarchy-emojis|omarchy-clipboard|omarchy-keyboard-panel|omarchy-osd|omarchy-reminders|omarchy-network-qr|omarchy-dock|omarchy-dock-apps)$" }, no_anim = true, animation = "none" })
 
+-- Keep overlay-layer on-screen keyboards clickable over the menu and app grid.
+hl.layer_rule({ match = { namespace = "^(omarchy-menu|omarchy-dock-apps)$" }, order = 1 })
+
 -- A boot intro hands the desktop between OWE's video layer and the shell's
 -- background layer. The media fades itself, so a compositor fade on either
 -- layer only dips the screen toward the empty desktop during the handoff.
