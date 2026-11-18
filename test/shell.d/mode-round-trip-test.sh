@@ -90,6 +90,7 @@ hl = {
     end
   end,
   config = function() end,
+  get_monitors = function() return {} end,
   on = function() end,
   dsp = setmetatable({}, { __index = function(_, name)
     return function(value) return name .. ":" .. tostring(value) end

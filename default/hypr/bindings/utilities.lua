@@ -21,6 +21,26 @@ if is_ally and o.cmd_present("wvkbd-mobintl") then
       },
     },
   })
+
+  -- A half-turn preserves Qt screen geometry and does not emit a monitor
+  -- add/remove event. Tell the keyboard when the internal transform changes.
+  local monitor_transforms = {}
+  local function sync_monitor_transforms()
+    local current = {}
+    for _, monitor in ipairs(hl.get_monitors()) do
+      if monitor.name:match("^eDP%-%d+$") then
+        current[monitor.name] = monitor.transform
+        local previous = monitor_transforms[monitor.name]
+        if previous ~= nil and previous ~= monitor.transform then
+          hl.dispatch(hl.dsp.event("omarchy-monitor-transform:" .. monitor.name))
+        end
+      end
+    end
+    monitor_transforms = current
+  end
+
+  sync_monitor_transforms()
+  hl.on("monitor.layout_changed", sync_monitor_transforms)
 end
 -- Switch to Gaming uses the same Ally predicate as the menu row. Absolute
 -- paths: Hyprland's PATH at config load is not the session PATH. A binding

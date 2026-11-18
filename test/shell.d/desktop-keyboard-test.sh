@@ -36,6 +36,10 @@ shortcut_for() {
     OMARCHY_DMI_PRODUCT_NAME_PATH="$test_dir/product" OMARCHY_DMI_BOARD_NAME_PATH="$test_dir/board" \
     /usr/bin/lua - <<'LUA'
 package.path = os.getenv("OMARCHY_PATH") .. "/?.lua;" .. package.path
+local panel = { name = "eDP-1", transform = 0 }
+local external = { name = "DP-1", transform = 0 }
+local layout_changed
+local events = {}
 hl = {
   bind = function(keys, command, options)
     if keys == "SUPER + CTRL + X" then
@@ -56,18 +60,41 @@ hl = {
       marker:close()
     end
   end,
-  on = function() end,
+  get_monitors = function() return { panel, external } end,
+  on = function(name, handler)
+    if name == "monitor.layout_changed" then layout_changed = handler end
+  end,
+  dispatch = function(event) table.insert(events, event) end,
   dsp = setmetatable({}, { __index = function(_, name)
     return function(value) return name .. ":" .. tostring(value) end
   end }),
 }
 require("default.hypr.helpers")
 require("default.hypr.bindings.utilities")
+if layout_changed then
+  local marker = io.open(os.getenv("OMARCHY_BIND_LOG"), "a")
+  marker:write("monitor_layout_changed\n")
+  marker:close()
+
+  layout_changed()
+  external.transform = 2
+  layout_changed()
+  assert(#events == 0, "stable and external displays do not refresh the handheld transform")
+
+  panel.transform = 2
+  layout_changed()
+  layout_changed()
+  panel.transform = 1
+  layout_changed()
+  assert(#events == 2 and events[1] == "event:omarchy-monitor-transform:eDP-1" and events[2] == events[1],
+    "each internal rotation invalidates the cached transform once")
+end
 LUA
 }
 
 before_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 [[ $(shortcut_for 'ROG Ally' 'RC71L' installed) == 'exec_cmd:omarchy-toggle-desktop-keyboard' ]] || fail "RC71L keyboard shortcut routes to the manual OSK"
+[[ $(grep -c '^monitor_layout_changed$' "$bind_log") == 1 ]] || fail "RC71L with wvkbd subscribes to native monitor changes"
 after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 (( after_release == before_release + 1 )) || fail "RC71L releases virtual-keyboard keys when the client dies"
 [[ -z $(shortcut_for 'ROG Ally' 'RC71L' '') ]] || fail "keyboard shortcut needs optional wvkbd"
@@ -80,6 +107,8 @@ before_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 [[ -z $(shortcut_for 'XPS 13' '0A1B' installed 'Dell Inc.') ]] || fail "keyboard shortcut excludes a generic laptop"
 after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
 (( after_release == before_release )) || fail "a generic laptop does not change virtual-keyboard key release"
+[[ $(grep -c '^monitor_layout_changed$' "$bind_log") == 1 ]] || fail "the monitor listener excludes PCs and devices without optional wvkbd"
 [[ $(<"$bind_log") == *omarchy.agents* && $(<"$bind_log") != *omarchy-toggle-desktop-keyboard* ]] ||
   fail "Super+Ctrl+Y does not take the Agents panel binding Super+Ctrl+X"
 pass "keyboard shortcut requires RC71L and optional wvkbd, and never runs while locked"
+pass "native internal-display transform events require RC71L and optional wvkbd"

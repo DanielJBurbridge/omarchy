@@ -54,6 +54,11 @@ PanelWindow {
     function onRawEvent(event) {
       if (event.name === "openlayer") edge.layersClear = false
       if (event.name === "openlayer" || event.name === "closelayer") layers.refresh()
+      if (event.name === "configreloaded"
+          || (event.name === "custom" && event.data === "omarchy-monitor-transform:" + edge.screen.name)) {
+        touch.cancel()
+        Hyprland.refreshMonitors()
+      }
     }
   }
 
