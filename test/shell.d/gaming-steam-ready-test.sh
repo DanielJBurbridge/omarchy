@@ -14,7 +14,7 @@ work=$(mktemp -d)
 child=
 cleanup() {
   if [[ -n $child ]]; then
-    kill -- -"$child" 2>/dev/null || true
+    kill -- -"$child" 2>/dev/null || kill "$child" 2>/dev/null || true
     wait "$child" 2>/dev/null || true
   fi
   rm -rf "$work" "${HANDHELD_RUNTIME:-}" "${HANDHELD_HOME:-}"
@@ -129,6 +129,10 @@ pass "only the waiter-timeout recovery latch is cleared"
 source "$here/../handheld/gaming-fixture.sh"
 handheld_prepare_gaming "$work/hang"
 handheld_late_desktop_return
+# Exercise a passwordless return independently of the host's lock policy.
+sed -i -e "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
+  -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock-absent|" \
+  "$HANDHELD_TREE/default/gaming/session.sh"
 cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 [[ $* == "omarchy-gaming-session" ]]
@@ -136,27 +140,33 @@ EOF
 printf '#!/bin/bash\nexit 0\n' > "$HANDHELD_STUB/omarchy-handheld-autologin"
 chmod +x "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/omarchy-handheld-autologin"
 handheld_gaming_env
+unset OMARCHY_HANDHELD_SESSION
+export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/autologin
 export OMARCHY_STEAM_PROC_ROOT=$work/proc-no-ui
 mkdir -p "$OMARCHY_STEAM_PROC_ROOT"
-setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/hang-out" 2>"$work/hang-err" &
+session_state=$XDG_STATE_HOME/omarchy/gaming-session
+hang_detail() {
+  cat "$work/hang-out" "$work/hang-err" "$HANDHELD_LOG" "$session_state/session.log" "$session_state/fallback.log" 2>/dev/null || true
+}
+setsid timeout --kill-after=2s 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/hang-out" 2>"$work/hang-err" &
 child=$!
-wait "$child" || fail "the late desktop return completes" "$(cat "$work/hang-err" "$HANDHELD_LOG")"
+wait "$child" || fail "the late desktop return completes" "$(hang_detail)"
 child=
-actions=$(cat "$HANDHELD_LOG" 2>/dev/null || true)
-fallback=$HANDHELD_HOME/.local/state/omarchy/gaming-session/fallback.log
-grep -q 'leaving them up' "$fallback" || fail "the timeout did not record that Steam was left up" "$(cat "$fallback" 2>/dev/null)"
-recovery=$HANDHELD_HOME/.local/state/omarchy/gaming-session/recovery
-[[ ! -e $recovery && $(grep -cx gamescope <<< "$actions") == 1 ]] &&
+actions=$(< "$HANDHELD_LOG")
+grep -qs 'leaving them up' "$session_state/fallback.log" ||
+  fail "the timeout records that Steam was left up" "$(hang_detail)"
+[[ ! -e $session_state/recovery && $(grep -cx gamescope <<< "$actions") == 1 ]] &&
   grep -Fxq 'steam:shutdown' <<< "$actions" && grep -Fxq 'gamescope-child-exit:0' <<< "$actions" &&
-  grep -q '^uwsm:' <<< "$actions" || fail "switching after the ready timeout closes Steam cleanly and opens Desktop without recovery or retry" "$actions"
+  grep -q '^uwsm:' <<< "$actions" || fail "switching after the ready timeout closes Steam cleanly and opens Desktop without recovery or retry" "$(hang_detail)"
 pass "a ready timeout leaves Steam running until a later clean Switch to Desktop"
 
 # The scan stops when the waiter's window ends. Steam keeps running; the
 # 0.2s sleep does not continue for the rest of that process.
 poll=$work/poll
-mkdir -p "$poll/bin" "$poll/proc/1" "$poll/runtime"
+mkdir -p "$poll/bin" "$poll/home" "$poll/proc/1" "$poll/runtime"
 printf 'PPid:\t0\n' > "$poll/proc/1/status"
 mkfifo -m 600 "$poll/runtime/ready"
+printf '#!/bin/bash\nexit 1\n' > "$poll/bin/omarchy-cmd-present"
 cat > "$poll/bin/steam" <<'EOF'
 #!/bin/bash
 /bin/sleep 3
@@ -168,16 +178,17 @@ if [[ ${1:-} == 0.2 ]]; then
 fi
 exec /bin/sleep "$@"
 EOF
-chmod +x "$poll/bin/steam" "$poll/bin/sleep"
+chmod +x "$poll/bin/"*
 : > "$poll/sleeps"
 PATH="$poll/bin:/usr/bin:/bin" \
   OMARCHY_PATH="$ROOT" \
+  HOME="$poll/home" XDG_RUNTIME_DIR="$poll/runtime" XDG_STATE_HOME="$poll/home/.local/state" \
   OMARCHY_GAMING_RUNTIME="$poll/runtime" \
   OMARCHY_STEAM_PROC_ROOT="$poll/proc" \
   OMARCHY_GAMING_READY_TIMEOUT=1 \
   DISPLAY=:9 \
   POLL_LOG="$poll/sleeps" \
-  "$ROOT/bin/omarchy-gaming-steam" >"$poll/out" 2>"$poll/err" &
+  setsid timeout --kill-after=2s 8 "$ROOT/bin/omarchy-gaming-steam" >"$poll/out" 2>"$poll/err" &
 child=$!
 wait "$child" || fail "the ready poller exited early" "$(cat "$poll/err" 2>/dev/null)"
 child=

@@ -110,11 +110,11 @@ exit 0
 EOF
   cat > "$HANDHELD_STUB/pgrep" <<'EOF'
 #!/bin/bash
-# The supervisor leaves a live Steam up. Report that process, and nothing else.
-if [[ $* == *steam* ]]; then
-  exec /usr/bin/pgrep "$@"
-fi
-exit 1
+# The fixture creates its own session for Gamescope and its Steam child.
+[[ $* == "-u $UID -x steam" && -s $HANDHELD_SCOPE_PID ]] || exit 1
+read -r scope_pid < "$HANDHELD_SCOPE_PID" || exit 1
+[[ $scope_pid =~ ^[1-9][0-9]*$ ]] || exit 1
+exec /usr/bin/pgrep -s "$scope_pid" "$@"
 EOF
   cat > "$HANDHELD_STUB/busctl" <<'EOF'
 #!/bin/bash
@@ -173,7 +173,10 @@ if [[ $* == "-ifrunning -shutdown" ]]; then
   printf 'exit\n' > "$finish"
 else
   mkfifo "$finish" || exit 1
-  while ! grep -qs 'leaving them up' "$XDG_STATE_HOME/omarchy/gaming-session/fallback.log"; do sleep 0.05; done
+  while ! grep -qs 'leaving them up' "$XDG_STATE_HOME/omarchy/gaming-session/fallback.log"; do
+    (( SECONDS < 6 )) || exit 1
+    sleep 0.05
+  done
   steamos-session-select plasma || exit 1
   read -r -t 6 reply <> "$finish" && [[ $reply == "exit" ]]
 fi

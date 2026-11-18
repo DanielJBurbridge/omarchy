@@ -1,110 +1,79 @@
 #!/bin/bash
-# The ready fifo is written before Steam is spawned, so the 60s "did
-# Gamescope start Steam" check passes immediately. A Steam that never
-# becomes usable is then waited on with no desktop fallback. Left failing
-# for dev-blue.
+# Drive the real Steam wrapper through launch, bootstrap and gamepad UI.
 
-set -uo pipefail
+set -euo pipefail
 
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$here/../shell.d/base-test.sh"
-source "$here/gaming-fixture.sh"
 
 work=$(mktemp -d)
-child_pid=
+child=
 cleanup() {
-  if [[ -n $child_pid ]]; then
-    kill -- -"$child_pid" 2>/dev/null || kill "$child_pid" 2>/dev/null || true
-    wait "$child_pid" 2>/dev/null || true
+  if [[ -n $child ]]; then
+    kill -- -"$child" 2>/dev/null || kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
   fi
-  rm -rf "$work" "${HANDHELD_RUNTIME:-}" "${HANDHELD_HOME:-}"
+  rm -rf -- "$work"
 }
 trap cleanup EXIT
 
-handheld_prepare_gaming "$work"
-runtime=$HANDHELD_RUNTIME/omarchy-gaming-redteam
-mkdir -p "$runtime"
-mkfifo -m 600 "$runtime/ready"
+mkdir -p "$work/bin" "$work/home" "$work/proc" "$work/runtime"
+mkfifo -m 600 "$work"/{spawn,scan,advance,quit} "$work/runtime/ready"
+exec {spawn_fd}<>"$work/spawn" {scan_fd}<>"$work/scan" {advance_fd}<>"$work/advance" {quit_fd}<>"$work/quit"
 
-cat > "$HANDHELD_STUB/steam" <<'EOF'
+cat > "$work/bin/omarchy-cmd-present" <<'EOF'
 #!/bin/bash
-printf 'steam\n' >> "$HANDHELD_ACTIONS"
-printf 'started\n' > "$HANDHELD_STEAM_AT"
-exit 0
+[[ $* == omarchy-launch-gaming-powerbutton ]]
 EOF
-chmod +x "$HANDHELD_STUB/steam"
+printf '#!/bin/bash\nexit 1\n' > "$work/bin/omarchy-pkg-present"
 
-handheld_gaming_env
-export OMARCHY_GAMING_RUNTIME=$runtime
-export DISPLAY=:77
-export HANDHELD_STEAM_AT=$work/steam-at
-setsid timeout 5 "$HANDHELD_TREE/bin/omarchy-gaming-steam" >"$work/order-out" 2>"$work/order-err" &
-child_pid=$!
-sleep 0.4
-steam_before_reader=0
-[[ -f $work/steam-at ]] && steam_before_reader=1
-# Unblock a ready write that still sits ahead of Steam, then stop the wrapper.
-exec 3<>"$runtime/ready" || true
-read -r -t 1 ready_event <&3 || ready_event=
-exec 3<&- || true
-kill -- -"$child_pid" 2>/dev/null || true
-wait "$child_pid" 2>/dev/null || true
-child_pid=
-
-order_detail=$(
-  printf 'steam-before-reader:%s\nready-event:%s\n' "$steam_before_reader" "$ready_event"
-  echo '--- stderr ---'
-  cat "$work/order-err"
-)
-
-# A live Steam that never opens an X fd on $DISPLAY must stay up. The ready
-# waiter used to stop Gamescope and open Hyprland.
-cat > "$HANDHELD_STUB/steam" <<'EOF'
+cat > "$work/bin/steam" <<'EOF'
 #!/bin/bash
-printf 'steam:%s\n' "$*" >> "$HANDHELD_ACTIONS"
-printf 'hung\n' > "$HANDHELD_STEAM_AT"
-sleep 30
+mkdir -p "$OMARCHY_STEAM_PROC_ROOT/$$/fd"
+printf 'Name:\tsteam\nPPid:\t%s\n' "$PPID" > "$OMARCHY_STEAM_PROC_ROOT/$$/status"
+ln -s '/tmp/.X11-unix/X77' "$OMARCHY_STEAM_PROC_ROOT/$$/fd/3"
+printf '%s\n' "$$" > "$FIXTURE/spawn"
+read -r -t 15 reply <> "$FIXTURE/quit" && [[ $reply == "quit" ]]
 EOF
-chmod +x "$HANDHELD_STUB/steam"
-: > "$HANDHELD_LOG"
-rm -f "$work/steam-at"
-handheld_gaming_env
-export HANDHELD_STEAM_AT=$work/steam-at
-setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/hang-out" 2>"$work/hang-err" &
-child_pid=$!
-hung=0
-for _ in $(seq 1 50); do
-  [[ -f $work/steam-at ]] && hung=1 && break
-  sleep 0.1
-done
-if (( hung )); then
-  sleep 3
-fi
-desktop=0
-grep -q '^uwsm:' "$HANDHELD_LOG" && desktop=1
-kill -- -"$child_pid" 2>/dev/null || true
-wait "$child_pid" 2>/dev/null || true
-child_pid=
 
-hang_detail=$(
-  printf 'steam-started:%s\ndesktop:%s\n' "$hung" "$desktop"
-  echo '--- actions ---'
-  cat "$HANDHELD_LOG"
-  echo '--- stderr ---'
-  cat "$work/hang-err"
-)
+# Pause after each unsuccessful scan, so the test can control when the next
+# scan happens without depending on how fast the fixture is scheduled.
+cat > "$work/bin/sleep" <<'EOF'
+#!/bin/bash
+printf 'scan\n' > "$FIXTURE/scan"
+read -r -t 5 reply <> "$FIXTURE/advance" && [[ $reply == "scan" ]]
+EOF
+chmod +x "$work/bin/"*
 
-problems=
-if (( ! steam_before_reader )); then
-  problems+="ready is published before Steam starts. $order_detail"$'\n'
+HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" PATH="$work/bin:/usr/bin:/bin" \
+  OMARCHY_GAMING_RUNTIME="$work/runtime" OMARCHY_STEAM_PROC_ROOT="$work/proc" \
+  OMARCHY_GAMING_READY_TIMEOUT=15 DISPLAY=:77 FIXTURE="$work" \
+  setsid timeout --kill-after=2s 20 "$ROOT/bin/omarchy-gaming-steam" > "$work/output" 2>&1 &
+child=$!
+read -r -t 5 -u "$spawn_fd" steam_pid && [[ $steam_pid =~ ^[1-9][0-9]*$ ]] ||
+  fail "Steam launches before the ready FIFO has a reader" "$(cat "$work/output")"
+pass "Steam launches before the ready FIFO has a reader"
+
+exec {ready_fd}<>"$work/runtime/ready"
+read -r -t 3 -u "$scan_fd" event && [[ $event == "scan" ]] ||
+  fail "the Steam wrapper scans before gamepad UI exists" "$(cat "$work/output")"
+printf 'scan\n' >&"$advance_fd"
+read -r -t 3 -u "$scan_fd" event && [[ $event == "scan" ]] ||
+  fail "the Steam bootstrap display does not signal ready" "$(cat "$work/output")"
+if read -r -t 0 -u "$ready_fd"; then
+  fail "the Steam bootstrap display does not signal ready"
 fi
-if (( ! hung )); then
-  problems+="hung-Steam fixture never started Steam. $hang_detail"$'\n'
-elif (( desktop )); then
-  problems+="a live Steam with no ready fd was stopped and the desktop was opened. $hang_detail"$'\n'
-fi
-if [[ -z $problems ]]; then
-  pass "Steam ready follows a live Steam child and a hung child is left running"
-  exit 0
-fi
-fail "Steam ready follows a live Steam child and a hung child is left running" "$problems"
+pass "the Steam bootstrap display does not signal ready"
+
+helper_pid=$((steam_pid + 1))
+mkdir -p "$work/proc/$helper_pid/fd"
+printf 'Name:\tsteamwebhelper\nPPid:\t%s\n' "$steam_pid" > "$work/proc/$helper_pid/status"
+ln -s '/tmp/.X11-unix/X77' "$work/proc/$helper_pid/fd/3"
+printf 'scan\n' >&"$advance_fd"
+read -r -t 3 -u "$ready_fd" event && [[ $event == "started" ]] ||
+  fail "a connected Steam webhelper signals ready" "$(cat "$work/output")"
+printf 'quit\n' >&"$quit_fd"
+wait "$child" || fail "Steam exits cleanly after ready" "$(cat "$work/output")"
+child=
+[[ $(< "$work/runtime/steam-exit") == "0" ]] || fail "the wrapper records Steam's exit status"
+pass "a connected Steam webhelper signals ready and Steam exits cleanly"
