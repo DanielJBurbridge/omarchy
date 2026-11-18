@@ -87,25 +87,14 @@ load_handheld_input_profile() {
     /org/omarchy/InputPlumberProfile org.omarchy.InputPlumberProfile Load s "$1"
 }
 
-# One choke point for every autologged-in desktop entry. Return 10 when the
-# lock is required and was not acknowledged, without starting Hyprland.
-# Before K07 on the handheld, do not lock without a physical keyboard. Explicit
-# on with none returns to gaming. Off with none starts the desktop unlocked.
+# This supervisor cannot secure the new compositor before it starts. An
+# existing shell could answer a lock request for a different compositor.
+# Return 10 to keep the desktop closed when policy requires a lock.
 desktop() {
-  case $(gaming_lock_decision) in
-    return)
-      echo 'No physical keyboard is attached; returning to gaming instead of locking.' >> "$gaming_state/session.log"
-      return 10
-      ;;
-    allow)
-      if [[ $(gaming_desktop_lock_effective) == on ]]; then
-        if ! omarchy-cmd-present omarchy-system-lock || ! timeout --kill-after=1s 15s omarchy-system-lock; then
-          echo 'Desktop lock was not acknowledged; not starting an unlocked desktop.' >> "$gaming_state/session.log"
-          return 10
-        fi
-      fi
-      ;;
-  esac
+  if [[ $(gaming_desktop_lock_effective) == on ]]; then
+    echo 'Desktop lock is required. Sign in to Hyprland from the greeter.' >> "$gaming_state/session.log"
+    return 10
+  fi
   local status=0 restore_pointer=0
   # Polkit checks the actual local login. Request the profile here, before
   # UWSM starts the desktop in the user manager. Recovery selects OSK itself.
@@ -198,10 +187,9 @@ gaming_start_osk() {
 # One desktop, with the keyboard. Does not return to gaming, and does not
 # count this start as another failure. Relogin is pinned off when the root
 # helper can act, so a desktop that exits is not started again.
-# desktop() is the only way in. A required lock with no physical keyboard
-# stays at the greeter instead of opening an unlocked session.
+# A required lock stays at the greeter instead of opening an unlocked session.
 gaming_fail_limit_fallback() {
-  local status=0 osk_pid='' spins=0 decision
+  local status=0 osk_pid='' spins=0
   gaming_fallback=1
   if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
     gaming_save recovery "$gaming_fail_limit_latch" || true
@@ -209,12 +197,11 @@ gaming_fail_limit_fallback() {
   if ! handheld_autologin_stopped; then
     note_root_failure
   fi
-  decision=$(gaming_lock_decision 2>/dev/null || true)
-  if [[ $decision == return ]]; then
+  if [[ $(gaming_desktop_lock_effective) == on ]]; then
     if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
-      printf '%s\n' 'Desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >> "$gaming_state/session.log"
+      printf '%s\n' 'Desktop lock is required; not starting the fail-limit desktop. Sign in to Hyprland from the greeter.' >> "$gaming_state/session.log"
     else
-      printf '%s\n' 'Omarchy Gaming: desktop lock is required and no physical keyboard is attached; not starting the fail-limit desktop.' >&2
+      printf '%s\n' 'Omarchy Gaming: desktop lock is required; not starting the fail-limit desktop. Sign in to Hyprland from the greeter.' >&2
     fi
     exit 1
   fi
