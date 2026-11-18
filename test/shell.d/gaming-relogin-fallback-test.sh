@@ -354,7 +354,8 @@ for keyboard_status in 1 0; do
   if (( EUID == 0 )); then
     bash "$work/lock-case.sh" || true
   else
-    unshare --user --map-root-user --map-auto bash "$work/lock-case.sh" || true
+    # The fixture only needs its current user mapped to root.
+    unshare --user --map-root-user bash "$work/lock-case.sh" || true
   fi
   lock_status=$(cat "$work/lock-status" 2>/dev/null || true)
   lock_detail=$(
