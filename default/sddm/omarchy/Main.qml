@@ -164,6 +164,13 @@ Rectangle {
             acceptedDevices: root.showTouchActions ? PointerDevice.AllDevices : PointerDevice.TouchScreen | PointerDevice.Stylus
             onTapped: root.showKeyboard()
           }
+          TapHandler {
+            // The greeter's controller profile offers only a primary click.
+            // A short click on a dock display keeps ordinary password focus.
+            enabled: root.handheld && !root.showTouchActions
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onLongPressed: root.showKeyboard()
+          }
         }
       }
     }
