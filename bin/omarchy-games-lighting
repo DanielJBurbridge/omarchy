@@ -1,0 +1,233 @@
+#!/usr/bin/python3
+# omarchy:group=games
+# omarchy:summary=Show or set joystick-ring lighting on the original ROG Ally
+# omarchy:args=[status | brightness off|low|medium|high | colour RRGGBB | preset static|breathe|rainbow-cycle|rainbow-wave|pulse]
+# omarchy:examples=omarchy games lighting | omarchy games lighting colour 135793 | omarchy games lighting preset breathe
+
+import argparse
+import fcntl
+import os
+import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+from gi.repository import Gio, GLib
+
+SERVICE = "xyz.ljones.Asusd"
+AURA = "xyz.ljones.Aura"
+ROOT = "/xyz/ljones/aura"
+PROPERTIES = "org.freedesktop.DBus.Properties"
+EFFECT = "(uu(yyy)(yyy)ss)"
+CONFIG = Path("/etc/asusd/aura_1abe.ron")
+LEDS = Path("/sys/class/leds")
+WRITE_LOCK = Path(f"/run/user/{os.getuid()}/omarchy-games-lighting.lock")
+MODES = {0: "static", 1: "breathe", 2: "rainbow-cycle", 3: "rainbow-wave", 10: "pulse"}
+LEVELS = ("off", "low", "medium", "high")
+
+
+def require(condition, message):
+  if not condition:
+    raise ValueError(message)
+
+
+class Aura:
+  def __init__(self):
+    self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    try:
+      self.owner, = self.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                              "org.freedesktop.DBus", "GetNameOwner", "(s)", (SERVICE,))
+    except GLib.Error as err:
+      if Gio.DBusError.get_remote_error(err) == "org.freedesktop.DBus.Error.NameHasNoOwner":
+        raise ValueError("ASUS lighting unavailable: asusd is not running.") from err
+      raise
+    xml, = self.call(self.owner, ROOT, "org.freedesktop.DBus.Introspectable", "Introspect")
+    devices = [n.get("name") for n in ET.fromstring(xml).findall("node")
+               if re.fullmatch(r"1abe(?:_[0-9]+)*", n.get("name", ""))]
+    require(len(devices) == 1, "Expected exactly one original Ally Aura controller.")
+    self.path = f"{ROOT}/{devices[0]}"
+
+  def call(self, owner, path, iface, method, signature=None, args=()):
+    params = GLib.Variant(signature, args) if signature else None
+    return self.bus.call_sync(owner, path, iface, method, params, None,
+                              Gio.DBusCallFlags.NO_AUTO_START, 3000, None).unpack()
+
+  def read(self):
+    props, = self.call(self.owner, self.path, PROPERTIES, "GetAll", "(s)", (AURA,))
+    require(props.get("DeviceType") == 4 and props.get("SupportedPowerZones") == [6]
+            and props.get("SupportedBasicZones") == []
+            and set(props.get("SupportedBasicModes", [])) == MODES.keys()
+            and set(props.get("SupportedBrightness", [])) == set(range(4)),
+            "The owner does not advertise the verified whole-device RC71L capabilities.")
+    presets, = self.call(self.owner, self.path, AURA, "AllModeData")
+    require(all(key == fx[0] and fx[1] == 0 for key, fx in presets.items()),
+            "Unexpected zone or mode in the saved presets.")
+    # asusd 6.5 serialises Pulse as ordinal 9 in AllModeData and as 10 in properties.
+    if 9 in presets and 10 not in presets:
+      presets[10] = (10, *presets.pop(9)[1:])
+    mode = props["LedMode"]
+    level = props.get("Brightness")
+    require(level in range(4), "The owner cannot read the kernel backlight level.")
+    require(presets.keys() == MODES.keys() and mode in presets and presets[mode] == props["LedModeData"],
+            "The owner's active effect and saved presets disagree. Check status again.")
+    return mode, level, presets, props["LedPower"]
+
+  def set(self, prop, signature, value):
+    self.call(self.owner, self.path, PROPERTIES, "Set", "(ssv)",
+              (AURA, prop, GLib.Variant(signature, value)))
+
+
+# Read only the containers and atoms that asusd 6.5 emits for this controller.
+# Keep RON structs distinct from maps, and quoted strings distinct from enums.
+RON_ATOM = r'"[^"\\]*"|(?:r#)?[A-Za-z_][A-Za-z_0-9]*|[0-9]+'
+
+
+def read_config():
+  with CONFIG.open() as config:
+    data = config.read(65537)
+  require(len(data) <= 65536, "Aura configuration exceeds the verified format.")
+  tokens = iter(re.findall(RON_ATOM + r"|[^\s]", data))
+  token = next(tokens, None)
+
+  def take():
+    nonlocal token
+    old, token = token, next(tokens, None)
+    return old
+
+  def expect(wanted):
+    require(take() == wanted, f"Expected {wanted} in Aura configuration.")
+
+  def value(depth=0):
+    require(depth < 12, "Unsupported Aura configuration nesting.")
+    atom = take()
+    if atom == "Some":
+      expect("(")
+      item = value(depth + 1)
+      if token == ",":
+        take()
+      expect(")")
+      return ("Some", item)
+    if atom not in ("(", "{", "["):
+      require(atom is not None and re.fullmatch(RON_ATOM, atom),
+              "Unsupported Aura configuration value.")
+      return atom
+    end = {"(": ")", "{": "}", "[": "]"}[atom]
+    fields = [] if atom == "[" else {}
+    while token != end:
+      if atom == "[":
+        fields.append(value(depth + 1))
+      else:
+        key = take()
+        require(key is not None and key.isidentifier() and key not in fields,
+                "Invalid or duplicate Aura configuration key.")
+        expect(":")
+        fields[key] = value(depth + 1)
+      if token != ",":
+        break
+      take()
+    expect(end)
+    return fields if atom != "{" else ("map", fields)
+
+  result = value()
+  require(token is None and isinstance(result, dict), "Expected one Aura configuration struct.")
+  return result
+
+
+def expected_config(state):
+  mode, level, presets, power = state
+  names = {key: name.title().replace("-", "") for key, name in MODES.items()}
+  effects = {}
+  for key, (_, _, first, second, speed, direction) in presets.items():
+    effects[names[key]] = dict(mode=names[key], zone="r#None", colour1=dict(zip("rgb", map(str, first))),
+                              colour2=dict(zip("rgb", map(str, second))), speed=speed, direction=direction)
+  [[zone]] = power
+  require(len(zone) == 5 and zone[0] == 6, "Unexpected Ally lighting power settings.")
+  flags = {name: str(value).lower() for name, value in zip(("boot", "awake", "sleep", "shutdown"), zone[1:])}
+  return dict(config_name='"aura_1abe.ron"', ally_fix=("Some", "true"),
+              brightness=("Off", "Low", "Med", "High")[level], current_mode=names[mode],
+              builtins=("map", effects), multizone_on="false", enabled=dict(states=[dict(zone="Ally", **flags)]))
+
+
+def persistence(state):
+  try:
+    saved = read_config()
+  except (OSError, ValueError) as err:
+    return f"unavailable ({err})", None
+  expected = expected_config(state)
+  # The optional disabled, empty map carries no zone effects. Track its presence
+  # too, so a successful save verifies the same representation on disk.
+  optional = saved.get("multizone")
+  if saved.get("multizone_on") != "false" or optional not in (None, ("Some", ("map", {}))):
+    return "unavailable (unsupported multizone settings)", None
+  if optional is not None:
+    expected["multizone"] = optional
+  if saved.keys() != expected.keys():
+    return "unavailable (unsupported Aura configuration fields)", None
+  return ("verified" if saved == expected else "mismatch"), optional
+
+
+def main():
+  parser = argparse.ArgumentParser(prog="omarchy games lighting")
+  verbs = parser.add_subparsers(dest="action")
+  verbs.add_parser("status")
+  verbs.add_parser("brightness").add_argument("level", choices=LEVELS)
+  verbs.add_parser("preset").add_argument("mode", choices=MODES.values())
+  verbs.add_parser("colour").add_argument("rgb", metavar="RRGGBB")
+  args = parser.parse_args()
+  if args.action == "colour":
+    require(re.fullmatch(r"#?[0-9A-Fa-f]{6}", args.rgb), "Use six hex digits, for example 135793.")
+  require(subprocess.run(["omarchy-hw-rog-ally"]).returncode == 0, "Original ROG Ally RC71L required.")
+  require(not (LEDS / "ally:rgb:joystick_rings").exists(), "Alternate joystick-ring driver active. Stock ASUS lighting unavailable.")
+  aura = Aura()
+  # asusd chooses the first matching LED-class backlight, even for an effect setter.
+  backlights = [entry.name for entry in LEDS.iterdir()
+                if "kbd_backlight" in entry.name or "ally:rgb:gamepad" in entry.name]
+  require(backlights == ["asus::kbd_backlight"], "Cannot identify a unique stock ASUS backlight.")
+  if args.action in (None, "status"):
+    state = aura.read()
+    mode, level, presets, _ = state
+    print(f"ASUS controller: {aura.path}\nKernel brightness: {LEVELS[level]}\n"
+          f"Cached preset: {MODES[mode]}\nCached static colour: #{bytes(presets[0][2]).hex().upper()}\n"
+          f"Persistence: {persistence(state)[0]}")
+    return
+
+  with WRITE_LOCK.open("a") as handle:
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    change(aura, args)
+
+
+def change(aura, args):
+  mode, level, presets, power = state = aura.read()
+  status, optional = persistence(state)
+  require(status == "verified", f"Persistence: {status}. Reconcile saved and live settings before writing.")
+  if args.action == "brightness":
+    level = LEVELS.index(args.level)
+    prop, signature, value = "Brightness", "u", level
+  else:
+    # Selecting an effect promotes Off to Medium in stock asusd.
+    level = level or 2
+    if args.action == "preset":
+      mode = next(key for key, name in MODES.items() if name == args.mode)
+      prop, signature, value = "LedMode", "u", mode
+    else:
+      mode = 0
+      fx = presets[mode]
+      presets[mode] = (*fx[:2], tuple(bytes.fromhex(args.rgb.lstrip("#"))), *fx[3:])
+      prop, signature, value = "LedModeData", EFFECT, presets[mode]
+  try:
+    aura.set(prop, signature, value)
+  except GLib.Error as err:
+    raise ValueError(f"{prop} write failed: {err.message}. Check lighting status before retrying.") from err
+  expected = mode, level, presets, power
+  require(aura.read() == expected, "The owner did not report the requested settings or kernel brightness.")
+  require(persistence(expected) == ("verified", optional),
+          "The owner accepted the request but its saved configuration could not be verified. Check status.")
+  print(f"Saved {MODES[mode]} at {LEVELS[level]} brightness.")
+
+
+if __name__ == "__main__":
+  try:
+    main()
+  except (GLib.Error, OSError, KeyError, TypeError, ValueError, ET.ParseError) as error:
+    sys.exit(f"Omarchy lighting: {error}")

@@ -172,6 +172,20 @@ A second guest followed the ordinary installer’s encrypted path. The account p
 
 #### Checking the ring lighting interface
 
+On a stock RC71L with an already-running ASUS lighting owner, run `omarchy games lighting` to see the kernel brightness, the daemon’s cached preset and its cached Static colour. The persistence line reports whether those settings and the other built-in presets match the saved Aura configuration. The stock interface addresses both rings together.
+
+| Command | What it changes |
+|---|---|
+| `omarchy games lighting brightness off` | Turns the rings off. Choose `low`, `medium` or `high` to light them again with the same preset and colour. |
+| `omarchy games lighting colour 135793` | Selects Static and changes its primary colour to the six-digit RGB value. |
+| `omarchy games lighting preset breathe` | Selects a saved preset. Choices are `static`, `breathe`, `rainbow-cycle`, `rainbow-wave` and `pulse`. |
+
+Selecting a colour or preset from Off raises brightness to Medium. Each write requires verified persistence before the change and checks both the live state and the saved file afterwards. A mismatch means the disk and live settings differ. Unavailable means the command could not verify the saved configuration. Status still reports the live readings in both cases.
+
+The stock daemon exposes the built-in presets and power flags over D-Bus. A populated or active multizone configuration is read-only here. If you edit the optional multizone field on disk, have the owner load the file before using a setter. asusd exposes no live getter for that field.
+
+After a failed save, check status and resolve any independent edits before trying again. If you choose the disk copy, arrange for the ASUS owner to load it and confirm that the kernel brightness agrees with it. During an attended test, record the starting status and appearance of each ring. Coordinate with any other lighting clients before changing or restoring settings. Optical colour and behaviour through suspend still need observation.
+
 The Deckify driver represents each of the four lighting zones as a single packed `0xRRGGBB` intensity. The read-only check below works on an attended trial boot. Capture the values before changing modes. If the class is absent, record that result and continue the paddle test.
 
 ```bash

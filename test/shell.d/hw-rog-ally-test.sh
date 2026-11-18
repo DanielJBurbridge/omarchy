@@ -90,6 +90,33 @@ OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/missing-vendor" \
   "$ROOT/bin/omarchy-hw-rog-ally" && fail "missing DMI is not the original Ally"
 pass "missing DMI is not the original Ally"
 
+# An installed but dormant asusd must stay dormant even on an explicit colour request.
+write_dmi "$vendor" "ROG Ally RC71L" "RC71L"
+services="$test_tmp/data/dbus-1/services"
+mkdir -p "$services"
+cat >"$services/xyz.ljones.Asusd.service" <<EOF
+[D-BUS Service]
+Name=xyz.ljones.Asusd
+Exec=/usr/bin/touch $test_tmp/activated
+EOF
+if message=$(XDG_DATA_HOME="$test_tmp/data" OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  PATH="$ROOT/bin:$PATH" dbus-run-session -- bash -c '
+    export DBUS_SYSTEM_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS
+    omarchy games lighting colour 135793
+  ' 2>&1); then
+  fail "lighting accepted a colour without an ASUS owner"
+fi
+[[ ! -e $test_tmp/activated ]] || fail "lighting activated the dormant ASUS owner"
+[[ $message == *"asusd is not running"* || $message == *"Alternate joystick-ring driver active"* ]] ||
+  fail "lighting did not explain the unavailable stock owner" "$message"
+pass "a ring colour request leaves a dormant ASUS owner alone"
+
+OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" PATH="$ROOT/bin:$PATH" \
+  python3 "$ROOT/test/helpers/ally-lighting.py" "$ROOT" "$test_tmp"
+pass "ring writes require matching live and saved settings across RON field orders"
+
 # --- asusctl is the laptop package, and the Ally leaf only speaks on RC71L ---
 
 stub="$test_tmp/bin"
