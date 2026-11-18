@@ -47,7 +47,8 @@ keyboard_panels_closed() {
 open_and_capture_panel() {
   local name="$1" plugin="$2"
   local namespace=omarchy-keyboard-panel
-  if [[ $plugin == "omarchy.network" ]] && omarchy-hw-rog-ally; then
+  if [[ $plugin == "omarchy.network" ]] && omarchy-hw-rog-ally &&
+    hyprctl -j monitors | jq -e 'any(.[]; .focused and (.name | test("^eDP-[0-9]+$")))' >/dev/null; then
     namespace=omarchy-network-panel
   fi
 

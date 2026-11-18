@@ -55,20 +55,21 @@ done
 open_ms() { # panel-id namespace -> ms on stdout, fails when it never maps
   local id="$1" namespace="$2" start end
   start=$EPOCHREALTIME
-  scratch_ipc_quiet "$id" open >/dev/null 2>&1 || true
+  scratch_ipc_quiet shell summon "$id" >/dev/null 2>&1 || true
   wait_scratch_layer "$namespace" mapped || return 1
   end=$EPOCHREALTIME
   echo $(( (${end/[.,]/} - ${start/[.,]/}) / 1000 ))
 }
 
 close_panel() {
-  scratch_ipc_quiet "$1" close >/dev/null 2>&1 || true
+  scratch_ipc_quiet shell hide "$1" >/dev/null 2>&1 || true
   wait_scratch_layer "$2" absent || return 1
 }
 
 for panel in "${panels[@]}"; do
   namespace=omarchy-keyboard-panel
-  if [[ $panel == "omarchy.network" ]] && "$ROOT/bin/omarchy-hw-rog-ally"; then
+  if [[ $panel == "omarchy.network" ]] && "$ROOT/bin/omarchy-hw-rog-ally" &&
+    hyprctl -j monitors | jq -e 'any(.[]; .focused and (.name | test("^eDP-[0-9]+$")))' >/dev/null; then
     namespace=omarchy-network-panel
   fi
   first=$(open_ms "$panel" "$namespace") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel first open maps its surface"; }
