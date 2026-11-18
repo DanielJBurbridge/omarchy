@@ -16,11 +16,15 @@ gaming_save() {
   printf '%s\n' "$2" > "$temporary" && mv -f "$temporary" "$gaming_state/$1"
 }
 
-gaming_runtime_init() {
+gaming_runtime_path() {
   [[ -n ${XDG_RUNTIME_DIR:-} && -d $XDG_RUNTIME_DIR && -O $XDG_RUNTIME_DIR ]] || return 1
   local session=${OMARCHY_HANDHELD_SESSION:-${XDG_SESSION_ID:-}}
   [[ $session =~ ^[[:alnum:]_-]+$ ]] || return 1
   gaming_runtime=$XDG_RUNTIME_DIR/omarchy-gaming-$session
+}
+
+gaming_runtime_init() {
+  gaming_runtime_path || return 1
   umask 077
   mkdir -p "$gaming_runtime"
   [[ -d $gaming_runtime && ! -L $gaming_runtime && -O $gaming_runtime ]]

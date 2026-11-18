@@ -240,7 +240,17 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         assert not (state(directory) / 'next').exists(), (name, actions)
         print('PASS entry guard', name)
 
-    directory, env = case('missing-before-logout', MISSING='gamescope', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')
+    directory, env = case('ordinary-desktop', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')
+    active = directory / 'runtime/omarchy-gaming-c71'
+    active.mkdir()
+    (active / 'active').write_text('desktop\n')
+    run(env, repo / 'bin/omarchy-launch-gaming-session', status=1)
+    assert not (directory / 'actions').read_text()
+    assert not (active / 'switch').exists()
+    print('PASS ordinary Hyprland login never stops its keyboard or logs out for Gaming')
+
+    directory, env = case('missing-before-logout', MISSING='gamescope', WAYLAND_DISPLAY='fixture',
+                          HYPRLAND_INSTANCE_SIGNATURE='fixture', OMARCHY_HANDHELD_SESSION='c71')
     active = directory / 'runtime/omarchy-gaming-c71'
     active.mkdir()
     (active / 'active').write_text('desktop\n')
@@ -250,7 +260,8 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     print('PASS absent Gamescope never stops keyboard or logs out')
 
     def launch_from_desktop(name, **updates):
-        directory, env = case(name, WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture', **updates)
+        directory, env = case(name, WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture',
+                              OMARCHY_HANDHELD_SESSION='c71', **updates)
         active = directory / 'runtime/omarchy-gaming-c71'
         active.mkdir()
         (active / 'active').write_text('desktop\n')
@@ -265,7 +276,8 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert stuck_keyboard.index('keyboard:stop:') < stuck_keyboard.index('system:logout'), stuck_keyboard
     print('PASS a failing keyboard stop still requests the switch')
 
-    directory, env = case('failed-logout-job', MODE='logout-fail', WAYLAND_DISPLAY='fixture', HYPRLAND_INSTANCE_SIGNATURE='fixture')
+    directory, env = case('failed-logout-job', MODE='logout-fail', WAYLAND_DISPLAY='fixture',
+                          HYPRLAND_INSTANCE_SIGNATURE='fixture', OMARCHY_HANDHELD_SESSION='c71')
     active = directory / 'runtime/omarchy-gaming-c71'
     active.mkdir()
     (active / 'active').write_text('desktop\n')

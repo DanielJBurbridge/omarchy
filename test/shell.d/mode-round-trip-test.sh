@@ -1,6 +1,5 @@
 #!/bin/bash
-# Switch to Gaming is a System menu row and Super+Ctrl+G, both gated on the
-# RC71L and the gaming session package, and both run the launch command.
+# Switch to Gaming is a System menu row and Super+Ctrl+G in a managed Ally desktop.
 
 set -euo pipefail
 
@@ -16,7 +15,6 @@ assert(row, 'System has a Switch to Gaming row')
 assertEqual(row.parent, 'system', 'Switch to Gaming is under System')
 assertEqual(row.label, 'Switch to Gaming', 'Switch to Gaming uses the spec label')
 assertEqual(row.action, 'omarchy-launch-gaming-session', 'Switch to Gaming runs the gaming launcher')
-assertEqual(row.when, 'omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session', 'Switch to Gaming is hidden off the Ally gaming session')
 assertDeepEqual(row.aliases, [], 'Switch to Gaming adds no aliases')
 
 const catalog = JSON.parse(fs.readFileSync(path.join(root, 'default/i18n/en/menu.json'), 'utf8'))
@@ -36,7 +34,9 @@ process.stdout.write(row.when)
 
 test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
-mkdir -p "$test_dir/bin"
+runtime=$test_dir/runtime
+active=$runtime/omarchy-gaming-test/active
+mkdir -p "$test_dir/bin" "${active%/*}"
 cat >"$test_dir/bin/pacman" <<'SH'
 #!/bin/bash
 [[ ${1:-} == -Q && ${2:-} == -- && ${3:-} == omarchy-gaming-session && ${PKG:-absent} == present ]]
@@ -49,15 +49,22 @@ run_when() {
   printf '%s\n' "$product" >"$test_dir/product"
   printf '%s\n' "$board" >"$test_dir/board"
   PATH="$test_dir/bin:$ROOT/bin:$PATH" PKG=$pkg \
+    XDG_RUNTIME_DIR=$runtime XDG_SESSION_ID=test OMARCHY_HANDHELD_SESSION=${TEST_MANAGED_SESSION-test} \
     OMARCHY_DMI_SYS_VENDOR_PATH="$test_dir/vendor" \
     OMARCHY_DMI_PRODUCT_NAME_PATH="$test_dir/product" \
     OMARCHY_DMI_BOARD_NAME_PATH="$test_dir/board" \
     bash -c "$when"
 }
 
-run_when 'ROG Ally RC71L' RC71L present &&
-  pass "the menu row is shown on an RC71L with the gaming session" ||
-  fail "the menu row is shown on an RC71L with the gaming session"
+if run_when 'ROG Ally RC71L' RC71L present; then
+  fail "the menu row is hidden until the supervisor marks Desktop active"
+fi
+printf '%s\n' desktop >"$active"
+run_when 'ROG Ally RC71L' RC71L present || fail "the menu row is shown on a managed RC71L desktop"
+if TEST_MANAGED_SESSION='' run_when 'ROG Ally RC71L' RC71L present; then
+  fail "the menu row is hidden in the ordinary Hyprland session on a supported Ally"
+fi
+pass "only the managed Ally login shows the Switch to Gaming menu entry"
 run_when 'ROG Ally RC71L' RC71L absent &&
   fail "the menu row is hidden on an RC71L without the gaming session" ||
   pass "the menu row is hidden on an RC71L without the gaming session"
@@ -75,6 +82,7 @@ bind_for() {
   printf '%s\n' "$product" >"$test_dir/product"
   printf '%s\n' "$board" >"$test_dir/board"
   PATH="$test_dir/bin:$ROOT/bin:$PATH" PKG=$pkg \
+    XDG_RUNTIME_DIR=$runtime XDG_SESSION_ID=test OMARCHY_HANDHELD_SESSION=${TEST_MANAGED_SESSION-test} \
     OMARCHY_PATH="$ROOT" \
     OMARCHY_DMI_SYS_VENDOR_PATH="$test_dir/vendor" \
     OMARCHY_DMI_PRODUCT_NAME_PATH="$test_dir/product" \
@@ -102,7 +110,9 @@ LUA
 }
 
 [[ $(bind_for 'ROG Ally RC71L' RC71L present) == 'exec_cmd:omarchy-launch-gaming-session' ]] ||
-  fail "Super+Ctrl+G runs omarchy-launch-gaming-session on an RC71L with the package"
+  fail "Super+Ctrl+G runs the gaming launcher in a managed RC71L desktop"
+[[ -z $(TEST_MANAGED_SESSION='' bind_for 'ROG Ally RC71L' RC71L present) ]] ||
+  fail "Super+Ctrl+G is absent in the ordinary Hyprland session on a supported Ally"
 [[ -z $(bind_for 'ROG Ally RC71L' RC71L absent) ]] ||
   fail "Super+Ctrl+G is absent without the gaming session package"
 [[ -z $(bind_for 'XPS 13' 0A1B present 'Dell Inc.') ]] ||
@@ -110,6 +120,14 @@ LUA
 [[ -z $(bind_for 'ROG Ally X RC72LA' RC72LA present) ]] ||
   fail "Super+Ctrl+G is absent on Ally X"
 pass "Super+Ctrl+G follows the Ally gaming-session gate and launches gaming"
+
+printf '%s\n' gaming >"$active"
+if run_when 'ROG Ally RC71L' RC71L present; then
+  fail "the menu row is hidden when the managed supervisor is outside Desktop"
+fi
+[[ -z $(bind_for 'ROG Ally RC71L' RC71L present) ]] ||
+  fail "Super+Ctrl+G is absent when the managed supervisor is outside Desktop"
+pass "both routes require a managed desktop that can switch"
 
 [[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally RC71L' RC71L present) == 'exec_cmd:omarchy-system-power-button:false' ]] ||
   fail "Hyprland does not dispatch the RC71L power button while locked"

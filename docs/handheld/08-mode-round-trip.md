@@ -6,7 +6,7 @@ The optional `omarchy-gaming-session` package provides a managed Steam and Hyprl
 
 Save desktop work and exit the desktop Steam client. Tap **Armoury Crate** to open the Omarchy menu, then use the right stick and RT to choose **System → Switch to Gaming**. With a keyboard, press **Super + Ctrl + G**.
 
-The RC71L hardware check and gaming package gate both the menu row and the shortcut. The launcher checks for a managed Desktop session, Steam and Gamescope before submitting the switch. A running desktop Steam client leaves the desktop open. A transient user job records the requested mode and asks UWSM to log out. The supervisor starts Gaming after the desktop exits.
+The menu row and shortcut are available in the managed RC71L desktop with the gaming package installed. The ordinary Hyprland login still provides the regular desktop and Steam launcher. The gaming launcher checks for a managed Desktop session, Steam and Gamescope before submitting the switch. A running desktop Steam client leaves the desktop open. A transient user job records the requested mode and asks UWSM to log out. The supervisor starts Gaming after the desktop exits.
 
 ## Gaming to Desktop
 
@@ -21,7 +21,7 @@ Steam can be usable even when its initial readiness probe times out. As long as 
 
 ## Acceptance
 
-1. On a managed RC71L with the companion installed, open Gaming from the desktop with the built-in controls. Confirm the right stick moves the pointer and RT selects the menu entry before the switch. On another model, or without the companion, the menu entry and shortcut should be absent.
+1. On a managed RC71L with the companion installed, open Gaming from the desktop with the built-in controls. Confirm the right stick moves the pointer and RT selects the menu entry before the switch. Confirm the menu entry and shortcut are absent in an ordinary Hyprland login, on another model, and without the companion.
 2. Leave desktop Steam running and try the same action. The desktop should stay open. Exit Steam, repeat, and confirm the Steam library becomes interactive.
 3. Exercise both return policies. For a passwordless return, use the pointer and RT on the desktop. For a required sign-in, enter the password at SDDM by touch, then try the pointer and RT. Confirm that an ordinary later login follows the configured policy.
 4. For a post-game return, record the selection, Steam exit, Gamescope scope stop, first visible desktop or greeter, and first working input. Record the power source and whether the game had resumed from sleep.
