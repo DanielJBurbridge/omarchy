@@ -9,9 +9,9 @@ Research: [touch-desktop-and-stick-mouse.md](research/touch-desktop-and-stick-mo
 | # | Decision |
 |---|---|
 | D1 | The button and stick map is spec 01's desktop map. This spec does not replace it. Right stick pointer at 900 px/s, left stick notched scroll, RT left click, LT right click, CC long toggles wvkbd, AC tap opens the Omarchy menu. No system action is hold-only (spec 01 D5). |
-| D2 | Docked is the ordinary Hyprland desktop: the machine's saved per-monitor scale, no edge gestures, no OSK auto-show. An external display that spec 02 counts as docked turns the touch profile off. |
-| D3 | The touch profile turns on when a touchscreen is present and `omarchy-hw-physical-keyboard` fails, or when the user opts in. The Ally N-KEY `0b05:1abe`, InputPlumber's virtual keyboard and the bridge uinput keyboard do not count as a physical keyboard (spec 09). The gate is the touchscreen, not `omarchy-hw-rog-ally` (L54). |
-| D4 | One keyboard on the desktop: wvkbd, via `omarchy-toggle-desktop-keyboard`. Menu search and the network passphrase auto-show it, and only while the session is unlocked. The lock, polkit and the greeter never do. Other clients keep the manual toggle until a show path exists that leaves fcitx5 in the input-method slot (spec 07 D2). |
+| D2 | The Ally’s built-in eDP display gets the handheld menu, bar and Command Centre. An independent external display uses the ordinary desktop layout and its saved scale. The edge gesture requires the built-in display to be the sole enabled output. |
+| D3 | The original RC71L hardware match and the output that owns each surface determine where the handheld controls appear. A connected USB keyboard remains usable alongside them. Other touchscreen computers use their ordinary desktop controls. |
+| D4 | The desktop uses wvkbd through `omarchy-toggle-desktop-keyboard`. The optional menu-search setting opens it on a deliberate tap or click. Wi-Fi and ordinary clients support manual entry. SDDM and the secure lock own their password input. |
 | D5 | Touch is direct. The stick moves the seat pointer. A finger tap lands on the finger. Steam's Desktop Layout stays unset while `desktop` or `osk` is the loaded profile. |
 | D6 | The panel stays landscape. No rotation daemon. |
 | D7 | Gestures, the OSK and the touch profile are optional. With all three failed, AC tap, the right stick and RT/LT still work once `desktop` is loaded. The default bar's `omarchy.menu` button opens the menu by finger, and the handheld pin does not remove it. |
@@ -21,23 +21,23 @@ Research: [touch-desktop-and-stick-mouse.md](research/touch-desktop-and-stick-mo
 | | Undocked, no keyboard | Docked |
 |---|---|---|
 | Session | Hyprland after Switch to Desktop, a gamescope miss, or Stay on the undock prompt (spec 02, spec 08) | Hyprland. Spec 02 applies the saved external layout |
-| Touch profile | On (D3) | Off. Today's desktop |
-| Scale | Internal panel 1.5 (spec 06 Normal), unless the user already chose Larger or Largest | Each monitor keeps its saved scale |
-| Sticks | `desktop` profile, spec 01 | Same profile while this is an RC71L desktop. The touch profile is the piece that turns off |
-| OSK | Auto-show on shell fields. Manual toggle everywhere | Manual toggle only, and only if the user opens it |
+| Handheld controls | The built-in display uses the handheld layout | The built-in display keeps its handheld controls. External displays use the ordinary layout |
+| Scale | The desktop honours the saved scale. Section 5 proposes additional accessibility presets | Each display honours its saved scale |
+| Sticks | `desktop` profile, spec 01 | The managed Ally desktop keeps the same controller profile |
+| OSK | Bar, controller or optional bottom handle. Menu search can show it on tap | The output-aware renderer can open on eDP while the external editor retains focus. Stock wvkbd needs the sole built-in display |
 | Gestures | Section 4 | None |
 
-A USB keyboard on an undocked Ally turns the touch profile off (D3) and leaves the stick map loaded. Pulling that keyboard out turns the profile on again. The session does not change.
+The gesture becomes available again when the built-in display is the sole active output. A hub supplying power or USB input can be connected during this transition.
 
 ## 2. Entry and exit
 
 | # | Flow | What happens |
 |---|---|---|
 | F1 | Gaming to desktop | Steam Power → Switch to Desktop (spec 08). The greeter stays down. The session loads `desktop` before the first frame the person uses. ProfileName reads `Omarchy Ally desktop`. |
-| F2 | Gamescope miss | `desktop()` in `omarchy-session-start`. Same profile load as F1. The touch profile comes on because the panel is the only display and no physical keyboard is attached. |
+| F2 | Gamescope miss | The recovery desktop starts Hyprland. The separate recovery profile provides pointer and keyboard controls (spec 08). |
 | F3 | Back to gaming | AC tap, or the bar menu, then Switch to Gaming (spec 02 D4, spec 08). The launcher already stops wvkbd. Gestures stop with the Hyprland session. |
-| F4 | Dock while here | Spec 02. Touch profile off. External scale unchanged. `desktop` stays loaded. |
-| F5 | Undock, Stay | Spec 02's Stay. Keyboard gone and no external display: touch profile on. The session stays Hyprland. |
+| F4 | Dock while here | The external display uses the ordinary desktop. The bottom gesture yields, the active desktop session keeps its controller profile, and each output retains its saved scale. |
+| F5 | Undock, Stay | The user stays in Hyprland. An opted-in bottom handle returns when the built-in display is the only active output. |
 
 With the optional gaming-session package and its profile service running, the managed login requests `desktop` before starting Hyprland, including after Switch to Desktop. It requests `pointer` again on desktop exit after a successful desktop profile request. A missing service or a refused request still allows Hyprland to start. The failure-limit recovery desktop has its own OSK profile. The automated test covers request ordering. On the physical RC71L the right stick moved the pointer and RT left-clicked after both an ordinary return and a touchscreen password sign-in.
 
@@ -52,11 +52,12 @@ Manual toggle, all of them the same command:
 | Menu row | Same command. This is the route that is not a firmware long press (spec 01 D5) |
 | `Super+Ctrl+Y` | A docked keyboard. Undocked, CC long is the chord |
 
-Auto-show and hide, touch profile on, unlocked session only. This revises spec 07 D2 and Δ-K2: the gate is D3, not only `omarchy-hw-rog-ally`, and the fields are the named ones below, not every shell field and not menu search alone. `Super+Ctrl+Y` stays the Ally bind. The helper watches the session lock and gates itself. This spec does not edit `shell/plugins/lock` or `LockView.qml`. K07 stays AUTH. wvkbd is not the unlock path (spec 07 K-R2, L44).
+The unlocked desktop can show a keyboard for the fields below. The [keyboard guide](../rog-ally-touch-keyboard.md) describes how the menu returns a keyboard it opened and how a user keeps manual control. The greeter and secure lock provide separate input paths.
 
 | Field | Show | Hide |
 |---|---|---|
-| Menu search (`omarchy.menu`) and the network passphrase (`shell/plugins/panels/network/Panel.qml`) | On focus, and only while the session is unlocked. The shell owns these surfaces and does not need the input-method slot | On blur. Also when the session locks |
+| Menu search | A tap or click in search opens the keyboard when `menu.onScreenKeyboard` is enabled | Menu cleanup hides a keyboard the menu still owns |
+| Network passphrase | Show the keyboard manually and tap the masked field on the built-in display | Use the bar button to dismiss a manually opened keyboard |
 | Lock password (`shell/plugins/lock/LockView.qml`), `omarchy.polkit` (`PolkitAgent.qml`), the greeter | Never | Showing the lock hides wvkbd (`omarchy-toggle-desktop-keyboard hide`), called from the keyboard helper. Unlock does not show it again |
 | GTK, Qt, Chromium, a game | Manual toggle until L89. `wvkbd --auto` and squeekboard both ask for the one input-method slot, and fcitx5 holds it (spec 07 D2). fcitx5 stays | A keyboard opened by hand stays until the toggle, and hides when the session locks |
 
@@ -211,7 +212,7 @@ Read on this tip. "Shipped" means the file or the command is in the tree. It doe
 | Notifications | `shell/plugins/notifications` | Dismiss and actions grow to 44 px. To build |
 | Monitor scale | `monitors.lua` `scale = "auto"` | 1.5 on the internal panel under D3. To build (L43 for the other branch's helper) |
 | Gestures | The keyboard handle is the first trial. The other gestures are proposals for hyprgrass | Check the handle in a focused text field and ordinary app scrolling immediately beside it. Repeat in fullscreen, while locked and after docking |
-| Shell-field auto-show | Spec 07 names it. No show-on-focus in the shell fields | To build |
+| Shell-field keyboard | The menu supports opt-in activation on a search click. Wi-Fi accepts the manually opened keyboard | Check both on the physical unit |
 | Other-client auto-show | Blocked by fcitx5 | L89 |
 | Gamescope touch passthrough | `omarchy-session-start` mode 4 | Keep |
 | Rotation daemon | None | Stays none |
