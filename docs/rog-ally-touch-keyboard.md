@@ -45,6 +45,10 @@ The handle reserves eight logical pixels along the bottom of the desktop. Touche
 
 The shell enables the handle only on an opted-in RC71L with a single internal display. At release the keyboard helper checks for the sole built-in Novatek touchscreen, an unlocked Hyprland session, a focused app and the expected desktop layers. A second touchscreen, another display, Gamescope, an authentication prompt or an unreadable desktop state suppresses the summon. Hyprland’s configurable swipes are trackpad gestures. Using a Quickshell layer gives this touchscreen control a bounded input area and leaves the compositor’s gesture bindings and device permissions alone. [Hyprland gestures](https://wiki.hypr.land/configuring/core/binds/gestures/)
 
+## Wi-Fi passphrase entry
+
+Open the Network panel, choose the network and tap **Keyboard** in the bar. The masked field keeps focus. Enter submits the passphrase and Esc cancels. A manually opened keyboard stays available for another attempt. In the desktop candidate, the same sequence works with the keyboard already open. Both orders were checked with a dummy network in disposable Hyprland. At 2× the keyboard covers the lower edge of the card, but the masked text, Enter and Esc are visible. Physical Wi-Fi entry remains to be checked.
+
 ## Optional keyboard on menu search
 
 Add `"menu": { "onScreenKeyboard": true }` to your `shell.json` to show the keyboard when you deliberately tap or click Omarchy menu search. A keyboard opened this way hides when search loses focus or the menu closes. The bar, app and keyboard shortcuts still provide manual control. This setting defaults to off.

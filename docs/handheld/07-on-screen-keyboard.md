@@ -106,6 +106,8 @@ Hyprland does not release a closed virtual keyboard's keys unless told to. `inpu
 
 The compositor supplies a wake-up and a snapshot suitable for rechecking keyboard state. A future handshake also needs to reconcile helper identity publication if the first map arrives before the process record, and observe lock and seat changes independently. Before enabling profile loads on show or hide, InputPlumber needs to release remapped held controls on their original targets and preserve pointer motion when the stick mapping stays the same. The focus and kernel-input checks ran in separate environments; focus during a safe profile transition remains unverified.
 
+A private InputPlumber candidate (`c7da10d3b` on v0.84.0) released the original right mouse button and Backspace exactly once when switching profiles in either direction. The kernel reported both keys up. An unchanged held trigger remained down until release, and the pointer kept moving across the load. An xpad guest also passed with the analogue-scroll patch applied. These checks cover direct mouse and keyboard outputs on retained targets. Chords and analogue rearming still need review. The installed daemon remains stock and the desktop continues to use its ordinary profile when wvkbd opens.
+
 ### 3.4 Auto-show feasibility
 
 | Option | Feasible now? | Why |
