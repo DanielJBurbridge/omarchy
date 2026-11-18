@@ -179,6 +179,7 @@ def main():
             assert tool, f'Required system tool missing: {name}'
             (root / name).symlink_to(tool)
         repo = Path(__file__).resolve().parents[2]
+        (root / 'omarchy-hw-rog-ally').symlink_to(repo / 'bin/omarchy-hw-rog-ally')
         (root / 'omarchy-cmd-present').symlink_to(repo / 'bin/omarchy-cmd-present')
         (root / 'omarchy-i18n').symlink_to(repo / 'bin/omarchy-i18n')
         (root / 'omarchy-theme-color').symlink_to(repo / 'bin/omarchy-theme-color')
@@ -213,6 +214,9 @@ esac
         env = os.environ | {'PATH': str(root), 'NOTIFY_LOG': str(notify),
                             'HOME': str(root / 'home'),
                             'OMARCHY_PATH': str(repo),
+                            'OMARCHY_DMI_SYS_VENDOR_PATH': str(root / 'generic-vendor'),
+                            'OMARCHY_DMI_BOARD_NAME_PATH': str(root / 'generic-board'),
+                            'OMARCHY_DMI_PRODUCT_NAME_PATH': str(root / 'generic-product'),
                             'XDG_RUNTIME_DIR': str(root), 'WAYLAND_DISPLAY': 'wayland-test',
                             'HYPRLAND_INSTANCE_SIGNATURE': 'hyprland-test',
                             'XDG_CURRENT_DESKTOP': 'Hyprland',
@@ -321,7 +325,6 @@ esac
 
             # Only the compositor can distinguish a sole internal touch device
             # from two devices routed to the same Wayland seat.
-            (root / 'omarchy-hw-rog-ally').symlink_to(repo / 'bin/omarchy-hw-rog-ally')
             (root / 'vendor').write_text('ASUSTeK COMPUTER INC.')
             (root / 'board').write_text('RC71L')
             monitor = dict(name='eDP-1', transform=0, focused=True, dpmsStatus=True, solitaryBlockedBy=['WINDOWED'])
