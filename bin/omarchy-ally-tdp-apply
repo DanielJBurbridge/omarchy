@@ -396,7 +396,6 @@ acquire_lock() {
   fi
 }
 
-source=$(power_source)
 owner=""
 if owner=$(conflict_owner); then
   writable=0
@@ -406,6 +405,7 @@ else
 fi
 
 if [[ $verb == show ]]; then
+  source=$(power_source)
   spl=$(read_int "$armoury/ppt_pl1_spl/current_value") || exit 1
   sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value") || exit 1
   fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value") || exit 1
@@ -433,6 +433,8 @@ if [[ $verb == set ]] && ! canonical_watts "$watts"; then
 fi
 
 acquire_lock
+# Power can change while another request holds the lock.
+source=$(power_source)
 ensure_snapshot "$source" || {
   log "cannot snapshot firmware limits"
   exit 1

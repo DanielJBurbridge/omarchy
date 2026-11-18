@@ -272,6 +272,20 @@ grep -q 'timed out' "$work/err" || fail "a lock timeout is not logged" "$(cat "$
 pass "a busy lock logs, exits non-zero, and writes nothing"
 
 reset_state
+ac_table
+cat >"$work/bin/flock" <<'EOF'
+#!/bin/bash
+printf '0\n' > "$TEST_AC_ONLINE"
+exec /usr/bin/flock "$@"
+EOF
+chmod +x "$work/bin/flock"
+TEST_AC_ONLINE="$work/supply/ADP1/online" run_apply --set 30 >"$work/out"
+rm "$work/bin/flock"
+grep -q '^source=battery$' "$work/out" || fail "TDP uses the power source after acquiring the lock" "$(cat "$work/out")"
+[[ $(tuple) == 20/20/25 ]] || fail "an unplug while waiting for the lock applies battery caps" "$(tuple)"
+pass "an unplug while waiting for the lock applies battery caps"
+
+reset_state
 battery_table
 if HW=laptop run_apply --set 15 >/dev/null 2>"$work/err"; then
   fail "a laptop can set TDP"
