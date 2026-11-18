@@ -113,7 +113,7 @@ Item {
   onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null; windowChoices = null }
 
   readonly property bool canShowSearchKeyboard: root.shell?.shellConfig?.menu?.onScreenKeyboard === true
-    && root.opened && root.mode === "menu" && !root.deleteConfirmOpen && filterInput.activeFocus
+    && root.opened && (root.mode === "menu" || root.windowChoices !== null) && !root.deleteConfirmOpen && filterInput.activeFocus
     && filterInput.Window.active && panel.contentRevealed
   property bool searchKeyboardRequested: false
   property string pendingSearchKeyboardAction: ""
