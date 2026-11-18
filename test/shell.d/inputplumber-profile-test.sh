@@ -128,7 +128,7 @@ def cp(code, stdout="", stderr=""):
 profiles = root / "default/inputplumber/profiles"
 gamepads = {"ds5", "ds5-edge", "deck", "deck-uhid", "xbox-elite"}
 shipped = {
-  "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer", ["xbox-elite", "mouse", "keyboard"]),
+  "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer v2", ["xbox-elite", "mouse", "keyboard"]),
   "desktop.yaml": ("Omarchy Ally desktop v2", ["xbox-elite", "mouse", "keyboard"]),
   "osk.yaml": ("Omarchy Ally osk v2", ["xbox-elite", "mouse", "keyboard"]),
   "gaming.yaml": ("Omarchy Ally gaming", ["ds5-edge", "mouse", "keyboard"]),
@@ -300,7 +300,10 @@ prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{xbox}"')
 
 bus.reset()
 prop(c1, "ProfileName", 's "Omarchy Ally pointer"')
-check(mod.load("pointer") == 0 and bus.methods() == [], "pointer skips when the name matches and a target is live")
+check(mod.load("pointer") == 0 and bus.methods() == ["LoadProfileFromYaml"], "pointer replaces the cached profile with inert stick axes")
+prop(c1, "ProfileName", 's "Omarchy Ally pointer v2"')
+bus.reset()
+check(mod.load("pointer") == 0 and bus.methods() == [], "the corrected pointer stays loaded on a repeated request")
 bus.reset()
 prop(c1, "TargetDevices", "as 0")
 check(mod.load("pointer") == 0 and bus.methods() == ["LoadProfileFromYaml"], "pointer reloads when no target is live")

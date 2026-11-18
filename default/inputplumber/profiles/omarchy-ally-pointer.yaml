@@ -4,7 +4,7 @@
 # not that device config.
 version: 1
 kind: DeviceProfile
-name: Omarchy Ally pointer
+name: Omarchy Ally pointer v2
 description: Left stick moves the pointer and the south button clicks. Loaded before the greeter.
 # xbox-elite stays in the target list. A mouse-only list is what hid the built-in pad from Steam.
 target_devices:
