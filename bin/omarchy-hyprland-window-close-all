@@ -1,7 +1,20 @@
 #!/bin/bash
 
 # omarchy:summary=Close all open windows
-# omarchy:args=[--wait]
+# omarchy:args=[--wait|--confirm]
+
+if [[ ${1:-} == "--confirm" ]]; then
+  [[ -n ${XDG_RUNTIME_DIR:-} ]] || exit 0
+  # The menu only tracks one selection request. Ignore another press while
+  # this prompt is open, and release the lock if the shell loses the request.
+  exec {confirm_lock}>"$XDG_RUNTIME_DIR/omarchy-close-all-confirm.lock" || exit 0
+  flock -n "$confirm_lock" || exit 0
+  no=$(omarchy-i18n common.no)
+  yes=$(omarchy-i18n common.yes)
+  [[ -n $no && -n $yes && $no != "$yes" ]] || exit 0
+  selection=$(timeout 60s omarchy-menu-select "$(omarchy-i18n window.closeAllConfirm)" "$no" "$yes") || exit 0
+  [[ $selection == "$yes" ]] || exit 0
+fi
 
 clients=$(hyprctl clients -j) || exit 1
 

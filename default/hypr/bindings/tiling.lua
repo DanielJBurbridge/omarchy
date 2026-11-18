@@ -1,6 +1,14 @@
 o.bind("SUPER + W", "Close window", hl.dsp.window.close())
 o.bind("SUPER + Q", "Close window", hl.dsp.window.close())
-o.bind("CTRL + ALT + DELETE", "Close all windows", "omarchy-hyprland-window-close-all")
+
+-- The RC71L's Command Centre button can emit this chord in firmware.
+local paths = require("default.hypr.paths")
+local ally = o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-ally")
+local close_all = "omarchy-hyprland-window-close-all"
+if o.shell_succeeds(ally) then
+  close_all = close_all .. " --confirm"
+end
+o.bind("CTRL + ALT + DELETE", "Close all windows", close_all)
 
 o.bind("SUPER + J", "Toggle window split", hl.dsp.layout("togglesplit"))
 o.bind("SUPER + P", "Pseudo window", hl.dsp.window.pseudo())
