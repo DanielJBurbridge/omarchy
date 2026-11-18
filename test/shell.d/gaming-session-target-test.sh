@@ -192,3 +192,9 @@ if grep -Eq 'omarchy-gaming-session.target|^profile:' "$HANDHELD_LOG"; then
 fi
 grep -q '^uwsm:' "$HANDHELD_LOG" || fail "a non-handheld session still starts the desktop" "$(cat "$HANDHELD_LOG")"
 pass "the gaming session target stays on the handheld path"
+
+if ! dbus-run-session -- python3 "$here/../handheld/input-profile-watch-test.py" \
+  "$ROOT/default/gaming/input-profile-watch.py" > "$work/profile-watch.log" 2>&1; then
+  fail "managed desktop profiles recover when InputPlumber and the Ally composite reappear" "$(cat "$work/profile-watch.log")"
+fi
+pass "managed desktop profiles recover when InputPlumber and the Ally composite reappear"

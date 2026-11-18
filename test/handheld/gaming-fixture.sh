@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Working-tree gaming scripts for the handheld review tests.
 # Sourced by those tests; not a test itself. Power rollback still reads one
 # release-tip script; that checkout is not part of this branch.
@@ -20,6 +21,23 @@ handheld_gaming_tree() {
   cp "$ROOT/default/gaming/steam-ready.sh" "$tree/default/gaming/steam-ready.sh"
   cp "$ROOT/default/gaming/steam-path.sh" "$tree/default/gaming/steam-path.sh"
   cp "$ROOT/default/gaming/bin/steamos-session-select" "$tree/default/gaming/bin/steamos-session-select"
+  cat > "$tree/default/gaming/input-profile-watch.py" <<'PY'
+import subprocess
+import sys
+
+def load(name):
+  return subprocess.run([
+    "busctl", "--timeout=3s", "--auto-start=no", "call",
+    "org.omarchy.InputPlumberProfile", "/org/omarchy/InputPlumberProfile",
+    "org.omarchy.InputPlumberProfile", "Load", "s", name,
+  ], check=False).returncode
+
+status = load(sys.argv[1])
+print("ready", flush=True)
+sys.stdin.read()
+if status == 0:
+  load("pointer")
+PY
   mkdir -p "$tree/default/systemd/user/omarchy-rog-ally-input.service.d" \
     "$tree/default/systemd/user/omarchy-ally-tdp-shim.service.d"
   cp "$ROOT/default/systemd/user/omarchy-gaming-session.target" \
@@ -91,6 +109,10 @@ EOF
 if [[ $* == *steam* ]]; then
   exec /usr/bin/pgrep "$@"
 fi
+exit 1
+EOF
+  cat > "$HANDHELD_STUB/busctl" <<'EOF'
+#!/bin/bash
 exit 1
 EOF
   cat > "$HANDHELD_STUB/systemctl" <<'EOF'

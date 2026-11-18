@@ -6,6 +6,8 @@
 set -uo pipefail
 # Set when an explicit Switch to Desktop wrote next=desktop for this process.
 gaming_desktop_next=0
+desktop_input_pid=''
+desktop_input_fd=''
 # This is a pre-UWSM login boundary; use the canonical environment bootstrap.
 # shellcheck source=/dev/null
 source /usr/share/omarchy/default/bash/env-bootstrap
@@ -82,9 +84,30 @@ start_hyprland() {
   return "$status"
 }
 
-load_handheld_input_profile() {
-  busctl --timeout=3s --auto-start=no call org.omarchy.InputPlumberProfile \
-    /org/omarchy/InputPlumberProfile org.omarchy.InputPlumberProfile Load s "$1"
+start_desktop_input() {
+  # Keep the observer in the original login, where the broker can check
+  # Polkit's active/local session. Do not hand profile requests to UWSM.
+  coproc DESKTOP_INPUT {
+    exec python3 "$OMARCHY_PATH/default/gaming/input-profile-watch.py" "$1" 9>&-
+  }
+  desktop_input_pid=$!
+  desktop_input_fd=${DESKTOP_INPUT[1]:-}
+  # The observer subscribes before making its first bounded profile request.
+  # If it is unavailable, Hyprland can still start.
+  if [[ -n ${DESKTOP_INPUT[0]:-} ]]; then
+    read -r -t 4 -u "${DESKTOP_INPUT[0]}" _ || true
+  fi
+}
+
+stop_desktop_input() {
+  [[ -n $desktop_input_pid ]] || return 0
+  if [[ -n $desktop_input_fd ]]; then
+    exec {desktop_input_fd}>&-
+  fi
+  # Let the observer finish restoring the greeter before the next session.
+  wait "$desktop_input_pid" || true
+  desktop_input_pid=''
+  desktop_input_fd=''
 }
 
 # This supervisor cannot secure the new compositor before it starts. An
@@ -95,21 +118,15 @@ desktop() {
     echo 'Desktop lock is required. Sign in to Hyprland from the greeter.' >> "$gaming_state/session.log"
     return 10
   fi
-  local status=0 restore_pointer=0 profile=desktop
+  local status=0 profile=desktop
   if (( ${gaming_fallback:-0} )); then
     profile=osk
   fi
-  # Polkit checks the actual local login. Request the profile here, before
-  # UWSM starts the desktop in the user manager.
-  if gaming_handheld_variant &&
-    systemctl is-active --quiet omarchy-inputplumber-profile.service &&
-    load_handheld_input_profile "$profile"; then
-    restore_pointer=1
+  if gaming_handheld_variant; then
+    start_desktop_input "$profile"
   fi
   start_hyprland || status=$?
-  if (( restore_pointer )); then
-    load_handheld_input_profile pointer || true
-  fi
+  stop_desktop_input
   return "$status"
 }
 
@@ -310,6 +327,7 @@ stop_gaming() {
   fi
 }
 cleanup() {
+  stop_desktop_input
   stop_gaming
   rm -f "$gaming_runtime/active" "$gaming_runtime/switch"
   # A session that exits without Steam becoming ready is a failed gaming
