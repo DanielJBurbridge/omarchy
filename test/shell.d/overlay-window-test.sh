@@ -52,23 +52,15 @@ reveal(content, revealQt)
 reveals.shift()()
 assert(!content.contentRevealed, 'a close or screen loss cancels a pending reveal')
 
-const focusedScreenBody = /function focusedScreen\(\) \{([\s\S]*?)\n  \}/.exec(overlay)[1]
-const focusedScreen = new Function('Hyprland', 'Quickshell', focusedScreenBody)
-const external = { name: 'DP-1', width: 1920, height: 1080 }
-assertEqual(focusedScreen({ focusedMonitor: { name: 'DP-1' } }, { screens: [screen, external] }), external,
-  'overlay selects the focused output')
-assertEqual(focusedScreen({ focusedMonitor: { name: 'DP-1' } }, { screens: [screen] }), screen,
-  'disconnecting the focused output falls back to a connected screen')
-assertEqual(focusedScreen({ focusedMonitor: null }, { screens: [] }), null,
-  'no outputs leaves the overlay unmapped')
-
 const shownHandler = /onShownChanged: \{([\s\S]*?)\n  \}/.exec(overlay)[1]
 let refreshed = 0
 const Hyprland = { refreshMonitors() { refreshed++ } }
-const changeShown = new Function('shown', 'focusedScreen', 'Hyprland', `let targetScreen = null; ${shownHandler}; return targetScreen`)
-assertEqual(changeShown(false, () => external, Hyprland), null, 'closing drops the previous screen reference')
+const changeShown = new Function('window', 'Hyprland', `with (window) { ${shownHandler} }`)
+const window = { shown: false, resourcesAvailable: true, remapping: false }
+changeShown(window, Hyprland)
 assertEqual(refreshed, 0, 'closing does not refresh monitor data')
-assertEqual(changeShown(true, () => screen, Hyprland), screen, 'reopening selects a current screen')
+window.shown = true
+changeShown(window, Hyprland)
 assertEqual(refreshed, 1, 'opening refreshes monitor scales after a live change while closed')
 const scaleHandler = /onDevicePixelRatioChanged: ([^\n]+)/.exec(overlay)[1]
 const changeScale = new Function('shown', 'Hyprland', scaleHandler)
@@ -83,36 +75,34 @@ assertEqual(refreshed, 2, 'a showing window refreshes monitor scales when Qt rec
 assert(ready(true, true, 960, 600, changedScreen, monitor, 2),
   'fresh monitor data lets content reveal at the new scale')
 
-const screensChangedBody = /function onScreensChanged\(\) \{([\s\S]*?)\n    \}/.exec(overlay)[1]
-const screensChanged = new Function('window', 'Quickshell', 'Qt', screensChangedBody)
+const closedBody = /onClosed: \{([\s\S]*?)\n  \}/.exec(overlay)[1]
+const compositorClosed = new Function('window', 'Qt', `with (window) { ${closedBody} }`)
+const visibleExpression = /  visible: ([^\n]+)/.exec(overlay)[1]
+const visible = new Function('window', 'Quickshell', `with (window) { return ${visibleExpression} }`)
 const pending = []
 const Qt = { callLater(callback) { pending.push(callback) } }
-const window = { shown: true, targetScreen: external, focusedScreen: () => screen }
-screensChanged(window, { screens: [screen] }, Qt)
-assertEqual(window.targetScreen, null, 'screen removal unmaps before Qt finishes destroying the old window')
+const Quickshell = { screens: [screen] }
+assert(visible(window, Quickshell), 'an open overlay maps while the display server configures its output')
+compositorClosed(window, Qt)
+assert(!visible(window, Quickshell), 'an output disconnect waits for Qt to finish destroying the old window')
 pending.shift()()
-assertEqual(window.targetScreen, screen, 'a showing overlay moves off a disconnected screen')
-window.targetScreen = screen
-window.focusedScreen = () => external
-screensChanged(window, { screens: [screen, external] }, Qt)
-assertEqual(window.targetScreen, screen, 'connecting another screen does not move a showing overlay')
-window.shown = false
-window.targetScreen = null
-screensChanged(window, { screens: [screen, external] }, Qt)
-assertEqual(window.targetScreen, null, 'screen changes leave a closed overlay unmapped')
-window.shown = true
-window.targetScreen = external
-screensChanged(window, { screens: [screen] }, Qt)
+assert(visible(window, Quickshell), 'an open overlay remaps after the disconnected window is gone')
+Quickshell.screens = []
+assert(!visible(window, Quickshell), 'no outputs leave the overlay unmapped')
+Quickshell.screens = [screen]
+compositorClosed(window, Qt)
 window.shown = false
 pending.shift()()
-assertEqual(window.targetScreen, null, 'closing before a deferred remap prevents a stale reopen')
+assert(!visible(window, Quickshell), 'closing before a deferred remap prevents a stale reopen')
 window.shown = true
-window.targetScreen = external
-screensChanged(window, { screens: [screen] }, Qt)
-window.targetScreen = screen
-window.focusedScreen = () => external
-pending.shift()()
-assertEqual(window.targetScreen, screen, 'a deferred remap preserves the screen chosen by a newer open')
+const lostBody = /onResourcesLost: ([^\n]+)/.exec(overlay)[1]
+const loseResources = new Function('window', `with (window) { ${lostBody} }`)
+loseResources(window)
+compositorClosed(window, Qt)
+assert(!visible(window, Quickshell) && pending.length === 0,
+  'losing graphics resources does not automatically retry window creation')
+changeShown(window, Hyprland)
+assert(visible(window, Quickshell), 'a new open retries after graphics resources were lost')
 
 // Moving an open menu to another output drops the old output's layout.
 const menuQml = read('shell/plugins/menu/Menu.qml')

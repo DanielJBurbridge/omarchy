@@ -15,7 +15,11 @@ PanelWindow {
   property int shownLayer: WlrLayer.Overlay
   property int shownKeyboardFocus: WlrKeyboardFocus.Exclusive
 
-  property var targetScreen: null
+  // The compositor picks the output when the surface is created. Read back
+  // the window's screen once mapped for the geometry and scale checks.
+  readonly property var targetScreen: backingWindowVisible ? screen : null
+  property bool remapping: false
+  property bool resourcesAvailable: true
   readonly property var targetMonitor: {
     var monitors = Hyprland.monitors.values
     for (var i = 0; i < monitors.length; i++) {
@@ -41,39 +45,28 @@ PanelWindow {
     })
   }
 
-  function focusedScreen() {
-    var monitor = Hyprland.focusedMonitor
-    var name = monitor ? String(monitor.name || "") : ""
-    for (var i = 0; i < Quickshell.screens.length; i++) {
-      if (Quickshell.screens[i].name === name) return Quickshell.screens[i]
-    }
-    return Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
-  }
-
   // Live monitor scaling does not emit a Hyprland monitor event, so its cached
   // scale can lag behind Qt. Refresh on opening and on scale changes while open.
   onShownChanged: {
-    targetScreen = shown ? focusedScreen() : null
-    if (shown) Hyprland.refreshMonitors()
+    if (shown) {
+      resourcesAvailable = true
+      Hyprland.refreshMonitors()
+    }
   }
   onDevicePixelRatioChanged: if (shown) Hyprland.refreshMonitors()
 
-  Connections {
-    target: Quickshell
-    function onScreensChanged() {
-      if (window.shown && Quickshell.screens.indexOf(window.targetScreen) < 0) {
-        window.targetScreen = null
-        // Let the removed output finish closing its old window before mapping
-        // a replacement, rather than recreating it during Qt's teardown.
-        Qt.callLater(function() {
-          if (window.shown && !window.targetScreen) window.targetScreen = window.focusedScreen()
-        })
-      }
+  onResourcesLost: resourcesAvailable = false
+  onClosed: {
+    if (shown && resourcesAvailable) {
+      // Hyprland closes the surface when its output disconnects. Let Qt
+      // finish tearing it down before opening on the remaining output.
+      remapping = true
+      Qt.callLater(function() { window.remapping = false })
     }
   }
 
-  visible: shown && !!targetScreen && !!targetMonitor
-  screen: targetScreen
+  visible: shown && !remapping && resourcesAvailable && Quickshell.screens.length > 0
+  screen: null
   anchors { top: true; left: true; bottom: true; right: true }
   color: "transparent"
   exclusionMode: ExclusionMode.Ignore
