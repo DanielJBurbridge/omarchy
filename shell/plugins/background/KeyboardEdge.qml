@@ -59,26 +59,43 @@ PanelWindow {
 
   Connections {
     target: edge.screen
-    function onGeometryChanged() { touch.tracking = false }
-    function onOrientationChanged() { touch.tracking = false }
+    function onGeometryChanged() { touch.cancel() }
+    function onOrientationChanged() { touch.cancel() }
   }
-  onDevicePixelRatioChanged: touch.tracking = false
+  onDevicePixelRatioChanged: touch.cancel()
+  onClientChanged: touch.cancel()
 
   // A half-turn can leave Qt's screen geometry and orientation unchanged.
   // Read Hyprland's transform on contact and compare it with the release probe.
   Process {
     id: monitorAtPress
+    property int transform: -1
     command: ["hyprctl", "-j", "monitors"]
     stdout: StdioCollector { id: monitors; waitForEnd: true }
+    onExited: code => {
+      const expected = touch.pendingTapTransform
+      touch.pendingTapTransform = -1
+      if (code !== 0) return
+      try {
+        const start = JSON.parse(monitors.text)
+        if (start.length !== 1 || start[0].name !== edge.screen.name || !Number.isInteger(start[0].transform)) return
+        transform = start[0].transform
+        if (expected >= 0) {
+          if (expected === transform && edge.available) touch.show(transform)
+          else Hyprland.refreshMonitors()
+        }
+      } catch (_) { /* An unreadable output at contact cannot open the keyboard. */ }
+    }
   }
 
   Rectangle {
+    id: handle
     visible: edge.available
     anchors.centerIn: parent
     width: 128
     height: 6
     radius: height / 2
-    color: Commons.Color.foreground
+    color: touch.tracking && touch.tapCandidate ? Commons.Color.accent : Commons.Color.foreground
     border.color: Commons.Color.background
   }
 
@@ -91,30 +108,59 @@ PanelWindow {
     readonly property int maximumDrift: 36
     property int contacts: 0
     property bool tracking: false
-    onEnabledChanged: if (!enabled) { tracking = false; contacts = 0 }
+    property bool tapCandidate: false
+    property double pressTime: 0
+
+    property int cachedTransform: -1
+    property int pendingTapTransform: -1
+
+    function cancel() {
+      tracking = false
+      pendingTapTransform = -1
+    }
+
+    function show(transform) {
+      Quickshell.execDetached(["omarchy-toggle-desktop-keyboard", "show-for-edge", String(transform)])
+    }
+
+    function withinTapDistance(p) {
+      return Math.hypot(p.x - p.startX, p.y - p.startY) <= Application.styleHints.startDragDistance
+    }
+    onEnabledChanged: if (!enabled) { cancel(); contacts = 0 }
 
     onPressed: points => {
+      cancel()
       contacts += points.length
       tracking = contacts === 1 && !monitorAtPress.running
-      if (tracking) monitorAtPress.running = true
+      if (tracking) {
+        const p = points[0]
+        // Pad the visible pill for a fingertip; the wider strip is swipe-only.
+        tapCandidate = Math.abs(p.x - width / 2) <= handle.width / 2 + 12
+        pressTime = Date.now()
+        cachedTransform = Hyprland.monitorFor(edge.screen)?.lastIpcObject?.transform ?? -1
+        monitorAtPress.transform = -1
+        monitorAtPress.running = true
+      }
     }
     onUpdated: points => {
       for (const p of points) {
+        if (!withinTapDistance(p)) tapCandidate = false
         if (Math.abs(p.x - p.startX) > maximumDrift || p.y > p.startY + 8) tracking = false
       }
     }
     onReleased: points => {
       const p = points[0]
-      if (tracking && !monitorAtPress.running && p.startY - p.y >= 48 && Math.abs(p.x - p.startX) <= maximumDrift) {
-        try {
-          const start = JSON.parse(monitors.text)
-          if (start.length === 1 && start[0].name === edge.screen.name && Number.isInteger(start[0].transform))
-            Quickshell.execDetached(["omarchy-toggle-desktop-keyboard", "show-for-edge", String(start[0].transform)])
-        } catch (_) { /* An unreadable output at contact cannot start a swipe. */ }
+      const tapped = tapCandidate && withinTapDistance(p) && Date.now() - pressTime < Application.styleHints.mousePressAndHoldInterval
+      const swiped = p.startY - p.y >= 48 && Math.abs(p.x - p.startX) <= maximumDrift
+      if (tracking && (tapped || swiped)) {
+        if (monitorAtPress.transform >= 0) show(monitorAtPress.transform)
+        // A quick tap can lift before the press query returns. Only complete it
+        // when that query also agrees with the monitor state cached at contact.
+        else if (tapped && monitorAtPress.running) pendingTapTransform = cachedTransform
       }
       tracking = false
       contacts = Math.max(0, contacts - points.length)
     }
-    onCanceled: { tracking = false; contacts = 0 }
+    onCanceled: { cancel(); contacts = 0 }
   }
 }

@@ -37,11 +37,11 @@ Gaming Mode uses Steam's keyboard: `Guide + X` (West), or Steam's text-field UI.
 
 Sign-in and unlock use their own keyboards. On the physical Ally, Daniel opened the desktop keyboard, then the Omarchy menu, and typed into its search field with both touch and RT. In disposable Hyprland, opening menu search first and tapping its field also showed a working keyboard with the option enabled. The Apps grid still needs a typing and selection check.
 
-## Optional bottom-edge swipe
+## Optional bottom-edge keyboard handle
 
-Set `"desktopKeyboard": { "edgeSwipe": true }` in `~/.config/omarchy/shell.json`. With an app text field focused, swipe one finger up from the small handle at the bottom centre of the built-in screen, then lift. The gesture opens the themed keyboard under manual control. Tap **Keyboard** in the bar to hide it. Removing the setting or setting it to `false` also removes the handle and its reserved space.
+Set `"desktopKeyboard": { "edgeSwipe": true }` in `~/.config/omarchy/shell.json`. With an app text field focused, tap the handle at the bottom centre of the built-in screen. It changes colour under your finger and opens the themed keyboard when you lift. You can also swipe up from the strip around the handle and lift. Tap **Keyboard** in the bar to hide it. Removing the setting or setting it to `false` also removes the handle and its reserved space.
 
-The handle reserves 36 logical pixels along the bottom of the desktop. Start anywhere within the middle 480 pixels, or the middle half on a narrower screen. Swipe up at least 48 pixels. The gesture allows up to 36 pixels of sideways drift. All distances are logical pixels. A mouse drag leaves the keyboard alone. The handle sits below application windows. A floating or fullscreen window covering it keeps the input. A bottom bar takes precedence. The normal bar button and controller shortcut are available when the handle is covered.
+The handle reserves 36 logical pixels along the bottom of the desktop. The tap target extends 12 pixels past each end of the visible handle and fills the strip vertically. For a swipe, start anywhere within the middle 480 pixels, or the middle half on a narrower screen. Swipe up at least 48 pixels. The gesture allows up to 36 pixels of sideways drift. All distances are logical pixels. A mouse drag leaves the keyboard alone. The handle sits below application windows. A floating or fullscreen window covering it keeps the input. A bottom bar takes precedence. The normal bar button and controller shortcut are available when the handle is covered.
 
 The handle disappears while the keyboard, menu, a panel or a volume indicator is showing, and on an empty workspace. The reserved space stays in place so tiled windows keep their size. After rotating the display, start a fresh swipe.
 

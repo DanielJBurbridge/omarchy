@@ -18,7 +18,7 @@ No automatic startup, input-device permissions or system service is needed.
 Tap Desktop Keyboard in the bar or open it from Apps. On a configured RC71L,
 Super+Ctrl+Y also toggles it. Enable menu.onScreenKeyboard in shell.json to
 summon it when you click or tap menu search. On RC71L, desktopKeyboard.edgeSwipe
-lets you swipe up from the handle at the bottom centre of the desktop.
+lets you tap the bottom-centre handle or swipe upwards from its surrounding strip.
 The bottom-left symbol changes layouts. Full has Ctrl/Esc/arrows. Special has
 Alt, Sup (Super) and AltGr. Abc returns to letters.
 Cmp plus a letter opens accents; Cmp plus Space opens the layout index.
