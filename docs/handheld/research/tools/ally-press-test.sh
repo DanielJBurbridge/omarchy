@@ -7,6 +7,21 @@
 # Stops inputplumber.service for the capture when it is active, and starts it again on the way out.
 # Remove afterwards: rm -r ~/ally-press-test.sh ~/ally-press-test ; sudo pacman -Rns evtest
 set -u
+case "$#" in
+  0) paddles_only=false ;;
+  1)
+    case "$1" in
+      --paddles-only) paddles_only=true ;;
+      --help|-h) echo "Usage: bash ally-press-test.sh [--paddles-only]"; exit 0 ;;
+      *) echo "Usage: bash ally-press-test.sh [--paddles-only]" >&2; exit 2 ;;
+    esac
+    ;;
+  *) echo "Usage: bash ally-press-test.sh [--paddles-only]" >&2; exit 2 ;;
+esac
+if $paddles_only && ! command -v evtest >/dev/null; then
+  echo "Paddle capture requires evtest to be installed." >&2
+  exit 1
+fi
 OUT=~/ally-press-test/$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 LOG=~/omarchy-handheld-deploy.log
 SECS=${SECS:-5}
@@ -52,32 +67,41 @@ fi
 # Resolve devices by name (event numbers change between boots)
 dev() { awk -v pat="$1" -v want="$2" 'BEGIN{RS=""} $0 ~ pat && (want=="" || $0 ~ want) { if (match($0,/event[0-9]+/)) print "/dev/input/" substr($0,RSTART,RLENGTH) }' /proc/bus/input/devices; }
 PAD=$(dev 'X-Box 360 pad' '' | head -1)
-WMI=$(dev 'Asus WMI hotkeys' '' | head -1)
 NKEY=$(dev 'N-KEY Device' '' )   # all three N-KEY interfaces
-VOL=$(dev 'AT Translated Set 2 keyboard' '' | head -1)   # volume rocker; event number changes
 HIDRAW=$(for h in /sys/class/hidraw/hidraw*; do grep -q '0B05:00001ABE' "$h/device/uevent" 2>/dev/null && [[ $(readlink -f "$h/device") == *:1.2/* ]] && echo /dev/$(basename "$h"); done | head -1)
+
+PADDLE_STEPS=(
+  "paddle_left|Press the LEFT back paddle (M2) twice"
+  "paddle_right|Press the RIGHT back paddle (M1) twice"
+)
+WMI=
+VOL=
+if $paddles_only; then
+  STEPS=("${PADDLE_STEPS[@]}")
+else
+  WMI=$(dev 'Asus WMI hotkeys' '' | head -1)
+  VOL=$(dev 'AT Translated Set 2 keyboard' '' | head -1)
+  STEPS=(
+    "armoury_short|Tap the Armoury Crate button (right of screen, lower) once"
+    "armoury_long|HOLD the Armoury Crate button ~2 seconds, then release"
+    "cc_short|Tap the Command Centre button (left of screen, lower) once"
+    "cc_long|HOLD the Command Centre button ~2 seconds, then release"
+    "cc_hold_0.5s|HOLD Command Centre about HALF a second, then release (count 'one-and')"
+    "cc_hold_1s|HOLD Command Centre about ONE second, then release"
+    "armoury_hold_0.5s|HOLD Armoury Crate about HALF a second, then release"
+    "armoury_hold_1s|HOLD Armoury Crate about ONE second, then release"
+    "vol_up|Press VOLUME UP twice"
+    "vol_down|Press VOLUME DOWN twice"
+    "${PADDLE_STEPS[@]}"
+    "paddle_left_plus_A|Hold the LEFT back paddle (M2), press A, release both"
+    "paddle_right_plus_A|Hold the RIGHT back paddle (M1), press A, release both"
+    "armoury_plus_A|Hold Armoury Crate, press A, release both"
+    "cc_plus_A|Hold Command Centre, press A, release both"
+    "idle|Press NOTHING (baseline / catches stray 0xa2 reports)"
+  )
+fi
 echo "pad=$PAD wmi=$WMI vol=$VOL nkey=$(echo $NKEY) hidraw=$HIDRAW" | tee "$OUT/devices.txt"
 cat /proc/bus/input/devices > "$OUT/proc-input-devices.txt"
-
-STEPS=(
- "armoury_short|Tap the Armoury Crate button (right of screen, lower) once"
- "armoury_long|HOLD the Armoury Crate button ~2 seconds, then release"
- "cc_short|Tap the Command Centre button (left of screen, lower) once"
- "cc_long|HOLD the Command Centre button ~2 seconds, then release"
- "cc_hold_0.5s|HOLD Command Centre about HALF a second, then release (count 'one-and')"
- "cc_hold_1s|HOLD Command Centre about ONE second, then release"
- "armoury_hold_0.5s|HOLD Armoury Crate about HALF a second, then release"
- "armoury_hold_1s|HOLD Armoury Crate about ONE second, then release"
- "vol_up|Press VOLUME UP twice"
- "vol_down|Press VOLUME DOWN twice"
- "paddle_left|Press the LEFT back paddle (M2) twice"
- "paddle_right|Press the RIGHT back paddle (M1) twice"
- "paddle_left_plus_A|Hold the LEFT back paddle (M2), press A, release both"
- "paddle_right_plus_A|Hold the RIGHT back paddle (M1), press A, release both"
- "armoury_plus_A|Hold Armoury Crate, press A, release both"
- "cc_plus_A|Hold Command Centre, press A, release both"
- "idle|Press NOTHING (baseline / catches stray 0xa2 reports)"
-)
 n=0; total=${#STEPS[@]}
 for s in "${STEPS[@]}"; do
   n=$((n+1)); id=${s%%|*}; msg=${s#*|}
