@@ -1,6 +1,18 @@
 -- Minimal Hyprland config for the SDDM Wayland greeter.
 -- SDDM starts the greeter itself after the compositor is ready.
 
+-- SDDM starts each view in a separate QML engine after this compositor is
+-- ready. Publish the hardware result once in the greeter user's runtime dir.
+if os.getenv("XDG_SESSION_CLASS") == "greeter" and (os.getenv("XDG_RUNTIME_DIR") or "") ~= "" then
+  os.execute([[
+    if omarchy-hw-rog-ally; then
+      touch "$XDG_RUNTIME_DIR/omarchy-greeter-rc71l"
+    else
+      rm -f "$XDG_RUNTIME_DIR/omarchy-greeter-rc71l"
+    fi
+  ]])
+end
+
 -- The layout resolution below is deliberately duplicated from
 -- default/hypr/input.lua. The greeter runs as the sddm user and starts from
 -- this file directly, so it never goes through default/hypr/bootstrap.lua --

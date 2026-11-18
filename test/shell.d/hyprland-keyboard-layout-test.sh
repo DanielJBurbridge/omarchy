@@ -133,6 +133,23 @@ caps=$(xkbcli compile-keymap --include "$ROOT/etc/xkb" --include-defaults --layo
   fail "Shift + Caps Lock composes without toggling Caps Lock" "$caps"
 pass "Shift + Caps Lock composes without toggling Caps Lock"
 
+# Run the greeter twice in the same private runtime to catch a stale hardware
+# result when a previously handheld system image is used on another machine.
+(
+  fixture=$(mktemp -d)
+  trap 'rm -rf "$fixture"' EXIT
+  export XDG_RUNTIME_DIR=$fixture XDG_SESSION_CLASS=greeter PATH="$ROOT/bin:$PATH"
+  export OMARCHY_DMI_SYS_VENDOR_PATH=$fixture/vendor OMARCHY_DMI_PRODUCT_NAME_PATH=$fixture/product OMARCHY_DMI_BOARD_NAME_PATH=$fixture/board
+  printf '%s\n' "ASUSTeK COMPUTER INC." > "$fixture/vendor"
+  printf '%s\n' "ROG Ally RC71L_RC71L" > "$fixture/product"
+  resolved_greeter_input >/dev/null
+  [[ -f $fixture/omarchy-greeter-rc71l ]] || fail "the Ally greeter identifies its built-in touch screen"
+  printf '%s\n' "ROG Strix G16" > "$fixture/product"
+  resolved_greeter_input >/dev/null
+  [[ ! -e $fixture/omarchy-greeter-rc71l ]] || fail "a laptop greeter clears stale handheld controls"
+) || exit 1
+pass "greeter scopes the handheld presentation to the RC71L"
+
 # The greeter takes no compose or capslock options: they're session comfort
 # settings with nothing to do with typing a password.
 assert_greeter_input "greeter falls back to us without vconsole.conf" "[us] [] []"

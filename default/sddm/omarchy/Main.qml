@@ -1,4 +1,5 @@
 import QtQuick
+import QtCore
 import QtQuick.Controls.Basic as Controls
 
 Rectangle {
@@ -12,6 +13,9 @@ Rectangle {
   property bool authenticating: false
   property bool keyboardRequested: false
   property bool keyboardUnavailable: false
+  readonly property bool handheldPanel: /^eDP-[0-9]+$/.test(root.Screen.name)
+    && StandardPaths.locate(StandardPaths.RuntimeLocation, "omarchy-greeter-rc71l").toString() !== ""
+  readonly property bool showTouchActions: handheldPanel || config.boolValue("ShowKeyboard")
   readonly property color foreground: "#ffffff"
   property int sessionIndex: {
     // SDDM exposes the desktop filename through FileRole, not DisplayRole.
@@ -68,16 +72,16 @@ Rectangle {
     readonly property real availableHeight: root.height - (keyboard.visible ? keyboard.height : 0)
     anchors.horizontalCenter: parent.horizontalCenter
     y: Math.max(0, (availableHeight - height) / 2)
-    spacing: keyboard.visible ? 12 : 24
+    spacing: keyboard.visible ? 12 : actions.visible ? 24 : 40
 
     Image {
       id: logo
       source: "logo.png"
       width: Math.min(sourceSize.width, root.width * 0.8)
-      height: sourceSize.width > 0 ? Math.max(0, Math.min(
-        width * sourceSize.height / sourceSize.width,
-        form.availableHeight - entryRow.height - actions.height - 2 * form.spacing - 16
-      )) : 0
+      readonly property real scaledHeight: sourceSize.width > 0 ? width * sourceSize.height / sourceSize.width : 0
+      height: actions.visible
+        ? Math.max(0, Math.min(scaledHeight, form.availableHeight - entryRow.height - actions.height - 2 * form.spacing - 16))
+        : Math.round(scaledHeight)
       fillMode: Image.PreserveAspectFit
       anchors.horizontalCenter: parent.horizontalCenter
     }
@@ -147,13 +151,17 @@ Rectangle {
           onTextEdited: root.loginFailed = false
           onAccepted: root.submit()
           Keys.onEscapePressed: root.hideKeyboard()
-          TapHandler { onTapped: root.showKeyboard() }
+          TapHandler {
+            acceptedDevices: root.showTouchActions ? PointerDevice.AllDevices : PointerDevice.TouchScreen | PointerDevice.Stylus
+            onTapped: root.showKeyboard()
+          }
         }
       }
     }
 
     Row {
       id: actions
+      visible: root.showTouchActions || keyboard.visible
       anchors.horizontalCenter: parent.horizontalCenter
       spacing: 12
 
