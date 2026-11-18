@@ -386,7 +386,7 @@ for keyboard_status in 1 0; do
     cat "$work/sddm/zz-omarchy-handheld.conf" 2>/dev/null || true
   )
   [[ $lock_status == 99 ]] && fail "the desktop-lock file is not root-owned" "$lock_detail"
-  [[ -n $lock_status && $lock_status != 0 && $lock_status != 124 ]] ||
+  [[ $lock_status == 0 ]] ||
     fail "a locked fail-limit desktop does not exit to the greeter" "$lock_detail"
   if grep -Eq '^(uwsm:|osk:|lock:|broker:|gamescope$)' "$HANDHELD_LOG"; then
     fail "a required lock must not open or try to lock a new desktop from the supervisor" "$lock_detail"
@@ -400,6 +400,16 @@ for keyboard_status in 1 0; do
     fail "pinning Relogin off restarts SDDM" "$(cat "$work/run/actions" 2>/dev/null)"
 done
 pass "a required lock returns to the greeter with or without a keyboard"
+
+reset_case
+rm -f "$work/lock-status"
+mkdir -p "$state" "$work/sddm" "$work/run"
+run_locked_session
+[[ $(cat "$work/lock-status") == 0 && -s $state/recovery && ! -e $state/next ]] ||
+  fail "a failed Gaming launch hands the locked desktop back to SDDM" "$(detail "$work/lock-err")"
+grep -qx 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" && ! grep -q '^uwsm:' "$HANDHELD_LOG" ||
+  fail "a failed Gaming launch requires sign-in before Hyprland" "$(detail "$work/lock-err")"
+pass "failed Gaming launches return to protected sign-in"
 
 handheld_late_desktop_return
 reset_case

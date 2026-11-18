@@ -186,6 +186,13 @@ gaming_start_osk() {
   printf '%s\n' 'on-screen keyboard gave up waiting for Hyprland' >> "$gaming_state/fallback.log"
 }
 
+# SDDM starts its next greeter when the session exits successfully. Only
+# signal a clean handoff after its protected sign-in policy is in place.
+prepare_desktop_signin() {
+  local dropin=/etc/sddm.conf.d/zz-omarchy-handheld.conf
+  omarchy-handheld-autologin apply && grep -Fxq 'Relogin=false' "$dropin"
+}
+
 # The recovery desktop has an on-screen keyboard. Relogin stays pinned off
 # when the root helper can act. The managed loop handles any explicit retry.
 # A required lock stays at the greeter instead of opening an unlocked session.
@@ -204,7 +211,8 @@ gaming_fail_limit_fallback() {
     else
       printf '%s\n' 'Omarchy Gaming: desktop lock is required; not starting the fail-limit desktop. Sign in to Hyprland from the greeter.' >&2
     fi
-    return 1
+    prepare_desktop_signin
+    return $?
   fi
   if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
     printf '%s\n' 'Gaming failed repeatedly; starting the Hyprland desktop with the on-screen keyboard.' >> "$gaming_state/fallback.log"
@@ -229,7 +237,8 @@ gaming_fail_limit_fallback() {
   fi
   # A desktop refused by the lock gate cannot make an explicit switch.
   if (( status == 10 )); then
-    return 1
+    prepare_desktop_signin
+    return $?
   fi
   return "$status"
 }
@@ -436,9 +445,7 @@ stop_gaming() {
 }
 
 return_to_desktop_signin() {
-  local dropin=/etc/sddm.conf.d/zz-omarchy-handheld.conf
-  if ! omarchy-handheld-autologin apply >> "$gaming_state/session.log" 2>&1 ||
-    ! grep -Fxq 'Relogin=false' "$dropin"; then
+  if ! prepare_desktop_signin >> "$gaming_state/session.log" 2>&1; then
     printf '%s\n' 'Could not prepare desktop sign-in. The required lock still prevents opening Hyprland.' >> "$gaming_state/session.log"
     return 1
   fi
@@ -696,7 +703,8 @@ while true; do
     if (( status == 10 )); then
       # The recovery latch stays. A remaining D2 retry goes back to gaming.
       if (( retries >= 1 )); then
-        exit 1
+        return_to_desktop_signin
+        exit $?
       fi
       retries=1
       selection=gaming
