@@ -77,6 +77,10 @@ fi
 if [[ $1 == is-active ]]; then
   exit 3
 fi
+if [[ $1 == is-enabled && $2 == power-profiles-daemon.service && ${PPD_MASKED:-0} == "1" ]]; then
+  printf 'masked\n'
+  exit 1
+fi
 exit 0
 EOF
 cat >"$work/bin/udevadm" <<'EOF'
@@ -102,12 +106,15 @@ cat >"$work/bin/omarchy-shell" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
-cat >"$work/bin/omarchy-powerprofiles-list" <<'EOF'
-#!/bin/bash
-printf '%s\n' performance balanced power-saver
-EOF
 cat >"$work/bin/powerprofilesctl" <<'EOF'
 #!/bin/bash
+if [[ ${PPD_MASKED:-0} == "1" ]]; then
+  printf 'masked daemon: %s\n' "$*" >>"${POWERPROFILES_LOG:?}"
+  exit 1
+fi
+if [[ $1 == list ]]; then
+  printf '  performance:\n* balanced:\n  power-saver:\n'
+fi
 if [[ $1 == set ]]; then
   printf '%s\n' "$2" >>"${POWERPROFILES_LOG:?}"
 fi
@@ -497,35 +504,47 @@ POWERPROFILES_LOG=$work/profiles
 export POWERPROFILES_LOG
 profile_env=(
   HW=ally
-  OMARCHY_ALLY_TDP_PPD_RECORD=$marker
+  PPD_MASKED=1
+  "OMARCHY_PATH=$ROOT"
+  "OMARCHY_ALLY_TDP_PPD_RECORD=$marker"
   OMARCHY_ALLY_TDP_FIXTURE=1
-  OMARCHY_ALLY_TDP_ARMOURY=$armoury
-  OMARCHY_ALLY_TDP_POWER=$work/supply
-  OMARCHY_ALLY_TDP_STATE=$state
-  OMARCHY_ALLY_TDP_RUN=$run
-  OMARCHY_ALLY_TDP_LOCK=$lock
+  "OMARCHY_ALLY_TDP_ARMOURY=$armoury"
+  "OMARCHY_ALLY_TDP_POWER=$work/supply"
+  "OMARCHY_ALLY_TDP_STATE=$state"
+  "OMARCHY_ALLY_TDP_RUN=$run"
+  "OMARCHY_ALLY_TDP_LOCK=$lock"
   OMARCHY_ALLY_TDP_BOOT_ID=boot
-  OMARCHY_POWERPROFILES_STATE_DIR=$work/profiles-state
+  "OMARCHY_POWERPROFILES_STATE_DIR=$work/profiles-state"
   PATH="$work/bin:$ROOT/bin:$PATH"
 )
 set_profile() {
   env "${profile_env[@]}" "$ROOT/bin/omarchy-powerprofiles-set" "$@"
 }
+list_profiles() {
+  env "${profile_env[@]}" "$ROOT/bin/omarchy-powerprofiles-list" --active-state
+}
 reset_state
 battery_table
+no_active_presets=$'power-saver\t0\nbalanced\t0\nperformance\t0'
+[[ $(list_profiles) == "$no_active_presets" && ! -e $lock && ! -e $run && ! -e $state/request ]] ||
+  fail "a masked profile query lists available presets without creating a request or snapshot"
 mkdir -p "$work/profiles-state"
 printf 'balanced\n' >"$work/profiles-state/battery"
+[[ -z $(OMARCHY_ALLY_TDP_CONFLICT=asusd.service list_profiles) ]] ||
+  fail "an active ASUS owner leaves no Omarchy presets available"
 if OMARCHY_ALLY_TDP_CONFLICT=asusd.service set_profile battery performance; then
   fail "a refused TDP write still reports success"
 fi
 [[ $(<"$work/profiles-state/battery") == balanced ]] || fail "a refused profile is recorded" "$(<"$work/profiles-state/battery")"
 [[ $(tuple) == 15/20/25 ]] || fail "a refused profile still writes" "$(tuple)"
 unset OMARCHY_ALLY_TDP_CONFLICT
-set_profile battery performance
+set_profile battery performance || fail "the real profile list must make presets discoverable with PPD masked"
 [[ ! -s $POWERPROFILES_LOG ]] || fail "a masked daemon still calls powerprofilesctl" "$(cat "$POWERPROFILES_LOG")"
 [[ $(tuple) == 20/20/25 ]] || fail "battery performance does not clamp to 20/20/25" "$(tuple)"
 [[ $(stored) == 30 ]] || fail "battery performance does not request the AC policy" "$(stored)"
 [[ $(<"$work/profiles-state/battery") == performance ]] || fail "battery performance is not recorded"
+[[ $(list_profiles) == $'power-saver\t0\nbalanced\t0\nperformance\t1' ]] ||
+  fail "the saved performance request stays selected at the battery cap"
 set_profile battery power-saver
 [[ $(tuple) == 7/15/15 ]] || fail "battery power-saver does not apply the live floor" "$(tuple)"
 [[ $(stored) == 7 ]] || fail "battery power-saver does not store the floor" "$(stored)"
@@ -539,7 +558,18 @@ set_profile ac performance
 [[ $(tuple) == 30/43/53 ]] || fail "AC performance does not apply 30/43/53" "$(tuple)"
 [[ $(stored) == 30 ]] || fail "AC performance does not store 30" "$(stored)"
 [[ $(<"$work/profiles-state/ac") == performance ]] || fail "AC performance is not recorded"
-pass "a masked profile switch applies the mapped TDP and records only that"
+printf '29\n' >"$armoury/ppt_pl1_spl/current_value"
+[[ $(list_profiles) == "$no_active_presets" ]] || fail "a firmware mismatch clears the preset's active state"
+run_apply --set 18 >/dev/null
+[[ $(list_profiles) == "$no_active_presets" ]] || fail "a custom TDP request leaves presets unselected"
+rm "$armoury/ppt_pl3_fppt/current_value"
+[[ -z $(list_profiles) ]] || fail "missing firmware attributes leave no Omarchy presets available"
+pass "masked profile queries and writes share the live TDP backend and report honest active state"
+
+env "${profile_env[@]}" PPD_MASKED=0 "$ROOT/bin/omarchy-powerprofiles-set" ac balanced
+[[ $(<"$POWERPROFILES_LOG") == balanced && $(stored) == 18 ]] ||
+  fail "a stale record cannot route an unmasked daemon's profiles to the TDP writer"
+pass "an unmasked Power Profiles Daemon still handles presets with an old record present"
 
 python3 -m py_compile "$ROOT/bin/omarchy-ally-tdp-shim"
 if grep -q 'current_value' "$ROOT/bin/omarchy-ally-tdp-shim"; then

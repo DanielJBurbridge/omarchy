@@ -34,6 +34,8 @@ chmod +x "$tmp_dir/bin/busctl"
 
 export PATH="$tmp_dir/bin:$ROOT/bin:$PATH"
 export POWERPROFILES_LOG="$tmp_dir/calls"
+export OMARCHY_PATH=$ROOT
+export OMARCHY_ALLY_TDP_PPD_RECORD="$tmp_dir/absent-ppd-record"
 export OMARCHY_POWERPROFILES_STATE_DIR="$tmp_dir/state"
 
 "$ROOT/bin/omarchy-powerprofiles-set" ac balanced

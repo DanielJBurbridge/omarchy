@@ -27,21 +27,22 @@ Panel {
     && Pipewire.defaultAudioSink.name !== "auto_null"
   property string brightnessDisplay: ""
   readonly property var controlRows: {
-    var rows = ["profiles"]
+    var rows = profiles.length > 0 ? ["profiles"] : []
     if (handheld && opened && displayName && brightnessDisplay === displayName) rows.push("brightness")
     if (canAdjustOutput) rows.push("volume")
     return rows
   }
-  property string cursorRow: "profiles"
+  property string cursorRow: ""
   property int stepIndex: 0
   onControlRowsChanged: {
-    if (controlRows.indexOf(cursorRow) < 0) {
-      cursorRow = "profiles"
+    if (!cursorActive || controlRows.indexOf(cursorRow) < 0) {
+      cursorRow = controlRows[0] || ""
       cursorActive = false
     }
   }
 
   function moveCursor(dx, dy) {
+    if (controlRows.length === 0) return
     if (!cursorActive) { cursorActive = true; return }
     if (dy && controlRows.length > 1) {
       cursorRow = controlRows[Model.clampIndex(controlRows.indexOf(cursorRow) + dy, controlRows.length)]
@@ -202,9 +203,6 @@ Panel {
 
   function updateProfiles(raw) {
     var parsed = Model.parseProfiles(raw, profileIndex)
-    // Same guard as battery: preserve the last known profile list across
-    // transient empty payloads so the buttons don't blink out.
-    if (parsed.profiles.length === 0) return
     profiles = parsed.profiles
     activeProfile = parsed.activeProfile
     profileIndex = parsed.profileIndex
@@ -246,7 +244,7 @@ Panel {
         return
       }
 
-      cursorRow = "profiles"
+      cursorRow = controlRows[0] || ""
       stepIndex = 0
       refresh()
       var idx = profiles.indexOf(activeProfile)
@@ -300,7 +298,10 @@ Panel {
   Process {
     id: profilesProc
     command: ["omarchy-powerprofiles-list", "--active-state"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateProfiles(text) }
+    stdout: StdioCollector { id: profileOutput; waitForEnd: true }
+    // A failed PPD read can be transient. A successful empty read says no
+    // presets are available and clears any previously displayed buttons.
+    onExited: function(code) { if (code === 0) root.updateProfiles(profileOutput.text) }
   }
 
   Process {
@@ -546,10 +547,12 @@ Panel {
 
         // ---------- Power profile picker ----------
         PanelSeparator {
+          visible: root.controlRows.length > 0
           foreground: root.bar.foreground
         }
 
         Column {
+          visible: root.profiles.length > 0
           width: parent.width
           spacing: Style.space(10)
 
@@ -599,7 +602,7 @@ Panel {
         }
 
         Repeater {
-          model: root.controlRows.slice(1)
+          model: root.controlRows.filter(function(row) { return row !== "profiles" })
           Row {
             id: controlRow
             required property string modelData
