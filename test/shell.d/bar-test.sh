@@ -514,32 +514,38 @@ assertEqual(
   'bar builds default custom module paths'
 )
 
-const dropped = { version: 1, bar: { layout: { right: [{ id: 'daniel.media' }] } } }
-const droppedBefore = JSON.stringify(dropped)
-const pinned = bar.pinHandheldTouch(dropped)
-assert(JSON.stringify(dropped) === droppedBefore, 'pinning does not change the config it was given')
-for (const id of ['omarchy.bluetooth', 'omarchy.network', 'omarchy.desktop-keyboard'])
-  assert(pinned.bar.layout.right.some((entry) => entry.id === id), `a dropped handheld bar still has ${id}`)
-const disabled = { version: 1, disabledPlugins: ['omarchy.network'], bar: { layout: { right: [] } } }
-const pinnedDisabled = bar.pinHandheldTouch(disabled)
-assert(!pinnedDisabled.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'an explicitly disabled network widget stays off the handheld bar')
-const userText = '{\n  "version": 1,\n  "bar": {\n    "layout": {\n      "right": [\n        {\n          "id": "daniel.media"\n        }\n      ]\n    }\n  }\n}\n'
-const userFile = path.join(fs.mkdtempSync(path.join('/tmp', 'omarchy-shell-pin-')), 'shell.json')
-fs.writeFileSync(userFile, userText)
-const userBytes = fs.readFileSync(userFile)
-const stored = JSON.parse(userBytes.toString())
-const live = bar.pinHandheldTouch(stored)
-const forDisk = bar.shellConfigForDisk(live, stored)
-assert(JSON.stringify(forDisk) === JSON.stringify(stored), 'a pinned bar writes back as the stored config')
-assert(fs.readFileSync(userFile).equals(userBytes), 'pinning leaves ~/.config/omarchy/shell.json byte-identical')
-const edited = bar.pinHandheldTouch(stored)
-edited.bar.position = 'bottom'
-const saved = bar.shellConfigForDisk(edited, stored)
-assert(saved.bar.position === 'bottom', 'a real bar edit is still saved')
-assert(!saved.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'a real bar edit does not store the runtime pin')
-const kept = { version: 1, bar: { layout: { right: [{ id: 'omarchy.network' }] } } }
-const keptDisk = bar.shellConfigForDisk(bar.pinHandheldTouch(kept), kept)
-assert(keptDisk.bar.layout.right.some((entry) => entry.id === 'omarchy.network'), 'a network widget the user already has is kept')
+const saved = {
+  bar: {
+    layout: {
+      left: ['omarchy.audio', 'omarchy.desktop-keyboard', 'omarchy.power'],
+      right: [{ id: 'omarchy.network', label: 'My Wi-Fi' }]
+    }
+  }
+}
+const savedBefore = JSON.stringify(saved)
+const stockWidgets = bar.layoutWidgets(saved.bar.layout, {})
+const internalWidgets = bar.handheldOutputWidgets(stockWidgets, true)
+const externalWidgets = bar.handheldOutputWidgets(stockWidgets, false)
+const ids = (widgets, region) => widgets.sections[region].map(key => bar.entryId(widgets.entries[key]))
+assertDeepEqual(ids(internalWidgets, 'left'), ['omarchy.audio', 'omarchy.desktop-keyboard', 'omarchy.power'], 'a saved keyboard stays in its section on the internal display')
+assertDeepEqual(ids(internalWidgets, 'right'), ['omarchy.bluetooth', 'omarchy.network'], 'only the missing widget is pinned on the internal display')
+assertDeepEqual(ids(externalWidgets, 'left'), ['omarchy.audio', 'omarchy.power'], 'a saved keyboard has no slot on the external display')
+assertDeepEqual(ids(externalWidgets, 'right'), ['omarchy.network'], 'external monitors keep intentional Wi-Fi placement without the Bluetooth pin')
+assertEqual(externalWidgets.entries[externalWidgets.sections.right[0]].label, 'My Wi-Fi', 'saved Wi-Fi keeps its settings')
+assert(!externalWidgets.keys.some(key => bar.entryId(externalWidgets.entries[key]) === 'omarchy.desktop-keyboard'), 'the external widget pool does not create a keyboard')
+assertEqual(JSON.stringify(saved), savedBefore, 'constructing output models leaves saved configuration alone')
+
+const emptyWidgets = bar.layoutWidgets({ right: ['omarchy.power'] }, {})
+const autoPins = bar.handheldOutputWidgets(emptyWidgets, true)
+assertDeepEqual(ids(autoPins, 'right'), ['omarchy.desktop-keyboard', 'omarchy.network', 'omarchy.bluetooth', 'omarchy.power'], 'when missing, the internal bar gains the touch pins in their usual order')
+assertDeepEqual(ids(bar.handheldOutputWidgets(emptyWidgets, false), 'right'), ['omarchy.power'], 'none of the automatic pins reaches the external bar')
+const disabledWidgets = bar.handheldOutputWidgets(emptyWidgets, true, ['omarchy.network'])
+assertDeepEqual(ids(disabledWidgets, 'right'), ['omarchy.desktop-keyboard', 'omarchy.bluetooth', 'omarchy.power'], 'explicitly disabled touch pins stay out')
+assertEqual(bar.savedDropIndex(emptyWidgets.sections.right, autoPins.sections.right, 1), 0, 'drops before runtime-only pins land before the first saved key')
+assertEqual(bar.savedDropIndex(stockWidgets.sections.left, externalWidgets.sections.left, 1), 2, 'an external drop beside a saved panel skips the hidden keyboard')
+assertEqual(bar.savedDropIndex(stockWidgets.sections.left, externalWidgets.sections.left, 2), -1, 'an external drop after the last panel lands at the end of the saved section')
+assertEqual(bar.pickPanelSlot([{ slot: drawn, screenName: 'eDP-1', opened: false }], 'HDMI-A-1', true), null, 'an internal-only panel cannot open when the external monitor is focused')
+assertEqual(bar.pickPanelSlot([{ slot: drawn, screenName: 'eDP-1', opened: true }], 'HDMI-A-1', true), drawn, 'an already open internal panel can still be closed')
 assert(bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally RC71L_RC71L', 'other'), 'the Ally product prefix is the handheld')
 assert(!bar.isRogAllyDmi('ASUSTeK COMPUTER INC.', 'ROG Ally X RC72LA', 'RC72LA'), 'the Ally X is not this handheld')
 JS

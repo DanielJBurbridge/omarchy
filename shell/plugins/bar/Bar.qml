@@ -71,7 +71,6 @@ Item {
   // by this name through their bar API.
   property bool centerSectionRevealHeld: false
   property bool centerHoverRevealSuppressed: false
-  property int barConfigSerial: 0
   property string position: "top"
   // Resolves through fontconfig at paint time (Style.font.family defaults
   // to "monospace"), so changing the system font (via `omarchy-font-set`)
@@ -171,6 +170,8 @@ Item {
   // The keys each section showed as the drag started (layoutWidgets). They
   // hold while no widget moves about.
   property string barDragKeys: ""
+  property string barDragOutputKeys: ""
+  readonly property var barDragWidgets: widgetsForScreen(barDragScreen)
   // The spacers a drag has put in the sections, where a released widget can
   // land (DragSpacer).
   property var dragSpacers: []
@@ -442,6 +443,7 @@ Item {
   // (BarModel.layoutWidgets), so that alone leaves the drag be. Later, since
   // the change is still reaching the sections' models.
   onLayoutWidgetsChanged: if (barDragSource && JSON.stringify(layoutWidgets.sections) !== barDragKeys) Qt.callLater(clearBarDrag)
+  onBarDragWidgetsChanged: if (barDragSource && JSON.stringify(barDragWidgets.sections) !== barDragOutputKeys) Qt.callLater(clearBarDrag)
   onWidgetHostsChanged: Qt.callLater(prunePluginBarApis)
 
   Component.onDestruction: {
@@ -594,6 +596,7 @@ Item {
     barDragRoom = null
     barDragExtent = 0
     barDragKeys = ""
+    barDragOutputKeys = ""
     barDragRemoveArmed = false
     barDragRegrab.stop()
     barSettle = null
@@ -811,7 +814,6 @@ Item {
     // moves and whatever its settings, so a config write builds just the
     // widgets it adds (layoutWidgets).
     layoutConfig = normalizeLayout(config.layout)
-    barConfigSerial++
   }
 
   // Every widget on the bar, each under a key it keeps wherever it moves
@@ -821,31 +823,33 @@ Item {
   property var widgetMemo: ({})
   readonly property var layoutWidgets: BarModel.layoutWidgets(layoutConfig, widgetMemo)
 
-  onBarConfigChanged: applyBarConfig()
+  readonly property bool handheldAlly: root.shell?.handheldAlly === true
+  readonly property var handheldWidgets: handheldAlly
+    ? BarModel.handheldOutputWidgets(layoutWidgets, true, root.shell.shellConfig?.disabledPlugins) : layoutWidgets
+  readonly property var externalWidgets: handheldAlly
+    ? BarModel.handheldOutputWidgets(layoutWidgets, false) : layoutWidgets
 
-  function layoutEntries(region) {
-    var serial = barConfigSerial
-    var entries = layoutConfig ? layoutConfig[region] : null
-    return Array.isArray(entries) ? entries : []
+  function widgetsForScreen(screen) {
+    return handheldAlly && root.shell.isHandheldScreen(screen) ? handheldWidgets : externalWidgets
   }
 
-  // Tab order for the panels in one bar region, with the three center
-  // sections taken as one. Scoped to a single bar surface so tabbing walks the
-  // bar the open panel belongs to instead of hopping the panel to another
-  // monitor's copy of the same widget.
-  function panelNavigationSlots(region, window) {
+  onBarConfigChanged: applyBarConfig()
+
+  // Tab and positional hotkeys walk the same output's drawn widgets in layout
+  // order. The three center sections count as one.
+  function panelNavigationSlots(region, screen) {
     var regions = BarModel.navigationRegions(region)
+    var output = widgetsForScreen(screen)
     var slots = []
     for (var r = 0; r < regions.length; r++) {
-      var entries = layoutEntries(regions[r])
-      for (var i = 0; i < entries.length; i++) {
-        var id = entryId(entries[i])
+      var keys = output.sections[regions[r]] || []
+      for (var i = 0; i < keys.length; i++) {
         for (var j = 0; j < moduleSlots.length; j++) {
           var slot = moduleSlots[j]
-          if (!slot || slot.region !== regions[r] || slot.moduleName !== id) continue
-          if (window && !sameWindow(slotWindow(slot), window)) continue
+          if (!slot || slot.region !== regions[r] || slot.widgetKey !== keys[i]) continue
+          if (!sameScreen(slot.window?.screen, screen)) continue
           var item = slot.activeItem
-          if (!item || item.visible !== true || slot.visible !== true || slot.width <= 0 || slot.height <= 0) continue
+          if (!item || item.visible !== true || !BarModel.isDrawnSlot(slot)) continue
           if (typeof item.open !== "function" || typeof item.close !== "function" || item.opened === undefined) continue
           slots.push(slot)
           break
@@ -855,17 +859,13 @@ Item {
     return slots
   }
 
-  // The Nth panel in a bar region, counted the way the bar reads: layout order,
-  // and only the panels actually on screen. A widget with no panel (the tray)
-  // and one that is hiding itself are passed over, so the number lands on the
-  // Nth panel icon the user can see rather than the Nth layout entry.
-  // One-based, because it exists for hotkeys; anything else lands on no slot.
-  //
-  // Counting any bar surface is enough: every monitor lays its bar out from the
-  // one layout, and summoning the id routes through pickPanelSlot, which opens
-  // the focused monitor's copy whichever surface was counted.
+  // Count only the panels actually drawn on the focused output. The index is
+  // one-based because this is called by the numbered panel hotkeys.
   function panelWidgetIdAt(region, index) {
-    var slots = panelNavigationSlots(String(region || ""), null)
+    var focused = focusedScreenName()
+    var screens = Quickshell.screens
+    var screen = screens.find(function(item) { return item.name === focused }) || screens[0]
+    var slots = panelNavigationSlots(String(region || ""), screen)
     var slot = slots[Math.round(Number(index)) - 1]
     return slot ? String(slot.moduleName || "") : ""
   }
@@ -883,7 +883,7 @@ Item {
     }
     if (!currentSlot) return false
 
-    var slots = panelNavigationSlots(currentSlot.region, slotWindow(currentSlot))
+    var slots = panelNavigationSlots(currentSlot.region, currentSlot.window?.screen)
     if (slots.length < 2) return false
 
     var currentIndex = -1
@@ -949,7 +949,10 @@ Item {
     }
     // One copy per monitor, some of which may not be drawn. See
     // BarModel.pickPanelSlot for which one a hotkey acts on.
-    var chosen = BarModel.pickPanelSlot(candidates, focusedScreenName())
+    var handheldOnly = handheldAlly && !externalWidgets.keys.some(function(key) {
+      return entryId(externalWidgets.entries[key]) === id
+    })
+    var chosen = BarModel.pickPanelSlot(candidates, focusedScreenName(), handheldOnly)
     return chosen ? chosen.activeItem : null
   }
 
@@ -1162,7 +1165,8 @@ Item {
   // the room moves away.
   function startDragRoom(sourceSlot) {
     barDragKeys = JSON.stringify(layoutWidgets.sections)
-    barDragRoom = BarModel.dropRoom(null, { key: sourceSlot.widgetKey, region: sourceSlot.region }, layoutWidgets.sections, drawnKeys(barDragWindow))
+    barDragOutputKeys = JSON.stringify(barDragWidgets.sections)
+    barDragRoom = BarModel.dropRoom(null, { key: sourceSlot.widgetKey, region: sourceSlot.region }, barDragWidgets.sections, drawnKeys(barDragWindow))
     barDragHome = dragShareKey(barDragRoom)
     var shares = {}
     shares[barDragHome] = 1
@@ -1174,7 +1178,7 @@ Item {
   function moveDragRoom(drop) {
     var source = barDragSource
     if (!source) return
-    var next = BarModel.dropRoom(drop, { key: source.widgetKey, region: source.region }, layoutWidgets.sections, drawnKeys(barDragWindow))
+    var next = BarModel.dropRoom(drop, { key: source.widgetKey, region: source.region }, barDragWidgets.sections, drawnKeys(barDragWindow))
     var last = barDragRoom
     barDragRoom = next
     // A widget showing itself just before the dragged one moves where home is.
@@ -1255,13 +1259,13 @@ Item {
   function dragMove() {
     var room = barDragRoom
     var source = barDragSource
-    if (!room || room.home || !source) return null
+    if (!room || room.home || !source || JSON.stringify(barDragWidgets.sections) !== barDragOutputKeys) return null
     var sections = layoutWidgets.sections
-    var count = (sections[room.region] || []).length
+    var index = BarModel.savedDropIndex(sections[room.region], barDragWidgets.sections[room.region], room.index)
     return {
       key: source.widgetKey,
       from: { region: source.region, index: (sections[source.region] || []).indexOf(source.widgetKey), id: entryId(source.entry) },
-      to: { region: room.region, index: room.index < count ? room.index : -1 },
+      to: { region: room.region, index: index },
       keys: barDragKeys
     }
   }
@@ -1932,7 +1936,10 @@ Item {
       Item {
         anchors.fill: parent
 
-        WidgetPool { id: horizontalPool }
+        WidgetPool {
+          id: horizontalPool
+          widgets: root.widgetsForScreen(barWindow.screen)
+        }
 
         CenterModules {
           anchors.fill: parent
@@ -1982,7 +1989,10 @@ Item {
       Item {
         anchors.fill: parent
 
-        WidgetPool { id: verticalPool }
+        WidgetPool {
+          id: verticalPool
+          widgets: root.widgetsForScreen(barWindow.screen)
+        }
 
         CenterModules {
           anchors.fill: parent
@@ -2261,13 +2271,11 @@ Item {
   }
 
   component LeftModules: ModuleList {
-    keys: root.layoutWidgets.sections.left
     region: "left"
     fixedEdge: "start"
   }
 
   component RightModules: ModuleList {
-    keys: root.layoutWidgets.sections.right
     region: "right"
     fixedEdge: "end"
   }
@@ -2330,7 +2338,6 @@ Item {
 
     ModuleList {
       id: beginList
-      keys: sections.active ? root.layoutWidgets.sections.centerBegin : []
       window: sections.active ? sections.window : null
       pool: sections.pool
       region: "centerBegin"
@@ -2341,7 +2348,6 @@ Item {
 
     ModuleList {
       id: endList
-      keys: sections.active ? root.layoutWidgets.sections.centerEnd : []
       window: sections.active ? sections.window : null
       pool: sections.pool
       region: "centerEnd"
@@ -2390,7 +2396,6 @@ Item {
 
     ModuleList {
       id: boxList
-      keys: box.active ? root.layoutWidgets.sections.center : []
       window: box.active ? box.window : null
       pool: box.pool
       region: "center"
@@ -2562,8 +2567,8 @@ Item {
   component ModuleList: GridLayout {
     id: moduleListRoot
 
-    // The widgets the list shows, by their keys (root.layoutWidgets).
-    property var keys: []
+    // Use the output's list before making slots or handling drag indexes.
+    readonly property var keys: window ? root.widgetsForScreen(window.screen).sections[region] || [] : []
     property string region: ""
     // The edge of each module that stays put when the module grows: the side
     // this list is anchored by. The centered box grows both ways.
@@ -2632,7 +2637,6 @@ Item {
     id: traySectionComponent
 
     ModuleList {
-      keys: root.layoutWidgets.sections.tray
       region: "tray"
     }
   }
@@ -2651,6 +2655,7 @@ Item {
     // Key -> its WidgetHost, and the ModuleSlot showing it.
     property var hosts: ({})
     property var slots: ({})
+    required property var widgets
 
     width: 0
     height: 0
@@ -2693,7 +2698,7 @@ Item {
     // Keys alone, in a fixed order: a widget's row never moves or changes,
     // and is added and removed with its entry.
     Instantiator {
-      model: ScriptModel { values: root.layoutWidgets.keys }
+      model: ScriptModel { values: widgetPool.widgets.keys }
       delegate: WidgetHost { pool: widgetPool }
     }
   }
@@ -2707,7 +2712,7 @@ Item {
     required property string modelData
     property var pool: null
     readonly property string key: modelData
-    readonly property var entry: root.layoutWidgets.entries[key] || null
+    readonly property var entry: pool?.widgets.entries[key] || null
     // The slot showing it, set by the pool; null while it waits there.
     property var owner: null
     // Whether a slot has held it yet. The widget is loaded only then, so it
@@ -3064,6 +3069,7 @@ Item {
       property real pressedX: 0
       property real pressedY: 0
       readonly property bool canReorder: root.shell && typeof root.shell.mutateShellConfig === "function"
+        && root.layoutWidgets.keys.indexOf(slot.widgetKey) !== -1
       readonly property real dragThreshold: Style.space(4)
 
       anchors.fill: parent

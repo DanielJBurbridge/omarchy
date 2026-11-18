@@ -104,10 +104,8 @@ ShellRoot {
       }
     }
     userConfigUnreadable = !!userText.trim() && !user
-    // Stored is the file (or the defaults). The handheld pin is a second
-    // object the bar reads. Nothing here writes ~/.config/omarchy/shell.json.
     storedShellConfig = user || defaults
-    shellConfig = handheldAlly ? BarModel.pinHandheldTouch(storedShellConfig) : storedShellConfig
+    shellConfig = storedShellConfig
   }
 
   property var storedShellConfig: null
@@ -120,9 +118,7 @@ ShellRoot {
 
   function refreshHandheld() {
     var ally = BarModel.isRogAllyDmi(dmiVendor.text(), dmiProduct.text(), dmiBoard.text())
-    if (ally === handheldAlly) return
     handheldAlly = ally
-    applyShellConfig()
   }
 
   FileView {
@@ -168,19 +164,14 @@ ShellRoot {
   function persistShellConfig(nextConfig) {
     var payload = JSON.parse(JSON.stringify(nextConfig))
     payload.version = 1
-    // Drop widgets the handheld pin added. A save must not put them into the
-    // user's shell.json, and a pin-only change must not write the file at all.
-    var forDisk = handheldAlly && storedShellConfig
-      ? BarModel.shellConfigForDisk(payload, storedShellConfig) : payload
-    forDisk.version = 1
-    shellConfig = handheldAlly ? BarModel.pinHandheldTouch(forDisk) : forDisk
+    shellConfig = payload
     if (userConfigUnreadable) {
       console.warn("shell.json is unreadable, not overwriting it; fix it to save bar changes")
       return
     }
-    if (storedShellConfig && JSON.stringify(forDisk) === JSON.stringify(storedShellConfig)) return
-    storedShellConfig = JSON.parse(JSON.stringify(forDisk))
-    userConfigFile.setText(JSON.stringify(forDisk, null, 2) + "\n")
+    if (storedShellConfig && JSON.stringify(payload) === JSON.stringify(storedShellConfig)) return
+    storedShellConfig = payload
+    userConfigFile.setText(JSON.stringify(payload, null, 2) + "\n")
   }
 
   readonly property var barConfig: shellConfig && Util.isPlainObject(shellConfig.bar) ? shellConfig.bar : builtinShellConfig.bar

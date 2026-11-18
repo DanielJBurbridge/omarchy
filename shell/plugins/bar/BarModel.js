@@ -117,15 +117,16 @@ function pickDrawnSlot(slots) {
 // monitor's copy wins, so a summon lands where the user is working instead of
 // on whichever output registered its slot first. Neither narrowing applies on
 // a single monitor, or when the focused output has no bar of its own.
-function pickPanelSlot(candidates, focusedScreen) {
+function pickPanelSlot(candidates, focusedScreen, requireFocused) {
   var rows = Array.isArray(candidates) ? candidates : []
   var pool = rows.filter(function(row) { return row && row.opened === true })
-  if (pool.length === 0) pool = rows.filter(function(row) { return !!row })
+  var useFallback = pool.length === 0
+  if (useFallback) pool = rows.filter(function(row) { return !!row })
 
   var focused = String(focusedScreen || "")
   if (focused) {
     var onFocused = pool.filter(function(row) { return row.screenName === focused })
-    if (onFocused.length > 0) pool = onFocused
+    if (onFocused.length > 0 || (requireFocused && useFallback)) pool = onFocused
   }
 
   return pickDrawnSlot(pool.map(function(row) { return row.slot }))
@@ -686,7 +687,11 @@ function fullscreenOn(toplevels, workspaceId) {
   return false
 }
 
-var handheldTouchIds = ["omarchy.bluetooth", "omarchy.network", "omarchy.desktop-keyboard"]
+var handheldTouchPins = [
+  { id: "omarchy.desktop-keyboard" },
+  { id: "omarchy.network" },
+  { id: "omarchy.bluetooth" }
+]
 
 function isRogAllyDmi(vendor, product, board) {
   var v = String(vendor || "").trim()
@@ -696,63 +701,52 @@ function isRogAllyDmi(vendor, product, board) {
   return p.indexOf("ROG Ally RC71L") === 0 || b === "RC71L"
 }
 
-function layoutHasId(layout, id) {
-  if (!isPlainObject(layout)) return false
-  for (var s = 0; s < sections.length; s++) {
-    var entries = layout[sections[s]]
-    if (!Array.isArray(entries)) continue
-    for (var i = 0; i < entries.length; i++) {
-      if (entryId(entries[i]) === id) return true
+// Work from the saved widget keys so an output-specific layout never changes
+// another bar's widget identity or the indexes used to edit shell.json.
+function handheldOutputWidgets(widgets, internal, disabled) {
+  var projected = {
+    sections: Object.assign({}, widgets.sections),
+    keys: widgets.keys,
+    entries: widgets.entries
+  }
+  if (internal) {
+    var blocked = Array.isArray(disabled) ? disabled : []
+    var pins = handheldTouchPins.filter(function(entry) {
+      return blocked.indexOf(entry.id) === -1 && !widgets.keys.some(function(key) {
+        return entryId(widgets.entries[key]) === entry.id
+      })
+    })
+    if (!pins.length) return widgets
+    projected.entries = Object.assign(Object.create(null), widgets.entries)
+    var keys = pins.map(function(entry) {
+      var key = "handheld-pin:" + entry.id
+      projected.entries[key] = entry
+      return key
+    })
+    projected.keys = widgets.keys.concat(keys)
+    projected.sections.right = keys.concat(widgets.sections.right)
+  } else {
+    var portable = function(key) {
+      return entryId(widgets.entries[key]) === "omarchy.desktop-keyboard"
+    }
+    projected.keys = widgets.keys.filter(function(key) { return !portable(key) })
+    if (projected.keys.length === widgets.keys.length) return widgets
+    for (var i = 0; i < sections.length; i++) {
+      var name = sections[i]
+      projected.sections[name] = widgets.sections[name].filter(function(key) { return !portable(key) })
     }
   }
-  return false
+  return projected
 }
 
-// A handheld bar still has Wi-Fi, Bluetooth and the desktop keyboard when the
-// user's shell.json left them out. This is a copy. The argument and the user's
-// shell.json are not modified. An explicit disabledPlugins entry stays out.
-function pinHandheldTouch(config) {
-  if (!isPlainObject(config)) return config
-  var copy = JSON.parse(JSON.stringify(config))
-  var disabled = Array.isArray(copy.disabledPlugins) ? copy.disabledPlugins : []
-  if (!isPlainObject(copy.bar)) copy.bar = {}
-  if (!isPlainObject(copy.bar.layout)) copy.bar.layout = {}
-  if (!Array.isArray(copy.bar.layout.right)) copy.bar.layout.right = []
-  for (var i = 0; i < handheldTouchIds.length; i++) {
-    var id = handheldTouchIds[i]
-    if (disabled.indexOf(id) !== -1) continue
-    if (layoutHasId(copy.bar.layout, id)) continue
-    copy.bar.layout.right.unshift({ id: id })
+// An output can add runtime pins or omit persisted entries. Land before the
+// next saved key on that output, or at the end of the saved section.
+function savedDropIndex(savedKeys, drawnKeys, drawnIndex) {
+  for (var i = drawnIndex; i < drawnKeys.length; i++) {
+    var index = savedKeys.indexOf(drawnKeys[i])
+    if (index !== -1) return index
   }
-  return copy
-}
-
-// The config to write back. Runtime pins that the stored file did not already
-// contain are removed, including a section the pin had to create.
-function shellConfigForDisk(config, stored) {
-  var copy = JSON.parse(JSON.stringify(config))
-  if (!isPlainObject(copy)) return copy
-  var storedLayout = isPlainObject(stored) && isPlainObject(stored.bar) && isPlainObject(stored.bar.layout)
-    ? stored.bar.layout : {}
-  if (!isPlainObject(copy.bar) || !isPlainObject(copy.bar.layout)) return copy
-  var storedHadBar = isPlainObject(stored) && isPlainObject(stored.bar)
-  var storedHadLayout = storedHadBar && isPlainObject(stored.bar.layout)
-  for (var s = 0; s < sections.length; s++) {
-    var name = sections[s]
-    var entries = copy.bar.layout[name]
-    if (!Array.isArray(entries)) continue
-    var kept = []
-    for (var i = 0; i < entries.length; i++) {
-      var id = entryId(entries[i])
-      if (handheldTouchIds.indexOf(id) !== -1 && !layoutHasId(storedLayout, id)) continue
-      kept.push(entries[i])
-    }
-    if (kept.length === 0 && !Array.isArray(storedLayout[name])) delete copy.bar.layout[name]
-    else copy.bar.layout[name] = kept
-  }
-  if (!storedHadLayout && Object.keys(copy.bar.layout).length === 0) delete copy.bar.layout
-  if (!storedHadBar && isPlainObject(copy.bar) && Object.keys(copy.bar).length === 0) delete copy.bar
-  return copy
+  return -1
 }
 
 if (typeof module !== "undefined") {
@@ -794,7 +788,7 @@ if (typeof module !== "undefined") {
     customModuleType: customModuleType,
     customModulePath: customModulePath,
     isRogAllyDmi: isRogAllyDmi,
-    pinHandheldTouch: pinHandheldTouch,
-    shellConfigForDisk: shellConfigForDisk
+    handheldOutputWidgets: handheldOutputWidgets,
+    savedDropIndex: savedDropIndex
   }
 }
