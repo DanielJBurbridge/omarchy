@@ -124,7 +124,7 @@ gaming_selection() {
   case $choice in
     desktop | gaming) ;;
     auto)
-      if gaming_docked; then
+      if omarchy-hw-external-monitors; then
         choice=desktop
       else
         choice=gaming
@@ -142,11 +142,6 @@ gaming_selection() {
   # An unsuccessful gaming launch never becomes an automatic login loop.
   if [[ -f $gaming_state/recovery ]]; then choice=desktop; fi
   printf '%s\n' "$choice"
-}
-
-# A docked handheld reports through the display helper. No helper means undocked.
-gaming_docked() {
-  command -v omarchy-display-rog-ally >/dev/null && omarchy-display-rog-ally docked
 }
 
 # Failed-start counter. The shape follows gamescope-session-plus (MIT,

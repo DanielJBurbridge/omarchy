@@ -24,10 +24,6 @@ cat > "$work/bin/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 [[ $1 == omarchy-gaming-session && ${PKG:-present} == present ]]
 EOF
-cat > "$work/bin/omarchy-display-rog-ally" <<'EOF'
-#!/bin/bash
-[[ $1 == docked && ${DOCKED:-0} == 1 ]]
-EOF
 chmod +x "$work/bin/"* "$ROOT/bin/omarchy-handheld-autologin"
 mkdir -p "$work/default/gaming"
 cp "$ROOT/default/gaming/sddm-user.sh" "$work/default/gaming/"
@@ -82,15 +78,26 @@ source "$ROOT/default/gaming/session.sh"
 mkdir -p "$gaming_state"
 printf 'desktop\n' > "$gaming_state/preference"
 printf 'failed\n' > "$gaming_state/recovery"
-export DOCKED=1
+export OMARCHY_DRM_PATH=$work/drm
+panel=$OMARCHY_DRM_PATH/card0-eDP-1
+dock=$OMARCHY_DRM_PATH/card0-DP-1-2
+mkdir -p "$panel" "$dock"
+printf 'connected\n' > "$panel/status"
+printf 'connected\n' > "$dock/status"
 [[ $(gaming_selection) == desktop ]] || fail "a recovery latch and a dock still select the desktop"
 [[ $(gaming_entry_selection relogin) == gaming ]] || fail "Relogin stays on gaming through a latch and a dock"
 [[ -f $gaming_state/recovery ]] || fail "Relogin leaves the recovery latch in place"
 rm -f "$gaming_state/recovery"
 printf 'auto\n' > "$gaming_state/preference"
 [[ $(gaming_selection) == desktop ]] || fail "docked auto selects the desktop"
+printf 'disconnected\n' > "$panel/status"
+[[ $(gaming_selection) == desktop ]] || fail "auto selects the desktop with only an external MST display"
 [[ $(gaming_entry_selection relogin) == gaming ]] || fail "Relogin ignores dock auto-switch"
-export DOCKED=0
+printf 'gaming\n' > "$gaming_state/preference"
+[[ $(gaming_selection) == gaming ]] || fail "an explicit gaming preference survives a docked login"
+printf 'auto\n' > "$gaming_state/preference"
+printf 'connected\n' > "$panel/status"
+printf 'disconnected\n' > "$dock/status"
 [[ $(gaming_selection) == gaming ]] || fail "undocked auto stays on gaming"
 grep -q 'omarchy-session-start relogin' "$ROOT/bin/omarchy-handheld-autologin" ||
   fail "the autologin session uses the Relogin entry"
@@ -106,7 +113,7 @@ next_mode=$(stat -c %a -- "$gaming_state/next")
 next_owner=$(stat -c %u -- "$gaming_state/next")
 [[ $next_mode == 600 && $next_owner == "$(id -u)" ]] ||
   fail "next=desktop is the session user's mode 0600 file" "mode=$next_mode owner=$next_owner"
-export DOCKED=1
+printf 'connected\n' > "$dock/status"
 [[ $(gaming_entry_selection relogin) == desktop ]] ||
   fail "Relogin consumes next=desktop once through a latch and a dock"
 [[ ! -e $gaming_state/next ]] || fail "consuming next=desktop deletes the one-shot"
