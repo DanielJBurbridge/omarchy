@@ -14,9 +14,11 @@ Rectangle {
   property bool keyboardUnavailable: false
   readonly property color foreground: "#ffffff"
   property int sessionIndex: {
+    // SDDM exposes the desktop filename through FileRole, not DisplayRole.
+    const fileRole = Qt.UserRole + 2
     for (var i = 0; i < sessionModel.rowCount(); i++) {
-      var name = (sessionModel.data(sessionModel.index(i, 0), Qt.DisplayRole) || "").toString()
-      if (name.indexOf("uwsm") !== -1)
+      const file = sessionModel.data(sessionModel.index(i, 0), fileRole) || ""
+      if (file.split("/").pop() === "omarchy.desktop")
         return i
     }
     return sessionModel.lastIndex

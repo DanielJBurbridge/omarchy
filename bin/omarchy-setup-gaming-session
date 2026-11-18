@@ -87,6 +87,9 @@ case ${1:-status} in
     else
       sudo env OMARCHY_PATH="$OMARCHY_PATH" "$OMARCHY_PATH/bin/omarchy-setup-handheld-dirs" --value "$lock_value"
     fi
+    if gaming_handheld_variant; then
+      omarchy-handheld-autologin apply
+    fi
     ;;
   reset)
     (( $# == 1 )) || exit 2

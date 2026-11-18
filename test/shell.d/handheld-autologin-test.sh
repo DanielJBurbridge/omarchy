@@ -29,6 +29,14 @@ cat > "$work/bin/omarchy-display-rog-ally" <<'EOF'
 [[ $1 == docked && ${DOCKED:-0} == 1 ]]
 EOF
 chmod +x "$work/bin/"* "$ROOT/bin/omarchy-handheld-autologin"
+mkdir -p "$work/default/gaming"
+cp "$ROOT/default/gaming/sddm-user.sh" "$work/default/gaming/"
+sed "s|/usr/share/omarchy/default/gaming/session.sh|$work/policy.sh|" \
+  "$ROOT/bin/omarchy-handheld-autologin" > "$work/bin/handheld-autologin-under-test"
+chmod +x "$work/bin/handheld-autologin-under-test"
+sed -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock|" \
+  -e "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07|" \
+  "$ROOT/default/gaming/session.sh" > "$work/policy.sh"
 
 as_user() {
   setpriv --reuid=1 --regid=1 --clear-groups "$@"
@@ -39,7 +47,7 @@ run_guard() {
     OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run \
     OMARCHY_SDDM_CONF_DIR=$work/sddm \
     PATH="$work/bin:$ROOT/bin:$PATH" \
-    "$ROOT/bin/omarchy-handheld-autologin" "$@"
+    "$work/bin/handheld-autologin-under-test" "$@"
 }
 
 assert_root_file() {
@@ -58,6 +66,15 @@ grep -q '^Relogin=true$' "$dropin" || fail "handheld autologin sets Relogin=true
 grep -q 'objectName: "greeterKeyboard"' "$ROOT/default/sddm/omarchy/Main.qml" ||
   fail "the greeter has an on-screen keyboard"
 pass "handheld drop-in autologins into gaming with Relogin=true"
+
+printf 'on\n' > "$work/desktop-lock"
+run_guard apply
+grep -qx 'Relogin=false' "$dropin" || fail "required desktop sign-in disables relogin" "$(cat "$dropin")"
+printf 'explicit-off\n' > "$work/desktop-lock"
+run_guard apply
+grep -qx 'Relogin=true' "$dropin" || fail "opting out restores relogin" "$(cat "$dropin")"
+rm -f "$work/desktop-lock"
+pass "Relogin follows the stored desktop lock policy"
 
 export XDG_STATE_HOME=$work/state HOME=$work/home PATH="$work/bin:$ROOT/bin:$PATH"
 # shellcheck source=/dev/null
@@ -329,7 +346,7 @@ fi
   source ./PKGBUILD
   (( ${#source[@]} == ${#sha256sums[@]} )) || exit 1
   for i in "${!source[@]}"; do
-    sum=$(sha256sum "${source[$i]}" | awk '{print $1}')
+    sum=$(sha256sum "${source[$i]#*::}" | awk '{print $1}')
     [[ ${sha256sums[$i]} == "$sum" ]] || exit 1
   done
 ) || fail "a gaming session source checksum does not match its file"

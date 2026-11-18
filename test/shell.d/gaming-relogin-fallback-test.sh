@@ -39,6 +39,12 @@ grep -q 'needs root' "$work/noop-err" ||
 pass "a fail that cannot become root is logged and returns non-zero"
 
 handheld_prepare_gaming "$work"
+export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
+cp "$ROOT/bin/omarchy-handheld-autologin" "$HANDHELD_TREE/bin/"
+sed -i "s|/usr/share/omarchy/default/gaming/session.sh|$HANDHELD_TREE/default/gaming/session.sh|" \
+  "$HANDHELD_TREE/bin/omarchy-handheld-autologin"
+sed -i "s|/etc/sddm.conf.d/zz-omarchy-handheld.conf|$work/sddm/zz-omarchy-handheld.conf|" \
+  "$HANDHELD_TREE/bin/omarchy-session-start"
 cat > "$HANDHELD_STUB/uwsm" <<'EOF'
 #!/bin/bash
 printf 'uwsm:%s\n' "$*" >> "$HANDHELD_ACTIONS"
@@ -103,7 +109,7 @@ failures=$state/start-failures
 latch='Gaming failed repeatedly; desktop selected until an explicit gaming choice.'
 
 reset_case() {
-  rm -rf "$HANDHELD_HOME/.local/state"
+  rm -rf "$HANDHELD_HOME/.local/state" "$work/run" "$work/sddm"
   : > "$HANDHELD_LOG"
   rm -f "$HANDHELD_SCOPE_PID"
 }
@@ -311,7 +317,7 @@ exit "$HANDHELD_KEYBOARD_STATUS"
 EOF
 cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
-exit 0
+[[ $* == omarchy-gaming-session ]]
 EOF
 cat > "$HANDHELD_STUB/getent" <<'EOF'
 #!/bin/bash
@@ -328,7 +334,6 @@ sed -i "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lo
 sed -i "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
   "$HANDHELD_TREE/default/gaming/session.sh"
 export SUDO_USER=ally AUTOLOGIN_FAKE_HOME=$HANDHELD_HOME
-export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
 cat > "$work/lock-case.sh" <<EOF
 #!/bin/bash
 set -uo pipefail
@@ -344,19 +349,20 @@ rm -f "$HANDHELD_RUNTIME"/wayland-*
 setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" relogin >"$work/lock-out" 2>"$work/lock-err"
 printf '%s\n' "\$?" > "$work/lock-status"
 EOF
+run_locked_session() {
+  if (( EUID == 0 )); then
+    bash "$work/lock-case.sh"
+  else
+    unshare --user --map-root-user bash "$work/lock-case.sh"
+  fi
+}
 for keyboard_status in 1 0; do
   reset_case
-  rm -rf "$work/sddm" "$work/run"
   rm -f "$work/lock-status"
   mkdir -p "$state" "$work/sddm" "$work/run"
   printf '2\n' > "$failures"
   export HANDHELD_KEYBOARD_STATUS=$keyboard_status
-  if (( EUID == 0 )); then
-    bash "$work/lock-case.sh" || true
-  else
-    # The fixture only needs its current user mapped to root.
-    unshare --user --map-root-user bash "$work/lock-case.sh" || true
-  fi
+  run_locked_session || true
   lock_status=$(cat "$work/lock-status" 2>/dev/null || true)
   lock_detail=$(
     echo "keyboard-status=$keyboard_status status=$lock_status"
@@ -383,5 +389,34 @@ for keyboard_status in 1 0; do
   [[ ! -e $work/run/actions ]] || ! grep -q 'sddm-restart' "$work/run/actions" ||
     fail "pinning Relogin off restarts SDDM" "$(cat "$work/run/actions" 2>/dev/null)"
 done
-unset SUDO_USER AUTOLOGIN_FAKE_HOME OMARCHY_HANDHELD_AUTOLOGIN_DIR OMARCHY_SDDM_CONF_DIR HANDHELD_KEYBOARD_STATUS
 pass "a required lock returns to the greeter with or without a keyboard"
+
+cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+printf 'steam\n' >> "$HANDHELD_ACTIONS"
+steamos-session-select plasma
+EOF
+reset_case
+rm -f "$work/lock-status"
+mkdir -p "$state" "$work/sddm" "$work/run"
+run_locked_session
+[[ $(cat "$work/lock-status") == 0 ]] || fail "the requested sign-in handoff exits cleanly" "$(detail "$work/lock-err")"
+[[ $(grep -c '^gamescope$' "$HANDHELD_LOG") == 1 ]] || fail "requesting sign-in does not retry Gaming" "$(detail "$work/lock-err")"
+! grep -q '^uwsm:' "$HANDHELD_LOG" || fail "an autologin never starts Hyprland when desktop sign-in is required"
+grep -qx 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" || fail "SDDM will show sign-in on the next display"
+grep -qx 'broker:pointer' "$HANDHELD_LOG" || fail "the greeter gets the pointer profile before sign-out"
+[[ ! -e $state/next && ! -e $failures && ! -e $work/run/stop ]] ||
+  fail "sign-in leaves no passwordless desktop request or crash count" "$(detail "$work/lock-err")"
+[[ ! -e $work/run/actions ]] || fail "the sign-in handoff uses the existing SDDM daemon" "$(cat "$work/run/actions")"
+pass "Steam's explicit return prepares SDDM sign-in and exits without opening Hyprland"
+
+reset_case
+rm -f "$work/lock-status"
+mkdir -p "$state" "$work/sddm" "$work/run"
+ln -s "$work/refused-dropin" "$work/sddm/zz-omarchy-handheld.conf"
+run_locked_session
+[[ $(cat "$work/lock-status") == 1 ]] || fail "a refused SDDM update exits with failure" "$(detail "$work/lock-err")"
+grep -q 'Could not prepare desktop sign-in' "$state/session.log" || fail "the refused handoff is logged"
+! grep -Eq '^(uwsm:|broker:pointer)' "$HANDHELD_LOG" || fail "a refused handoff keeps the desktop closed"
+[[ ! -e $state/next && ! -e $work/refused-dropin ]] || fail "a refused handoff writes no unauthenticated desktop request"
+pass "a refused SDDM update leaves the desktop closed"

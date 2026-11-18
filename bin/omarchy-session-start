@@ -326,6 +326,23 @@ stop_gaming() {
     gaming_target_started=0
   fi
 }
+
+return_to_desktop_signin() {
+  local dropin=/etc/sddm.conf.d/zz-omarchy-handheld.conf
+  if ! omarchy-handheld-autologin apply >> "$gaming_state/session.log" 2>&1 ||
+    ! grep -Fxq 'Relogin=false' "$dropin"; then
+    printf '%s\n' 'Could not prepare desktop sign-in. The required lock still prevents opening Hyprland.' >> "$gaming_state/session.log"
+    return 1
+  fi
+  rm -f -- "$gaming_state/next"
+  # The active gaming login can ask the broker to restore the greeter profile
+  # before sign-out. Touch and a USB keyboard still work if the broker fails.
+  busctl --timeout=3s --auto-start=no call \
+    org.omarchy.InputPlumberProfile /org/omarchy/InputPlumberProfile \
+    org.omarchy.InputPlumberProfile Load s pointer >> "$gaming_state/session.log" 2>&1 || true
+  printf '%s\n' 'Desktop authentication is required. Returning to SDDM sign-in.' >> "$gaming_state/session.log"
+}
+
 cleanup() {
   stop_desktop_input
   stop_gaming
@@ -449,7 +466,7 @@ run_gaming() {
     status=1
     printf '%s\n' 'Gamescope exited before starting its Steam child.' >> "$gaming_state/fallback.log"
   fi
-  # Explicit Switch to Desktop only. Crash, timeout, a missing gamescope or
+  # A passwordless Switch to Desktop only. Crash, timeout, a missing gamescope or
   # steam, and a non-zero Steam exit do not write it. The file is the session
   # user's ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next,
   # mode 0600, in the mode 0700 state directory from gaming_state_init. It is
@@ -457,7 +474,7 @@ run_gaming() {
   # Once this handoff's Hyprland socket appears, the file is removed so a
   # later logout returns to gaming. If this process dies before that socket,
   # the file is still there and that one relogin starts Hyprland.
-  if $returned && gaming_save next desktop; then
+  if $returned && [[ $(gaming_desktop_lock_effective) != on ]] && gaming_save next desktop; then
     gaming_desktop_next=1
   fi
   # Explicit Switch to Desktop is a success, even when Steam never reached
@@ -474,6 +491,9 @@ run_gaming() {
   # cannot overwrite the return line the desktop switch is recognised by.
   if $returned; then
     echo 'Requested return to desktop.' >> "$gaming_state/session.log"
+    if [[ $(gaming_desktop_lock_effective) == on ]] && return_to_desktop_signin; then
+      exit 0
+    fi
   fi
   # Gamescope can return zero after its primary child fails. A non-zero Steam
   # exit in the first 120 seconds is a failure. A later exit returns to desktop.

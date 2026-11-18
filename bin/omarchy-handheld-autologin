@@ -60,10 +60,12 @@ write_file() {
   local dest=$1
   local temporary
   (( EUID == 0 )) || exit 1
-  temporary=$(mktemp)
-  cat > "$temporary"
-  install -o root -g root -m 0644 "$temporary" "$dest"
+  temporary=$(mktemp --tmpdir="${dest%/*}" .omarchy-handheld.XXXXXXXX)
+  if cat > "$temporary" && chown root:root "$temporary" && chmod 0644 "$temporary" && mv -fT -- "$temporary" "$dest"; then
+    return 0
+  fi
   rm -f -- "$temporary"
+  return 1
 }
 
 now_s() {
@@ -127,6 +129,7 @@ install_user() {
 }
 
 apply_dropin() {
+  local lock_policy
   refuse_symlink
   if ! handheld_variant; then
     # A User= left behind with no Session= makes SDDM autologin into the last
@@ -134,8 +137,19 @@ apply_dropin() {
     rm -f -- "$dropin" "$user_dropin"
     return 0
   fi
-  # A crash-loop stop shows the greeter. A boot with no stop file autologins.
   if [[ -f $stop ]]; then
+    write_dropin false
+    return
+  fi
+  # Read the packaged policy, independently of the caller's development path.
+  # SDDM still autologins on its first display. Later displays reload this
+  # file and ask for a password when the desktop entry policy requires one.
+  lock_policy=$(
+    # shellcheck source=/dev/null
+    source /usr/share/omarchy/default/gaming/session.sh || exit 1
+    gaming_desktop_lock_effective
+  )
+  if [[ $lock_policy == on ]]; then
     write_dropin false
   else
     write_dropin true
