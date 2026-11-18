@@ -16,11 +16,15 @@ export STEAM_ENABLE_VOLUME_HANDLER=1
 source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
 
 power_pid=''
+shutdown_pid=''
 cleanup() {
-  if [[ -n $power_pid ]]; then
-    kill "$power_pid" 2>/dev/null || true
-    wait "$power_pid" 2>/dev/null || true
-  fi
+  local pid
+  for pid in "$shutdown_pid" "$power_pid"; do
+    if [[ -n $pid ]]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
 }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
@@ -30,6 +34,16 @@ if omarchy-cmd-present omarchy-launch-gaming-powerbutton && omarchy-pkg-present 
 fi
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
+if [[ -p $OMARCHY_GAMING_RUNTIME/shutdown ]]; then
+  # Run the shutdown command inside the same display and Steam environment.
+  # Waiting here lets Gamescope own the Xwayland teardown after Steam exits.
+  (
+    if read -r request <> "$OMARCHY_GAMING_RUNTIME/shutdown" && [[ $request == steam ]] && kill -0 "$steam_pid" 2>/dev/null; then
+      exec timeout --kill-after=1s 4s steam -ifrunning -shutdown
+    fi
+  ) &
+  shutdown_pid=$!
+fi
 proc_root=${OMARCHY_STEAM_PROC_ROOT:-/proc}
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/gaming/steam-path.sh"

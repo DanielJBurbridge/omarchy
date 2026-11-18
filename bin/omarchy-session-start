@@ -335,6 +335,27 @@ take_gaming_switch() {
     rm -f -- "$request"
 }
 
+request_gaming_shutdown() {
+  local deadline_pid finished=''
+  [[ -p $gaming_runtime/shutdown ]] && kill -0 "$scope_pid" 2>/dev/null || return 0
+  # Ask the Steam client to close while Xwayland is still running. A TERM
+  # to the whole scope can make Gamescope restart Xwayland during teardown.
+  # shellcheck disable=SC2016
+  if timeout 1s bash -c 'printf "steam\n" > "$1"' _ "$gaming_runtime/shutdown"; then
+    sleep 5 &
+    deadline_pid=$!
+    wait -n -p finished "$scope_pid" "$deadline_pid" 2>/dev/null || true
+    if [[ ${finished:-} != "$deadline_pid" ]]; then
+      kill "$deadline_pid" 2>/dev/null || true
+      wait "$deadline_pid" 2>/dev/null || true
+    elif [[ -f $gaming_runtime/steam-exit ]]; then
+      printf '%s\n' 'Gamescope stayed up after Steam exited. Stopping its scope.' >> "$gaming_state/fallback.log"
+    else
+      printf '%s\n' 'Steam did not exit after the shutdown request. Stopping the Gamescope scope.' >> "$gaming_state/fallback.log"
+    fi
+  fi
+}
+
 stop_gaming() {
   if [[ -n $scope_pid ]]; then
     systemctl --user stop "$scope" || true
@@ -352,7 +373,7 @@ stop_gaming() {
     if [[ -n $child ]]; then kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi
   done
   ready_pid='' return_pid=''
-  rm -f "$gaming_runtime/ready" "$gaming_runtime/return"
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown"
   # Drop the session target before the desktop starts, so units bound with
   # PartOf= stop with the gamescope session and stay down on the desktop.
   if (( gaming_target_started )); then
@@ -415,8 +436,8 @@ run_gaming() {
     omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
     gamescope_args+=(--mangoapp)
   fi
-  rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/steam-exit"
-  mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" || return 1
+  rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" "$gaming_runtime/steam-exit"
+  mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" || return 1
   local ready_timeout=${OMARCHY_GAMING_READY_TIMEOUT:-60}
   [[ $ready_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] || ready_timeout=60
   # Open read/write to make timeout include the wait for the first writer.
@@ -519,6 +540,7 @@ run_gaming() {
     if omarchy-cmd-present omarchy-handheld-autologin; then
       omarchy-handheld-autologin reset || true
     fi
+    request_gaming_shutdown
   fi
   stop_gaming
   # Append after Gamescope's log redirection has closed, so its exit text

@@ -74,8 +74,22 @@ exit 1
 EOF
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
+if [[ $* == '-ifrunning -shutdown' ]]; then
+  printf 'steam:shutdown:%s\n' "$DISPLAY" >> "$HANDHELD_ACTIONS"
+  touch "$OMARCHY_GAMING_RUNTIME/test-steam-shutdown"
+  exit 0
+fi
 printf 'steam:%s\n' "$*" >> "$HANDHELD_ACTIONS"
 steamos-session-select plasma
+if [[ ${WAIT_FOR_STEAM_SHUTDOWN:-0} == 1 ]]; then
+  while [[ ! -f $OMARCHY_GAMING_RUNTIME/test-steam-shutdown ]]; do
+    sleep 0.05
+  done
+  if [[ ${STEAM_IGNORES_SHUTDOWN:-0} == 1 ]]; then
+    sleep 30
+  fi
+  printf 'steam:clean-exit\n' >> "$HANDHELD_ACTIONS"
+fi
 exit 0
 EOF
 chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/omarchy-pkg-present" \
@@ -91,7 +105,7 @@ run_session() {
   wait "$session_pid" || true
   session_pid=
 }
-run_session gaming
+WAIT_FOR_STEAM_SHUTDOWN=1 run_session gaming
 user_units=$XDG_CONFIG_HOME/systemd/user
 cmp -s "$unit" "$user_units/$name" ||
   fail "the runtime still supplies the target for an older gaming-session package"
@@ -114,6 +128,12 @@ if [[ -z $stop_line || -z $desktop_line ]] || (( stop_line <= gamescope_line || 
 fi
 pass "gamescope start pulls in the target and the desktop switch stops it"
 
+mapfile -t shutdown_actions < <(grep -E '^(steam:shutdown:|steam:clean-exit$|gamescope-exit:|systemctl:--user stop omarchy-gamescope-)' "$HANDHELD_LOG")
+[[ ${shutdown_actions[0]:-} == steam:shutdown::77 && ${shutdown_actions[1]:-} == steam:clean-exit &&
+  ${shutdown_actions[2]:-} == gamescope-exit:0 && ${shutdown_actions[3]:-} == 'systemctl:--user stop omarchy-gamescope-redteam.scope' ]] ||
+  fail "Switch to Desktop lets Steam exit through its own display before the scope receives TERM" "$detail"
+pass "the explicit desktop return lets Steam and Gamescope exit in order"
+
 profile_line=$(grep -n '^profile:desktop:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 pointer_line=$(grep -n '^profile:pointer:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 if [[ -z $profile_line || -z $pointer_line ]] || (( profile_line <= stop_line || profile_line >= desktop_line || pointer_line <= desktop_line )); then
@@ -130,6 +150,14 @@ if [[ -z $shim_line ]] || (( shim_line <= start_line || shim_line >= gamescope_l
   fail "an installed TDP shim is restarted before Gamescope" "$detail"
 fi
 pass "bridge starts after the profile target and the installed TDP shim is restarted"
+
+rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+WAIT_FOR_STEAM_SHUTDOWN=1 STEAM_IGNORES_SHUTDOWN=1 run_session gaming
+grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
+  grep -Fxq 'systemctl:--user stop omarchy-gamescope-redteam.scope' "$HANDHELD_LOG" &&
+  grep -q '^uwsm:' "$HANDHELD_LOG" && ! grep -Fxq 'steam:clean-exit' "$HANDHELD_LOG" ||
+  fail "an unresponsive Steam client still falls back to bounded scope teardown" "$(cat "$HANDHELD_LOG")"
+pass "a stuck Steam shutdown does not prevent the desktop return"
 
 # The fixture systemctl answers every cat. This one reports #33's unit absent.
 cat > "$HANDHELD_STUB/systemctl" <<'EOF'
