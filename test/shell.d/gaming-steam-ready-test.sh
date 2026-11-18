@@ -140,7 +140,6 @@ EOF
 printf '#!/bin/bash\nexit 0\n' > "$HANDHELD_STUB/omarchy-handheld-autologin"
 chmod +x "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/omarchy-handheld-autologin"
 handheld_gaming_env
-unset OMARCHY_HANDHELD_SESSION
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/autologin
 export OMARCHY_STEAM_PROC_ROOT=$work/proc-no-ui
 mkdir -p "$OMARCHY_STEAM_PROC_ROOT"

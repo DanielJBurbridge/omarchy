@@ -155,6 +155,8 @@ handheld_gaming_env() {
   export HOME=$HANDHELD_HOME
   export XDG_RUNTIME_DIR=$HANDHELD_RUNTIME
   export XDG_STATE_HOME=$HANDHELD_HOME/.local/state
+  # This is a fresh greeter login, even when the suite runs inside a managed desktop.
+  unset OMARCHY_HANDHELD_SESSION
   export XDG_SESSION_ID=redteam
   export HANDHELD_ACTIONS=$HANDHELD_LOG
   export HANDHELD_SCOPE_PID=$work/scope-pid
