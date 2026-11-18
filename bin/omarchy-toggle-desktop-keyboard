@@ -177,15 +177,16 @@ else
   # returns before exec under load, and then the identity check fails closed.
   ready=false
   for _ in {1..100}; do
-    if [[ -r /proc/$pid/stat ]]; then
-      stat=$(cat "/proc/$pid/stat" 2>/dev/null || true)
-      stat=${stat##*) }
-      read -ra fields <<< "$stat"
-      started=${fields[19]:-}
-      if [[ -n ${started:-} ]] && identity; then
-        ready=true
-        break
-      fi
+    # Once the child exits it cannot finish starting. Release the lock so
+    # another tap can retry immediately.
+    IFS= read -r stat 2>/dev/null <"/proc/$pid/stat" || break
+    stat=${stat##*) }
+    read -ra fields <<< "$stat"
+    [[ ${fields[0]:-} != "Z" ]] || break
+    started=${fields[19]:-}
+    if [[ -n ${started:-} ]] && identity; then
+      ready=true
+      break
     fi
     sleep 0.02
   done

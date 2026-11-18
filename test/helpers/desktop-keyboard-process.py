@@ -169,9 +169,9 @@ esac
         record = state / 'process'
         owned = set()
 
-        def run(*args, ok=True, extra=None):
+        def run(*args, ok=True, extra=None, timeout=5):
             result = subprocess.run(['/bin/bash', str(HELPER), *args], env=env | (extra or {}),
-                                    capture_output=True, text=True, timeout=5)
+                                    capture_output=True, text=True, timeout=timeout)
             if record.exists():
                 pid, stamp, executable = record.read_text().split()
                 if executable == str(binary) and Path(f'/proc/{pid}').exists() and starttime(pid) == stamp:
@@ -317,7 +317,9 @@ esac
 
             run('show', ok=False, extra={'OLD_OPTIONS': '1'})
             assert not record.exists()
-            run('show', ok=False, extra={'FAIL_START': '1'})
+            # A keyboard which has already exited must release the command lock
+            # before the two-second startup budget for a living child elapses.
+            run('show', ok=False, extra={'FAIL_START': '1'}, timeout=1.8)
             assert not record.exists()
             binary.rename(root / 'disabled')
             result = run('show', ok=False)
