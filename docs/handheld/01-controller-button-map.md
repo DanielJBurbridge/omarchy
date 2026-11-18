@@ -102,6 +102,8 @@ Observed on the RC71L with InputPlumber stopped. The 18 November 2026 paddle cap
 | A while a paddle is held, 17 Nov | A was not reported |
 | Command Centre, held about 1 s, 17 Nov | No event recorded |
 
+In a separate labelled capture on the same stock kernel, the embedded xpad reported X as `BTN_NORTH` (307) and Y as `BTN_WEST` (308), each with one down and one up. The desktop profile uses X for middle-click and Y for Enter. In the OSK profile, X is Space and Y is Enter.
+
 The gamepad and monitored hidraw interface also yielded no distinct paddle events. A single `KEY_F15` binding on this kernel would fire from either side.
 
 ## 5. Button map: actions per button per mode

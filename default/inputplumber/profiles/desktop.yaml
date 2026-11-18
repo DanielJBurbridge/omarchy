@@ -96,17 +96,18 @@ mapping:
     target_events:
       - mouse:
           button: "Right"
-  - name: "West"
-    source_event:
-      gamepad:
-        button: "West"
-    target_events:
-      - mouse:
-          button: "Middle"
+  # The built-in RC71L xpad reports X as North and Y as West.
   - name: "North"
     source_event:
       gamepad:
         button: "North"
+    target_events:
+      - mouse:
+          button: "Middle"
+  - name: "West"
+    source_event:
+      gamepad:
+        button: "West"
     target_events:
       - keyboard: "KeyEnter"
   - name: "Start"

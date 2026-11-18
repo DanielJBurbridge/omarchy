@@ -149,7 +149,6 @@ for filename, (_name, targets) in shipped.items():
   check(targets is not None and any(target in gamepads for target in targets), f"{filename} keeps a gamepad target")
 desktop = (profiles / "desktop.yaml").read_text()
 osk = (profiles / "osk.yaml").read_text()
-check('button: "Right"' in desktop and 'button: "Middle"' in desktop, "desktop keeps right and middle click")
 def mapping_targets(text, button):
   lines = text.splitlines()
   for index, line in enumerate(lines):
@@ -165,8 +164,12 @@ def mapping_targets(text, button):
 
 check('keyboard: "KeyBackspace"' in mapping_targets(osk, "East"), "osk east is backspace")
 check("mouse:" not in mapping_targets(osk, "East"), "osk east is not a mouse button")
-check('keyboard: "KeySpace"' in mapping_targets(osk, "West"), "osk west is space")
-check("mouse:" not in mapping_targets(osk, "West"), "osk west is not a mouse button")
+# The embedded stock xpad reports the labelled X as BTN_NORTH and Y as BTN_WEST.
+check('button: "Right"' in mapping_targets(desktop, "East"), "desktop B is right-click")
+check('button: "Middle"' in mapping_targets(desktop, "North"), "desktop X is middle-click")
+check('keyboard: "KeySpace"' in mapping_targets(osk, "North"), "keyboard X is Space")
+for name, profile in (("desktop", desktop), ("keyboard", osk)):
+  check('keyboard: "KeyEnter"' in mapping_targets(profile, "West"), f"{name} Y is Enter")
 check(mod.ALLOWLIST["gamepad"] == "gamepad.yaml" and mod.ALLOWLIST["dualsense"] == "dualsense.yaml", "gamepad and dualsense stay allowlisted")
 for bad in ("../etc/passwd", "pointer/../../tmp/evil", "Desktop", "desktop.yaml", "", "pointer "):
   try:

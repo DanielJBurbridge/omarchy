@@ -94,16 +94,17 @@ mapping:
         button: "East"
     target_events:
       - keyboard: "KeyBackspace"
-  - name: "West"
-    source_event:
-      gamepad:
-        button: "West"
-    target_events:
-      - keyboard: "KeySpace"
+  # The built-in RC71L xpad reports X as North and Y as West.
   - name: "North"
     source_event:
       gamepad:
         button: "North"
+    target_events:
+      - keyboard: "KeySpace"
+  - name: "West"
+    source_event:
+      gamepad:
+        button: "West"
     target_events:
       - keyboard: "KeyEnter"
   - name: "Start"
