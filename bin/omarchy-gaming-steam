@@ -8,6 +8,8 @@ export PATH="$OMARCHY_PATH/default/gaming/bin:$PATH"
 # Upstream CachyOS steam-launcher contract; use the installed Steam/library.
 export XDG_SESSION_TYPE=x11 SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
 export STEAM_MULTIPLE_XWAYLANDS=1 SRT_URLOPEN_PREFER_STEAM=1
+# Steam handles the hardware volume keys in this Gamescope session.
+export STEAM_ENABLE_VOLUME_HANDLER=1
 # No fake Deck HDR, fan, TDP, drive-formatting or update capability flags.
 
 # shellcheck source=/dev/null
