@@ -16,12 +16,16 @@ Rectangle {
   property int sessionIndex: {
     // SDDM exposes the desktop filename through FileRole, not DisplayRole.
     const fileRole = Qt.UserRole + 2
-    for (var i = 0; i < sessionModel.rowCount(); i++) {
+    let desktopIndex = -1
+    for (let i = 0; i < sessionModel.rowCount(); i++) {
       const file = sessionModel.data(sessionModel.index(i, 0), fileRole) || ""
-      if (file.split("/").pop() === "omarchy.desktop")
+      const session = file.split("/").pop()
+      if (session === "omarchy-managed-desktop.desktop")
         return i
+      if (session === "omarchy.desktop" && desktopIndex < 0)
+        desktopIndex = i
     }
-    return sessionModel.lastIndex
+    return desktopIndex >= 0 ? desktopIndex : sessionModel.lastIndex
   }
 
   function showKeyboard() {

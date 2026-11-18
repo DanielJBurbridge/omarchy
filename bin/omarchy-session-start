@@ -1,7 +1,7 @@
 #!/bin/bash
 # omarchy:hidden=true
 # omarchy:summary=Supervise the optional authenticated handheld login session
-# omarchy:args=<preferred|gaming|relogin>
+# omarchy:args=<preferred|gaming|relogin|authenticated-desktop>
 
 set -uo pipefail
 # Set when an explicit Switch to Desktop wrote next=desktop for this process.
@@ -14,7 +14,7 @@ source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
-(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" ]] || exit 2
+(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" || $1 == "authenticated-desktop" ]] || exit 2
 
 # Hyprland instance sockets already on disk belong to an earlier compositor.
 existing_hypr_sockets() {
@@ -114,7 +114,7 @@ stop_desktop_input() {
 # existing shell could answer a lock request for a different compositor.
 # Return 10 to keep the desktop closed when policy requires a lock.
 desktop() {
-  if [[ $(gaming_desktop_lock_effective) == on ]]; then
+  if [[ ${1:-} != authenticated && $(gaming_desktop_lock_effective) == on ]]; then
     echo 'Desktop lock is required. Sign in to Hyprland from the greeter.' >> "$gaming_state/session.log"
     return 10
   fi
@@ -254,14 +254,46 @@ gaming_state_unusable_exit() {
   exit 1
 }
 
-if ! omarchy-hw-rog-ally; then
+authenticated_login_id() {
+  local properties expected session
+  # SDDM invokes this entry in its own PAM session, before UWSM moves apps
+  # to the user manager. Ask logind for the caller, using the system bus.
+  properties=$(exec -c /usr/bin/loginctl --no-pager show-session self \
+    -p Id -p Active -p Class -p Remote -p Seat -p Service -p Type -p User) || return 1
+  for expected in Active=yes Class=user Remote=no Seat=seat0 Service=sddm Type=wayland "User=$UID"; do
+    grep -Fxq "$expected" <<< "$properties" || return 1
+  done
+  session=$(sed -n 's/^Id=//p' <<< "$properties")
+  [[ $session =~ ^[[:alnum:]_-]+$ ]] || return 1
+  printf '%s\n' "$session"
+}
+
+if ! omarchy-hw-rog-ally || { [[ $1 == authenticated-desktop ]] && ! omarchy-pkg-present omarchy-gaming-session; }; then
   start_hyprland
   exit $?
 fi
+desktop_entry=''
+if [[ $1 == authenticated-desktop ]]; then
+  if ! XDG_SESSION_ID=$(authenticated_login_id); then
+    gaming_fail 'Sign in through the local SDDM greeter to start the managed desktop.'
+    exit 1
+  fi
+  export XDG_SESSION_ID
+  unset OMARCHY_HANDHELD_SESSION
+  desktop_entry=authenticated
+fi
 if ! gaming_state_init; then
+  if [[ -n $desktop_entry ]]; then
+    gaming_fail 'The managed desktop state directory is not usable.'
+    exit 1
+  fi
   gaming_state_unusable_exit
 fi
 if ! gaming_runtime_init; then
+  if [[ -n $desktop_entry ]]; then
+    gaming_fail 'The managed desktop runtime directory is not usable.'
+    exit 1
+  fi
   gaming_failure_record || true
   note_root_failure
   if gaming_fail_limit_reached; then
@@ -275,7 +307,9 @@ if ! { exec 9>"$gaming_runtime/lock" && flock -n 9; }; then
   exit 1
 fi
 gaming_clear_waiter_latch
-if [[ $1 == gaming ]]; then
+if [[ -n $desktop_entry ]]; then
+  selection=desktop
+elif [[ $1 == gaming ]]; then
   gaming_failure_reset
   rm -f -- "$gaming_state/recovery"
   selection=gaming
@@ -521,7 +555,6 @@ retry_gap=${OMARCHY_GAMING_RETRY_GAP:-3}
 [[ $retry_gap =~ ^[0-9]+([.][0-9]+)?$ ]] || retry_gap=3
 retries=0
 recovery_retry_used=0
-autologin_watch=1
 if [[ $selection == gaming ]]; then
   # Record before Gamescope starts. A SIGKILL cannot run the exit trap,
   # and an early exit already has the count on disk for the next relogin.
@@ -550,6 +583,7 @@ while true; do
   fi
   printf '%s\n' "$selection" > "$gaming_runtime/active" || exit 1
   if [[ $selection == "gaming" ]]; then
+    autologin_watch=1
     if (( gaming_attempt_recorded || gaming_fallback )); then
       # The explicit recovery retry is already guarded by the existing latch.
       gaming_attempt_recorded=0
@@ -579,8 +613,9 @@ while true; do
     fi
   else
     gaming_save last desktop
-    desktop
+    desktop "$desktop_entry"
     status=$?
+    desktop_entry=''
     if (( status == 10 )); then
       # The recovery latch stays. A remaining D2 retry goes back to gaming.
       if (( retries >= 1 )); then

@@ -55,7 +55,7 @@ Autologin starts Gamescope (`--backend drm -e --xwayland-count 2 --default-touch
 
 From the desktop, exit Steam and run `omarchy-launch-gaming-session`. From gaming, Steam's Power → Switch to Desktop (the private `steamos-session-select` accepts only `plasma`) or `omarchy-launch-gaming-desktop`.
 
-With `desktop-lock on`, **Switch to Desktop** takes you to sign-in. Sign in by touch or USB keyboard to open the standard Omarchy desktop. Reboot to return to Gaming Mode when handheld autologin is enabled. The in-session **Switch to Gaming** action requires a managed desktop.
+With `desktop-lock on`, **Switch to Desktop** takes you to sign-in. Sign in by touch or USB keyboard. With the matched runtime, settings and `omarchy-gaming-session` package, the resulting desktop loads the handheld controller profile and offers **Switch to Gaming**. The next return to Desktop asks you to sign in again.
 
 On the RC71L the desktop power button runs `omarchy-system-sleep-lock`, then `systemctl suspend`. A failed lock cancels the suspend. Until `/var/lib/omarchy/handheld/k07-landed` exists, `desktop-lock` is `default-off`: with no physical keyboard the lock is skipped and the button still suspends. `omarchy-setup-gaming-session desktop-lock on` turns the lock on. With the lock on and no physical keyboard, the button does not suspend. The Ally's own N-KEY device does not count as a keyboard.
 

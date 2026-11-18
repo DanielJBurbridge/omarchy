@@ -45,9 +45,18 @@ sed -i "s|/usr/share/omarchy/default/gaming/session.sh|$HANDHELD_TREE/default/ga
   "$HANDHELD_TREE/bin/omarchy-handheld-autologin"
 sed -i "s|/etc/sddm.conf.d/zz-omarchy-handheld.conf|$work/sddm/zz-omarchy-handheld.conf|" \
   "$HANDHELD_TREE/bin/omarchy-session-start"
+sed -i "s|exec -c /usr/bin/loginctl|exec \"$HANDHELD_STUB/loginctl\"|" \
+  "$HANDHELD_TREE/bin/omarchy-session-start"
 cat > "$HANDHELD_STUB/uwsm" <<'EOF'
 #!/bin/bash
 printf 'uwsm:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+if [[ ${HANDHELD_LOGIN_SERVICE:-} == sddm ]]; then
+  managed_runtime=$XDG_RUNTIME_DIR/omarchy-gaming-$OMARCHY_HANDHELD_SESSION
+  printf 'managed:%s:%s\n' "$OMARCHY_HANDHELD_SESSION" "$(cat "$managed_runtime/active")" >> "$HANDHELD_ACTIONS"
+  if [[ ${HANDHELD_AUTH_ROUND_TRIP:-} == 1 ]]; then
+    printf '%s\n' gaming > "$managed_runtime/switch"
+  fi
+fi
 python3 - <<'PY'
 import os, socket
 rt = os.environ["XDG_RUNTIME_DIR"]
@@ -346,14 +355,14 @@ if [[ \$owner != 0 ]]; then
 fi
 rm -rf "$HANDHELD_RUNTIME/hypr"
 rm -f "$HANDHELD_RUNTIME"/wayland-*
-setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" relogin >"$work/lock-out" 2>"$work/lock-err"
+setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" "\$@" >"$work/lock-out" 2>"$work/lock-err"
 printf '%s\n' "\$?" > "$work/lock-status"
 EOF
 run_locked_session() {
   if (( EUID == 0 )); then
-    bash "$work/lock-case.sh"
+    bash "$work/lock-case.sh" "${1:-relogin}"
   else
-    unshare --user --map-root-user bash "$work/lock-case.sh"
+    unshare --user --map-root-user bash "$work/lock-case.sh" "${1:-relogin}"
   fi
 }
 for keyboard_status in 1 0; do
@@ -420,3 +429,38 @@ grep -q 'Could not prepare desktop sign-in' "$state/session.log" || fail "the re
 ! grep -Eq '^(uwsm:|broker:pointer)' "$HANDHELD_LOG" || fail "a refused handoff keeps the desktop closed"
 [[ ! -e $state/next && ! -e $work/refused-dropin ]] || fail "a refused handoff writes no unauthenticated desktop request"
 pass "a refused SDDM update leaves the desktop closed"
+
+cat > "$HANDHELD_STUB/loginctl" <<'EOF'
+#!/bin/bash
+[[ $1 == --no-pager && $2 == show-session && $3 == self ]] || exit 2
+printf '%s\n' 'Id=authenticated' 'Active=yes' 'Class=user' 'Remote=no' 'Seat=seat0' \
+  "Service=$HANDHELD_LOGIN_SERVICE" 'Type=wayland' "User=$UID"
+EOF
+chmod +x "$HANDHELD_STUB/loginctl"
+export XDG_SESSION_ID=stale OMARCHY_HANDHELD_SESSION=unrelated
+
+reset_case
+HANDHELD_LOGIN_SERVICE=sddm-autologin run_locked_session authenticated-desktop
+[[ $(cat "$work/lock-status") == 1 && ! -s $HANDHELD_LOG ]] || fail "autologin cannot use the authenticated desktop entry"
+pass "the managed desktop checks the caller's own PAM service"
+
+reset_case
+mkdir -p "$state" "$work/run"
+printf '%s\n' 3 > "$failures"
+printf '%s\n' stop > "$work/run/stop"
+HANDHELD_LOGIN_SERVICE=sddm run_locked_session authenticated-desktop
+[[ $(cat "$work/lock-status") == 0 ]] || fail "PAM sign-in starts the managed desktop even after a gaming failure" "$(detail "$work/lock-err")"
+grep -Fxq 'managed:authenticated:desktop' "$HANDHELD_LOG" || fail "the desktop uses the current logind session id"
+grep -Fxq 'broker:desktop' "$HANDHELD_LOG" || fail "PAM sign-in loads the desktop input profile"
+grep -Fxq 'broker:pointer' "$HANDHELD_LOG" || fail "sign-out restores the greeter profile"
+[[ $(cat "$failures") == 3 && -f $work/run/stop && ! -f $work/run/failures ]] || fail "desktop-only login leaves gaming failure accounting alone"
+pass "password sign-in starts the managed desktop with controller input"
+
+reset_case
+mkdir -p "$state"
+HANDHELD_LOGIN_SERVICE=sddm HANDHELD_AUTH_ROUND_TRIP=1 run_locked_session authenticated-desktop
+[[ $(cat "$work/lock-status") == 0 ]] || fail "the authenticated desktop can switch to Gaming and request sign-in" "$(detail "$work/lock-err")"
+[[ $(grep -c '^uwsm:' "$HANDHELD_LOG") == 1 && $(grep -c '^gamescope$' "$HANDHELD_LOG") == 1 ]] ||
+  fail "going back to Desktop after Gaming needs a fresh sign-in" "$(detail "$work/lock-err")"
+grep -Fxq 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" || fail "after Gaming the desktop request reaches the greeter"
+pass "the authenticated desktop can switch to Gaming and requires sign-in on return"

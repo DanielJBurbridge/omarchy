@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Omarchy (handheld desktop)
+Comment=Omarchy desktop with handheld controls and Gaming Mode switching
+Exec=omarchy-session-start authenticated-desktop
+TryExec=omarchy-session-start
+Type=Application
