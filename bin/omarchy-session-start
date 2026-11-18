@@ -82,6 +82,11 @@ start_hyprland() {
   return "$status"
 }
 
+load_handheld_input_profile() {
+  busctl --timeout=3s --auto-start=no call org.omarchy.InputPlumberProfile \
+    /org/omarchy/InputPlumberProfile org.omarchy.InputPlumberProfile Load s "$1"
+}
+
 # One choke point for every autologged-in desktop entry. Return 10 when the
 # lock is required and was not acknowledged, without starting Hyprland.
 # Before K07 on the handheld, do not lock without a physical keyboard. Explicit
@@ -101,7 +106,19 @@ desktop() {
       fi
       ;;
   esac
-  start_hyprland
+  local status=0 restore_pointer=0
+  # Polkit checks the actual local login. Request the profile here, before
+  # UWSM starts the desktop in the user manager. Recovery selects OSK itself.
+  if (( ! ${gaming_fallback:-0} )) && gaming_handheld_variant &&
+    systemctl is-active --quiet omarchy-inputplumber-profile.service &&
+    load_handheld_input_profile desktop; then
+    restore_pointer=1
+  fi
+  start_hyprland || status=$?
+  if (( restore_pointer )); then
+    load_handheld_input_profile pointer || true
+  fi
+  return "$status"
 }
 
 handheld_autologin_stopped() {

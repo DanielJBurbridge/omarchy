@@ -40,7 +40,6 @@ grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_dropin" ||
   fail "the TDP shim is part of the gaming session target"
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$shim_dropin" ||
   fail "the TDP shim is wanted by the gaming session target"
-OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
 pass "profile load is before the bridge, and both follow the gaming session target"
 
 work=$(mktemp -d)
@@ -55,18 +54,41 @@ cleanup() {
 trap cleanup EXIT
 
 handheld_prepare_gaming "$work"
+cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+[[ $* == omarchy-gaming-session ]]
+EOF
+cat > "$HANDHELD_STUB/omarchy-hw-physical-keyboard" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat > "$HANDHELD_STUB/busctl" <<'EOF'
+#!/bin/bash
+if [[ $* == '--timeout=3s --auto-start=no call org.omarchy.InputPlumberProfile /org/omarchy/InputPlumberProfile org.omarchy.InputPlumberProfile Load s '* ]]; then
+  printf 'profile:%s:%s\n' "${@: -1}" "$XDG_SESSION_ID" >> "$HANDHELD_ACTIONS"
+  exit "${PROFILE_LOAD_STATUS:-0}"
+fi
+exit 1
+EOF
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
 printf 'steam:%s\n' "$*" >> "$HANDHELD_ACTIONS"
 steamos-session-select plasma
 exit 0
 EOF
-chmod +x "$HANDHELD_STUB/steam"
+chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/omarchy-pkg-present" \
+  "$HANDHELD_STUB/omarchy-hw-physical-keyboard"
 handheld_gaming_env
-setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/out" 2>"$work/err" &
-session_pid=$!
-wait "$session_pid" || true
-session_pid=
+export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
+run_session() {
+  local entry=$1
+  : > "$HANDHELD_LOG"
+  setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" "$entry" >"$work/out" 2>"$work/err" &
+  session_pid=$!
+  wait "$session_pid" || true
+  session_pid=
+}
+run_session gaming
 
 start_line=$(grep -n 'systemctl:--user start omarchy-gaming-session.target' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 stop_line=$(grep -n 'systemctl:--user stop omarchy-gaming-session.target' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
@@ -85,6 +107,13 @@ if [[ -z $stop_line || -z $desktop_line ]] || (( stop_line <= gamescope_line || 
   fail "switching to the desktop stops omarchy-gaming-session.target first" "$detail"
 fi
 pass "gamescope start pulls in the target and the desktop switch stops it"
+
+profile_line=$(grep -n '^profile:desktop:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
+pointer_line=$(grep -n '^profile:pointer:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
+if [[ -z $profile_line || -z $pointer_line ]] || (( profile_line <= stop_line || profile_line >= desktop_line || pointer_line <= desktop_line )); then
+  fail "returning from Gaming loads the desktop profile after Gamescope stops and restores the pointer on logout" "$detail"
+fi
+pass "the managed session switches the controller mapping between Gaming, Desktop and the greeter"
 
 bridge_line=$(grep -n 'systemctl:--user start omarchy-rog-ally-input.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 shim_line=$(grep -n 'systemctl:--user restart omarchy-ally-tdp-shim.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
@@ -110,11 +139,7 @@ fi
 exit 0
 EOF
 chmod +x "$HANDHELD_STUB/systemctl"
-: > "$HANDHELD_LOG"
-setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/absent-out" 2>"$work/absent-err" &
-session_pid=$!
-wait "$session_pid" || true
-session_pid=
+run_session gaming
 absent=$(cat "$HANDHELD_LOG")
 if grep -q 'restart omarchy-ally-tdp-shim.service' <<<"$absent"; then
   fail "a missing TDP shim is not restarted" "$absent"
@@ -124,17 +149,25 @@ grep -q 'start omarchy-rog-ally-input.service' <<<"$absent" &&
 grep -q '^gamescope$' <<<"$absent" || fail "a missing TDP shim still starts Gamescope" "$absent"
 pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
 
+printf 'desktop\n' > "$XDG_STATE_HOME/omarchy/gaming-session/preference"
+run_session preferred
+if ! grep -q '^profile:desktop:redteam$' "$HANDHELD_LOG" || grep -q '^gamescope$' "$HANDHELD_LOG"; then
+  fail "a managed login straight into Desktop requests the profile without Gamescope" "$(cat "$HANDHELD_LOG")"
+fi
+PROFILE_LOAD_STATUS=1 run_session preferred
+if ! grep -q '^profile:desktop:redteam$' "$HANDHELD_LOG" || ! grep -q '^uwsm:' "$HANDHELD_LOG" ||
+  grep -q '^profile:pointer:' "$HANDHELD_LOG"; then
+  fail "a refused profile load leaves the desktop available and does not restore another profile" "$(cat "$HANDHELD_LOG")"
+fi
+pass "a managed Desktop login requests controller mode and can continue if refused"
+
 # A machine that is not the handheld never enters the gaming supervisor.
 printf 'Dell Inc.\n' > "$work/dmi/sys_vendor"
 printf 'XPS 13\n' > "$work/dmi/product_name"
 printf '0A1B\n' > "$work/dmi/board_name"
-: > "$HANDHELD_LOG"
-setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" preferred >"$work/laptop-out" 2>"$work/laptop-err" &
-session_pid=$!
-wait "$session_pid" || true
-session_pid=
-if grep -q 'omarchy-gaming-session.target' "$HANDHELD_LOG"; then
-  fail "a non-handheld session does not pull in the gaming target" "$(cat "$HANDHELD_LOG")"
+run_session preferred
+if grep -Eq 'omarchy-gaming-session.target|^profile:' "$HANDHELD_LOG"; then
+  fail "a non-handheld session does not pull in the gaming target or change controller profiles" "$(cat "$HANDHELD_LOG")"
 fi
 grep -q '^uwsm:' "$HANDHELD_LOG" || fail "a non-handheld session still starts the desktop" "$(cat "$HANDHELD_LOG")"
 pass "the gaming session target stays on the handheld path"

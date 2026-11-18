@@ -69,8 +69,16 @@ cat > "$HANDHELD_STUB/omarchy-inputplumber-profile" <<'EOF'
 printf 'profile:%s\n' "$*" >> "$HANDHELD_ACTIONS"
 exit 0
 EOF
+cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+[[ $* == omarchy-gaming-session ]]
+EOF
+cat > "$HANDHELD_STUB/busctl" <<'EOF'
+#!/bin/bash
+printf 'broker:%s\n' "${@: -1}" >> "$HANDHELD_ACTIONS"
+EOF
 chmod +x "$HANDHELD_STUB/uwsm" "$HANDHELD_STUB/omarchy-toggle-desktop-keyboard" \
-  "$HANDHELD_STUB/omarchy-inputplumber-profile"
+  "$HANDHELD_STUB/omarchy-inputplumber-profile" "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/busctl"
 handheld_gaming_env
 
 state=$HANDHELD_HOME/.local/state/omarchy/gaming-session
@@ -141,6 +149,9 @@ grep -q '^uwsm:start -g -1 -e -D Hyprland hyprland.desktop$' "$HANDHELD_LOG" ||
   fail "the fail limit does not start the Hyprland desktop" "$(detail "$work/limit-err")"
 grep -q '^profile:load osk$' "$HANDHELD_LOG" ||
   fail "the fail limit does not load the on-screen keyboard profile" "$(detail "$work/limit-err")"
+if grep -q '^broker:desktop$' "$HANDHELD_LOG"; then
+  fail "the regular desktop profile replaces the fail-limit profile" "$(detail "$work/limit-err")"
+fi
 grep -q '^osk:show:fallback:wayland-1$' "$HANDHELD_LOG" ||
   fail "the fail limit does not show the on-screen keyboard" "$(detail "$work/limit-err")"
 [[ $(cat "$state/recovery" 2>/dev/null) == "$latch" ]] ||

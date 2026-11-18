@@ -39,7 +39,7 @@ A USB keyboard on an undocked Ally turns the touch profile off (D3) and leaves t
 | F4 | Dock while here | Spec 02. Touch profile off. External scale unchanged. `desktop` stays loaded. |
 | F5 | Undock, Stay | Spec 02's Stay. Keyboard gone and no external display: touch profile on. The session stays Hyprland. |
 
-`default/inputplumber/profiles/desktop.yaml` is the file F1 loads. Nothing in this tree loads it when a gaming session ends (L64). F1 includes that load. The greeter's `pointer` profile (left stick, `omarchy-ally-pointer.service`) is a different map and stays on the greeter. F2 is the gamescope miss that calls `desktop()`. Three starts in 60 s that never read `started` still write the stop file, set `Relogin=false`, and show the greeter. That path is not `desktop()`.
+With the optional gaming-session package and its profile service running, the managed login requests `desktop` before starting Hyprland, including after Switch to Desktop. It requests `pointer` again on desktop exit after a successful desktop profile request. A missing service or a refused request still allows Hyprland to start. The failure-limit recovery desktop has its own OSK profile. The automated test covers request ordering. Stick movement and the full round trip still need an RC71L check.
 
 ## 3. On-screen keyboard
 
@@ -205,7 +205,7 @@ Read on this tip. "Shipped" means the file or the command is in the tree. It doe
 | Right stick 900 px/s, left stick notched wheel, RT/LT, CC long → Super+Ctrl+Y, AC tap → `omarchy_menu` | `default/inputplumber/profiles/desktop.yaml` | Keep |
 | OSK face-button swap | `default/inputplumber/profiles/osk.yaml` | Keep. The load on show is to build |
 | Greeter left-stick pointer | `omarchy-ally-pointer.yaml`, `omarchy-ally-pointer.service` | Out of scope. Greeter only |
-| Profile helper, allowlist, `load pointer` before SDDM | `bin/omarchy-inputplumber-profile` (PR #53) | F1 uses `load desktop`. Not shipped (L64) |
+| Profile helper, allowlist, `load pointer` before SDDM | `bin/omarchy-inputplumber-profile` (PR #53) | F1 requests `desktop` via the profile service. Physical acceptance remains open (L64) |
 | wvkbd toggle, bar button, Ally bind | `omarchy-toggle-desktop-keyboard`, `DesktopKeyboard.qml`, `utilities.lua` | Manual toggle. Keep |
 | Shell menu and bar | `shell/plugins/menu`, `shell/plugins/bar`, `omarchy.menu` on the default bar | 44 px floor to build |
 | Notifications | `shell/plugins/notifications` | Dismiss and actions grow to 44 px. To build |
