@@ -8,8 +8,8 @@ import qs.Commons as Commons
 PanelWindow {
   id: edge
   anchors.bottom: true
-  implicitWidth: 192
-  implicitHeight: 8
+  implicitWidth: Math.min(480, Math.round(screen.width / 2))
+  implicitHeight: 36
   exclusiveZone: implicitHeight
   color: "transparent"
   WlrLayershell.namespace: "omarchy-keyboard-edge"
@@ -75,9 +75,9 @@ PanelWindow {
   Rectangle {
     visible: edge.available
     anchors.centerIn: parent
-    width: 52
-    height: 4
-    radius: 2
+    width: 128
+    height: 6
+    radius: height / 2
     color: Commons.Color.foreground
     border.color: Commons.Color.background
   }
@@ -88,6 +88,7 @@ PanelWindow {
     enabled: edge.available
     z: 1
     mouseEnabled: false
+    readonly property int maximumDrift: 36
     property int contacts: 0
     property bool tracking: false
     onEnabledChanged: if (!enabled) { tracking = false; contacts = 0 }
@@ -99,12 +100,12 @@ PanelWindow {
     }
     onUpdated: points => {
       for (const p of points) {
-        if (Math.abs(p.x - p.startX) > 24 || p.y > p.startY + 8) tracking = false
+        if (Math.abs(p.x - p.startX) > maximumDrift || p.y > p.startY + 8) tracking = false
       }
     }
     onReleased: points => {
       const p = points[0]
-      if (tracking && !monitorAtPress.running && p.startY - p.y >= 64 && Math.abs(p.x - p.startX) <= 24) {
+      if (tracking && !monitorAtPress.running && p.startY - p.y >= 48 && Math.abs(p.x - p.startX) <= maximumDrift) {
         try {
           const start = JSON.parse(monitors.text)
           if (start.length === 1 && start[0].name === edge.screen.name && Number.isInteger(start[0].transform))
