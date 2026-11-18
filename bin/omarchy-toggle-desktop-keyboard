@@ -139,25 +139,24 @@ case "$action" in
     ;;
 esac
 
-# Linux delivers different pending signals by number. Let wvkbd read the
-# previous control before sending another, so a quick hide wins over a show.
-control_pending() {
+control_mask=$((1 << ($(kill -l USR1) - 1) | 1 << ($(kill -l USR2) - 1) | 1 << ($(kill -l RTMIN) - 1)))
+
+read_signal_mask() {
   local field bits
   while read -r field bits _; do
-    [[ $field == "ShdPnd:" ]] || continue
-    (( 16#$bits )) || return 1
-    if (( control_mask == 0 )); then
-      control_mask=$((1 << ($(kill -l USR1) - 1) | 1 << ($(kill -l USR2) - 1) | 1 << ($(kill -l RTMIN) - 1)))
+    if [[ $field == "$1" ]]; then
+      mask=$((16#$bits))
+      return 0
     fi
-    (( 16#$bits & control_mask ))
-    return
-  done < "/proc/$pid/status"
+  done 2>/dev/null < "/proc/$pid/status"
   return 1
 }
 
+# Linux delivers different pending signals by number. Let wvkbd read the
+# previous control before sending another, so a quick hide wins over a show.
 send_control() {
-  local -i remaining=100 control_mask=0
-  while control_pending; do
+  local -i remaining=100 mask
+  while read_signal_mask ShdPnd: && (( mask & control_mask )); do
     (( remaining-- > 0 )) || fail 'keyboard did not receive the previous control.'
     sleep 0.02
   done
@@ -224,16 +223,25 @@ else
   # Six rows in full: 44 logical units per row, before upstream key borders.
   # At scale 2, 264 becomes 528px; no global display or physical keymap change.
   # Both orientations are explicit. No auto input-method or focus stealing.
-  # wvkbd reads these through signalfd after its first Wayland round trips.
-  # Queue early button presses even before the keyboard has mapped.
-  nohup env --block-signal=USR1,USR2,RTMIN "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
+  # Reset inherited masks. wvkbd blocks these signals itself after setting
+  # up Wayland, when it is ready to handle controls through signalfd.
+  nohup env --default-signal=USR1,USR2,RTMIN "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
     -l full,special --landscape-layers full,special \
     --no-popup "${style[@]}" >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
-  # Poll until the child is the keyboard we just started. A fixed sleep
-  # returns before exec under load, and then the identity check fails closed.
+  abort_startup() {
+    # Address the sole background job through the shell tracking its child.
+    kill -KILL %% 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  }
+  trap abort_startup EXIT
+  trap 'exit 1' HUP INT TERM
+  # Keep the command lock until the child has finished its handshake. Bound
+  # the wait by monotonic elapsed time even if polling is delayed.
   ready=false
-  for _ in {1..100}; do
+  read -r uptime _ </proc/uptime
+  deadline=$((10#${uptime/./} + 200))
+  while (( 10#${uptime/./} < deadline )); do
     # Once the child exits it cannot finish starting. Release the lock so
     # another tap can retry immediately.
     IFS= read -r stat 2>/dev/null <"/proc/$pid/stat" || break
@@ -241,14 +249,17 @@ else
     read -ra fields <<< "$stat"
     [[ ${fields[0]:-} != "Z" ]] || break
     started=${fields[19]:-}
-    if [[ -n ${started:-} ]] && identity; then
+    if [[ -n ${started:-} ]] && identity && read_signal_mask SigBlk: &&
+        (( (mask & control_mask) == control_mask )); then
       ready=true
       break
     fi
     sleep 0.02
+    read -r uptime _ </proc/uptime
   done
   $ready || fail "startup failed; see $state/output.log"
   printf '%s %s %s\n' "$pid" "$started" "$binary" > "$state/process"
+  trap - EXIT HUP INT TERM
   if [[ $action == "toggle" ]]; then visibility=manual; fi
 fi
 

@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 
 HELPER = (Path(sys.argv[1]) if len(sys.argv) > 1 else
@@ -24,6 +23,7 @@ HELPER = (Path(sys.argv[1]) if len(sys.argv) > 1 else
 # The sink records signal receipt; it intentionally implements no keyboard logic.
 FIXTURE = r'''
 #include <signal.h>
+#include <sys/signalfd.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -41,7 +41,6 @@ int main(int argc, char **argv) {
     else puts("--non-exclusive --wayland-layer --text-press-sp");
     return 0;
   }
-  if (getenv("FAIL_START")) return 42;
   fd = open(getenv("SIGNALS"), O_WRONLY|O_CREAT|O_APPEND, 0600);
   if (fd < 0) return 43;
   // wvkbd completes its Wayland handshake before it starts reading signals.
@@ -50,17 +49,20 @@ int main(int argc, char **argv) {
     (void)write(fd, "W", 1);
     while (access(gate, F_OK) != 0) usleep(5000);
   }
+  if (getenv("FAIL_START")) return 42;
   sigset_t commands;
   sigemptyset(&commands);
   sigaddset(&commands, SIGUSR1); sigaddset(&commands, SIGUSR2);
   sigaddset(&commands, SIGRTMIN); sigaddset(&commands, SIGTERM);
-  if (sigprocmask(SIG_BLOCK, &commands, NULL) < 0) return 44;
   (void)write(fd, "B", 1);
   for (int i=1; i<argc; i++) { (void)write(fd, argv[i], strlen(argv[i])); (void)write(fd, "\n", 1); }
   (void)write(fd, "E", 1);
+  if (sigprocmask(SIG_BLOCK, &commands, NULL) < 0) return 44;
+  int controls = signalfd(-1, &commands, SFD_CLOEXEC);
+  if (controls < 0) return 45;
   for (;;) {
-    int sig;
-    if (sigwait(&commands, &sig) == 0) handle(sig);
+    struct signalfd_siginfo info;
+    if (read(controls, &info, sizeof(info)) == sizeof(info)) handle(info.ssi_signo);
   }
 }
 '''
@@ -191,13 +193,19 @@ esac
         record = state / 'process'
         owned = set()
 
+        def track_keyboard():
+            if record.exists():
+                pid, stamp, executable = record.read_text().split()
+                try:
+                    if executable == str(binary) and starttime(pid) == stamp:
+                        owned.add(int(pid))
+                except FileNotFoundError:
+                    pass
+
         def run(*args, ok=True, extra=None, timeout=5):
             result = subprocess.run(['/bin/bash', str(HELPER), *args], env=env | (extra or {}),
                                     capture_output=True, text=True, timeout=timeout)
-            if record.exists():
-                pid, stamp, executable = record.read_text().split()
-                if executable == str(binary) and Path(f'/proc/{pid}').exists() and starttime(pid) == stamp:
-                    owned.add(int(pid))
+            track_keyboard()
             assert (result.returncode == 0) == ok, (args, result.returncode, result.stderr)
             return result
 
@@ -211,6 +219,39 @@ esac
                     return
                 time.sleep(.01)
             raise AssertionError('Timed out waiting for fixture event')
+
+        def assert_pending(call):
+            try:
+                call.wait(timeout=.25)
+            except subprocess.TimeoutExpired:
+                return
+            raise AssertionError(f'Command returned early with status {call.returncode}')
+
+        def finish(call, ok=True):
+            out, err = call.communicate(timeout=5)
+            assert (call.returncode == 0) == ok, (call.args, call.returncode, out, err)
+
+        def start_with_gate(tag, fail=False):
+            gate = root / f'{tag}-release'
+            receipt = root / f'{tag}-signals'
+            receipt.touch()
+            options = {'START_GATE': str(gate), 'SIGNALS': str(receipt)}
+            if fail:
+                options['FAIL_START'] = '1'
+            # A pre-blocked caller must not fulfil the keyboard's readiness check.
+            call = subprocess.Popen(['/usr/bin/env', '--block-signal=USR1,USR2,RTMIN',
+                                     '/bin/bash', str(HELPER), 'show'], env=env | options,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                wait_for(lambda: receipt.read_text() == 'W')
+                assert_pending(call)
+                assert not record.exists()
+            finally:
+                gate.touch()
+                track_keyboard()
+            finish(call, ok=not fail)
+            track_keyboard()
+            return receipt
 
         try:
             run('--help', extra={'WAYLAND_DISPLAY': '', 'XDG_RUNTIME_DIR': ''})
@@ -290,21 +331,30 @@ esac
             run('stop')
             print('PASS edge summon requires a known desktop and one internal panel and touch device')
 
-            gate = root / 'compositor-ready'
-            run('show', extra={'START_GATE': str(gate)})
-            wait_for(lambda: events().endswith('W'))
-            run('show')
+            failed = start_with_gate('failed', fail=True)
+            assert not record.exists() and failed.read_text() == 'W'
+            receipt = start_with_gate('ready')
+            saved = record.read_text()
+            ready_pid = int(saved.split()[0])
+            wait_for(lambda: receipt.read_text().endswith('E'))
+            print('PASS an incomplete handshake cannot publish startup success, and a delayed one can finish')
+
             # Linux can deliver USR1 (hide) before an older, pending USR2
-            # (show). Hold the handshake across both requests.
-            release = threading.Timer(.4, gate.touch)
-            release.start()
+            # (show). Pause this ready receiver across both requests.
+            os.kill(ready_pid, signal.SIGSTOP)
             try:
-                run('hide')
+                run('show')
+                hide = subprocess.Popen(['/bin/bash', str(HELPER), 'hide'], env=env,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                assert_pending(hide)
             finally:
-                release.join()
-            wait_for(lambda: events().endswith('ESH'))
+                os.kill(ready_pid, signal.SIGCONT)
+            finish(hide)
+            assert record.read_text() == saved
+            wait_for(lambda: receipt.read_text().endswith('ESH'))
             run('stop')
-            print('PASS show then hide during startup reach the original keyboard in order')
+            wait_for(lambda: receipt.read_text().endswith('ESHHX'))
+            print('PASS show then hide while a ready keyboard stalls reach it in order')
 
             for _ in range(3):
                 run('show')
