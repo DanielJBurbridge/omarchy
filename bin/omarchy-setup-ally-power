@@ -1,0 +1,254 @@
+#!/bin/bash
+
+# omarchy:summary=Switch power ownership between ASUS and Omarchy on the original ROG Ally
+# omarchy:args=[status | use-omarchy | restore-asus]
+# omarchy:examples=omarchy setup ally-power status | omarchy setup ally-power use-omarchy | omarchy setup ally-power restore-asus
+
+set -euo pipefail
+
+installed=/usr/bin/omarchy-setup-ally-power
+state_dir=/var/lib/omarchy/handheld
+receipt=$state_dir/asus-power-handoff.state
+mask=/etc/systemd/system/asusd.service
+mask_target=/etc/omarchy/handheld/omarchy-ally-power-asusd-mask.service
+lock=/run/omarchy-ally-tdp.lock
+asusd=asusd.service
+shutdown=asus-shutdown.service
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+usage() {
+  printf '%s\n' 'Usage: omarchy setup ally-power [status | use-omarchy | restore-asus]' \
+    'With no arguments, open the desktop power setup picker.'
+}
+
+owns_mask() {
+  [[ -L $mask && $(readlink -- "$mask") == "$mask_target" ]] && owns_mask_target
+}
+
+owns_mask_target() {
+  [[ -L $mask_target && $(readlink -- "$mask_target") == /dev/null ]]
+}
+
+has_receipt() {
+  [[ -f $receipt && ! -L $receipt ]]
+}
+
+read_unit() {
+  local properties key value
+  properties=$(systemctl --system show --no-pager -p LoadState -p ActiveState "$1") ||
+    fail "Could not query $1."
+  load_state=
+  active_state=
+  while IFS='=' read -r key value; do
+    case $key in
+      LoadState) load_state=$value ;;
+      ActiveState) active_state=$value ;;
+    esac
+  done <<<"$properties"
+  case $active_state in
+    active | inactive | failed) ;;
+    *) fail "$1 is changing state or is unavailable. Try again when it has settled." ;;
+  esac
+}
+
+status() {
+  read_unit "$asusd"
+  if has_receipt; then
+    if owns_mask && [[ $load_state == masked && $active_state != active ]]; then
+      printf '%s\n' 'Omarchy power handoff is active.'
+    else
+      printf '%s\n' 'Omarchy has a pending power handoff. Retry it or restore ASUS.'
+    fi
+  elif [[ $load_state == masked ]]; then
+    printf '%s\n' 'ASUS power control has an existing systemd mask.'
+  elif [[ $active_state == active ]]; then
+    printf '%s\n' 'ASUS controls power and charging.'
+  else
+    printf '%s\n' 'ASUS power control is inactive.'
+  fi
+}
+
+choose() {
+  local use_asus use_omarchy selection result code
+  local title cancel
+  title=$(omarchy-i18n allyPower.title)
+  cancel=$(omarchy-i18n allyPower.cancel)
+  use_omarchy=$(printf '\t%s\t%s' "$(omarchy-i18n allyPower.useOmarchy)" "$(omarchy-i18n allyPower.useOmarchyHint)")
+  use_asus=$(printf '↶\t%s\t%s' "$(omarchy-i18n allyPower.restoreAsus)" "$(omarchy-i18n allyPower.restoreAsusHint)")
+  local options=("$cancel" "$use_omarchy")
+  if has_receipt; then
+    options+=("$use_asus")
+  fi
+  if selection=$(omarchy-menu-select "$title" "${options[@]}" -- --width 560); then
+    case $selection in
+      "${use_omarchy#*$'\t'}") action=use-omarchy ;;
+      "${use_asus#*$'\t'}") action=restore-asus ;;
+      *) return 0 ;;
+    esac
+  else
+    code=$?
+    if (( code == 1 )); then return 0; fi
+    return "$code"
+  fi
+  if result=$("$installed" "$action" 2>&1); then
+    omarchy-notification-send "$title" "$result" || printf '%s\n' "$result"
+  else
+    code=$?
+    result=${result:-$(omarchy-i18n allyPower.authorisationStopped)}
+    omarchy-notification-send "$title" "$result" || printf '%s\n' "$result" >&2
+    return "$code"
+  fi
+}
+
+require_omarchy_power() {
+  local state owners unit
+  omarchy-pkg-present omarchy-gaming-session ||
+    fail 'Set up the optional Ally Gaming Session before changing power ownership.'
+  state=$(systemctl --system is-enabled power-profiles-daemon.service 2>/dev/null || true)
+  [[ -f $state_dir/power-profiles-daemon.state && $state == "masked" ]] ||
+    fail 'The Ally Gaming Session has not set up the Omarchy power backend.'
+  omarchy-ally-tdp-apply --show >/dev/null || fail 'The Ally firmware power controls are unavailable.'
+  owners=$(omarchy-ally-tdp-apply --conflict-units) ||
+    fail 'Could not check for other power control services.'
+  while IFS= read -r unit; do
+    [[ -n $unit && $unit != "$asusd" ]] || continue
+    read_unit "$unit"
+    [[ $active_state != active ]] || fail "$unit is also managing power. Leave ASUS ownership in place until that conflict is resolved."
+  done <<<"$owners"
+}
+
+capture_receipt() {
+  local daemon_was_active=0 shutdown_was_active=0 temporary
+  [[ ! -e $mask && ! -L $mask ]] || fail 'An existing ASUS unit override or mask is in place. It was preserved.'
+  [[ ! -e $mask_target && ! -L $mask_target ]] || fail 'An existing Omarchy ASUS mask target needs administrator review.'
+  read_unit "$asusd"
+  [[ $load_state == loaded ]] || fail 'ASUS power control is unavailable or already masked. Its state was preserved.'
+  if [[ $active_state == active ]]; then daemon_was_active=1; fi
+  read_unit "$shutdown"
+  if [[ $active_state == active ]]; then
+    [[ $load_state == loaded && $daemon_was_active == 1 ]] ||
+      fail 'The active ASUS shutdown service cannot be restored from its current state.'
+    shutdown_was_active=1
+  fi
+  mkdir -p -- "$state_dir"
+  temporary=$(mktemp "$state_dir/.asus-power-handoff.XXXXXXXX")
+  if ! printf '%s %s\n' "$daemon_was_active" "$shutdown_was_active" > "$temporary" ||
+    ! mv -T -- "$temporary" "$receipt"; then
+    rm -f -- "$temporary"
+    fail 'Could not save the previous ASUS service states.'
+  fi
+}
+
+load_receipt() {
+  [[ -f $receipt && ! -L $receipt ]] &&
+    IFS=' ' read -r daemon_was_active shutdown_was_active extra < "$receipt" &&
+    [[ $daemon_was_active =~ ^[01]$ && $shutdown_was_active =~ ^[01]$ && -z $extra ]] ||
+    fail 'The ASUS handoff record is invalid. No service state was changed.'
+}
+
+reconcile_service() {
+  local unit=$1 expected=$2
+  read_unit "$unit"
+  if (( expected )); then
+    if [[ $active_state != active ]]; then
+      [[ $load_state == loaded ]] || fail "$unit cannot start. Its current override was preserved."
+      systemctl --system start "$unit" || fail "Could not restore $unit. Retry Restore ASUS."
+    fi
+  elif [[ $active_state == active ]]; then
+    systemctl --system stop "$unit" || fail "Could not stop $unit. Retry the handoff."
+  fi
+  read_unit "$unit"
+  if (( expected )); then
+    [[ $active_state == active ]] || fail "$unit did not become active."
+  else
+    [[ $active_state != active ]] || fail "$unit stayed active."
+  fi
+}
+
+use_omarchy() {
+  require_omarchy_power
+  if [[ ! -e $receipt && ! -L $receipt ]]; then capture_receipt; fi
+  load_receipt
+  # This distinct target identifies our mask after an interruption and leaves
+  # administrator-created /etc or /run masks alone on undo.
+  if [[ ! -e $mask_target && ! -L $mask_target ]]; then
+    mkdir -p -- "${mask_target%/*}"
+    ln -sT -- /dev/null "$mask_target" || fail 'Could not create the Omarchy mask target.'
+  fi
+  owns_mask_target ||
+    fail 'The Omarchy mask target was replaced. It was preserved.'
+  if ! owns_mask; then
+    ln -sT -- "$mask_target" "$mask" || fail 'Could not create the ASUS mask. Existing overrides were preserved.'
+  fi
+  systemctl --system daemon-reload || fail 'Could not load the ASUS mask. Retry the handoff or restore ASUS.'
+  reconcile_service "$shutdown" 0
+  reconcile_service "$asusd" 0
+  [[ $load_state == masked ]] || fail 'Systemd did not load the ASUS mask.'
+  printf '%s\n' 'Omarchy now manages Ally power controls. ASUS-managed features are paused.'
+}
+
+restore_asus() {
+  if [[ ! -e $receipt && ! -L $receipt ]]; then
+    printf '%s\n' 'There is no Omarchy power handoff to restore.'
+    return
+  fi
+  load_receipt
+  if owns_mask; then
+    rm -- "$mask"
+  elif [[ -e $mask || -L $mask ]]; then
+    fail 'The ASUS unit override was replaced. It was preserved and the handoff record was retained.'
+  fi
+  systemctl --system daemon-reload || fail 'Could not reload the ASUS unit. Retry Restore ASUS.'
+  if (( daemon_was_active )); then
+    reconcile_service "$asusd" 1
+    reconcile_service "$shutdown" "$shutdown_was_active"
+  else
+    reconcile_service "$shutdown" 0
+    reconcile_service "$asusd" 0
+  fi
+  if owns_mask_target; then
+    rm -- "$mask_target"
+  fi
+  rm -- "$receipt"
+  printf '%s\n' 'Previous ASUS service states restored. Check the current limits in your power controls.'
+}
+
+action=${1:-choose}
+(( $# <= 1 )) || { usage >&2; exit 2; }
+case $action in
+  -h | --help) usage; exit 0 ;;
+  choose | status | use-omarchy | restore-asus) ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if (( EUID == 0 )); then
+  export PATH=/usr/bin:/bin
+  unset OMARCHY_DMI_SYS_VENDOR_PATH OMARCHY_DMI_PRODUCT_NAME_PATH OMARCHY_DMI_BOARD_NAME_PATH
+fi
+omarchy-hw-rog-ally || fail 'This power setup supports the original ROG Ally RC71L.'
+case $action in
+  choose) choose; exit ;;
+  status) status; exit ;;
+esac
+
+if (( EUID != 0 )); then
+  if [[ -t 0 ]]; then
+    exec sudo -- "$installed" "$action"
+  else
+    exec pkexec "$installed" "$action"
+  fi
+fi
+
+umask 022
+exec 9>"$lock"
+flock -w 5 9 || fail 'Ally power controls are busy. Wait a moment and try again.'
+# Notify the Steam shim after a complete or interrupted ownership transition.
+trap ': > "$lock.updated" || printf "%s\n" "Could not refresh the Steam power controls." >&2' EXIT
+case $action in
+  use-omarchy) use_omarchy ;;
+  restore-asus) restore_asus ;;
+esac

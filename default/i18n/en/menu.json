@@ -1346,5 +1346,9 @@
   "setup.gaming": {
     "label": "Gaming",
     "description": "Steam, first sign-in, controller and touch setup"
+  },
+  "setup.ally-power": {
+    "label": "Ally Power Controls",
+    "description": "Choose Omarchy or ASUS power control"
   }
 }

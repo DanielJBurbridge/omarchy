@@ -310,6 +310,16 @@ remove_session() {
     write_deny_rule
   fi
   restore_ppd
+  # The vanished PPD receipt prevents new handoffs from starting. Restore
+  # under the writer's lock even if a first claim is still saving its receipt.
+  if [[ -z $prefix ]] && omarchy-hw-rog-ally; then
+    if [[ -x /usr/bin/omarchy-setup-ally-power ]]; then
+      /usr/bin/omarchy-setup-ally-power restore-asus >/dev/null || return 1
+    elif [[ -f /var/lib/omarchy/handheld/asus-power-handoff.state ]]; then
+      log "restore the ASUS power handoff before removing its backend"
+      return 1
+    fi
+  fi
   reload_systemd || return 1
 }
 

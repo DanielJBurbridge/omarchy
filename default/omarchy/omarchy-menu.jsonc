@@ -261,6 +261,7 @@
   "setup.config.hyprsunset": {"icon":"","label":"Hyprsunset","action":"omarchy-launch-config-editor ~/.config/hypr/hyprsunset.conf && omarchy-restart-hyprsunset"},
   "setup.config.xcompose": {"icon":"󰞅","label":"XCompose","action":"omarchy-launch-config-editor ~/.XCompose && omarchy-restart-xcompose"},
   "setup.gaming": {"icon":"","label":"Gaming","description":"Steam, first sign-in, controller and touch setup","action":"omarchy-setup-gaming"},
+  "setup.ally-power": {"icon":"","label":"Ally Power Controls","description":"Choose Omarchy or ASUS power control","when":"omarchy-hw-rog-ally && ( [[ -f /var/lib/omarchy/handheld/asus-power-handoff.state ]] || ( omarchy-pkg-present asusctl && omarchy-pkg-present omarchy-gaming-session ) )","action":"omarchy-setup-ally-power"},
   "setup.keyboard": {"icon":"","label":"Keyboard"},
   "setup.keyboard.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/bindings.lua\""},
   "setup.keyboard.inputs": {"icon":"","label":"Keyboard Inputs","action":"omarchy-setup-keyboard"},
