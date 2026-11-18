@@ -95,6 +95,15 @@ assertEqual(menu.labelFor({ id: 'style.theme', label: 'Theme', checked: 'cmd' },
 assertEqual(menu.labelFor({ id: 'install.browser.zen', label: 'Zen', disabled: 'cmd' }, {}, { 'install.browser.zen': true }), 'Zen ✓', 'menu marks a disabled row as something you already have')
 assertEqual(menu.labelFor({ id: 'install.browser.zen', label: 'Zen', disabled: 'cmd' }, {}, { 'install.browser.zen': false }), 'Zen', 'menu leaves an uninstalled row unmarked')
 
+const newlyMoved = { workspace: { id: -1, name: '4' }, lastIpcObject: { workspace: { id: 4, name: '4', type: 'normal' } } }
+assertEqual(menu.pickerWorkspaceKind(newlyMoved), 'normal', 'picker recognises the reported id of a new workspace')
+newlyMoved.workspace = { id: 8, name: '8' }
+assertEqual(menu.pickerWorkspaceKind(newlyMoved), 'normal', 'picker trusts a positive current workspace during an ordinary move')
+newlyMoved.workspace = { id: -1, name: 'special:private' }
+assertEqual(menu.pickerWorkspaceKind(newlyMoved), '', 'picker rejects the old normal workspace after a move to a scratchpad')
+newlyMoved.lastIpcObject.workspace = { name: 'special:private', type: 'special' }
+assertEqual(menu.pickerWorkspaceKind(newlyMoved), '', 'picker hides a confirmed scratchpad')
+
 const visibilityItems = {
   hardware: menu.normalizeItem('hardware', { label: 'Hardware' }),
   laptop: menu.normalizeItem('hardware.laptop', { label: 'Laptop', when: 'is-laptop', action: 'toggle-laptop' }),

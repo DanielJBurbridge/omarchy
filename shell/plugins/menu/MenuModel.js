@@ -281,6 +281,20 @@ function childCount(items, itemOrder, id) {
   return count
 }
 
+function pickerWorkspaceKind(client, dock) {
+  var workspace = client.workspace
+  var reported = client.lastIpcObject?.workspace
+  if (!workspace) return ""
+  if (dock?.isMinimizedWorkspace(workspace.name))
+    return !reported || reported.name === workspace.name ? "minimized" : ""
+  if (reported?.type === "special") return ""
+  if (workspace.id > 0) return "normal"
+  // A newly created workspace can still have id -1 in Quickshell after the
+  // compositor has reported its real id on the same client's workspace.
+  return reported?.type === "normal" && reported.name === workspace.name
+    && Number.isInteger(reported.id) && reported.id > 0 ? "normal" : ""
+}
+
 function whenResult(entry, whenResults) {
   return entry.when ? (whenResults || {})[entry.id] : true
 }
@@ -718,6 +732,7 @@ if (typeof module !== "undefined") {
     parentPathFor: parentPathFor,
     isDescendantOf: isDescendantOf,
     childCount: childCount,
+    pickerWorkspaceKind: pickerWorkspaceKind,
     isVisible: isVisible,
     screenRouteAllowed: screenRouteAllowed,
     isDisabled: isDisabled,

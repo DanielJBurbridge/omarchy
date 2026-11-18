@@ -953,11 +953,12 @@ Item {
         if (!root.handheldScreen) { root.openExistingMenu("root"); return }
         var client = root.windowChoices[Number(picked.itemId.substring(6))]
         root.cancel()
-        if (!client || Hyprland.toplevels.values.indexOf(client) < 0 || !client.wayland || !client.workspace) return
-        var minimized = root.dock?.isMinimizedWorkspace(client.workspace.name) === true
-        if (root.dock && (minimized || client.workspace.id >= 1))
-          root.dock.bringForward({ address: client.address, toplevel: client.wayland, minimized: minimized })
-        else if (client.workspace.id >= 1)
+        if (!client || Hyprland.toplevels.values.indexOf(client) < 0 || !client.wayland) return
+        var kind = MenuModel.pickerWorkspaceKind(client, root.dock)
+        if (!kind) return
+        if (root.dock)
+          root.dock.bringForward({ address: client.address, toplevel: client.wayland, minimized: kind === "minimized" })
+        else
           client.wayland.activate()
       } else if (root.dmenuMultiple) {
         if (picked.itemId === "dmenu.apply") {
@@ -1075,12 +1076,11 @@ Item {
     var options = []
     for (var client of Hyprland.toplevels.values) {
       var win = client.wayland
-      var workspace = client.workspace
-      if (!win || win.parent || !workspace) continue
-      var minimized = root.dock?.isMinimizedWorkspace(workspace.name) === true
-      if (workspace.id < 1 && !minimized) continue
+      if (!win || win.parent) continue
+      var kind = MenuModel.pickerWorkspaceKind(client, root.dock)
+      if (!kind) continue
       var title = String(win.title || win.appId).replace(/[\t\r\n]/g, " ")
-      var detail = minimized ? Commons.I18n.t("menu.minimized") : Commons.I18n.t("menu.windowWorkspace").arg(workspace.name)
+      var detail = kind === "minimized" ? Commons.I18n.t("menu.minimized") : Commons.I18n.t("menu.windowWorkspace").arg(client.workspace.name)
       windows.push(client)
       options.push("󰖲\t" + title + "\t" + detail)
     }
