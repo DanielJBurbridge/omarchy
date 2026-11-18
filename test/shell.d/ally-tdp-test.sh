@@ -584,6 +584,25 @@ model=\$(busctl --user get-property com.steampowered.SteamOSManager1 /com/steamp
 bus=com.steampowered.SteamOSManager1
 object=/com/steampowered/SteamOSManager1
 interface=\$bus.TdpLimit1
+python3 - <<'PY'
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio
+
+bus = "com.steampowered.SteamOSManager1"
+path = "/com/steampowered/SteamOSManager1"
+manager = Gio.DBusObjectManagerClient.new_for_bus_sync(
+    Gio.BusType.SESSION, Gio.DBusObjectManagerClientFlags.DO_NOT_AUTO_START, bus, "/",
+)
+tdp = manager.get_interface(path, bus + ".TdpLimit1")
+assert tdp is not None, "Steam discovery could not find TdpLimit1"
+for name, value in {"TdpLimit": 30, "TdpLimitMin": 7, "TdpLimitMax": 30}.items():
+    prop = tdp.get_cached_property(name)
+    assert prop is not None and prop.get_uint32() == value, name
+gpu = manager.get_interface(path, bus + ".GpuPerformanceLevel1")
+assert gpu.get_cached_property("ManualGpuClock") is None
+PY
 busctl --user set-property "\$bus" "\$object" "\$interface" TdpLimit u 30
 [[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
 expect_tdp_update() {
@@ -623,7 +642,7 @@ reset_state
 if dbus-run-session -- bash "$work/shim-session.sh"; then
   [[ $(tuple) == 20/20/25 ]] || fail "a reassert without a request writes to firmware" "$(tuple)"
   [[ -z $(stored) ]] || fail "a reassert without a request persists a setting" "$(stored)"
-  pass "external reasserts update the shim and signal its clients"
+  pass "clients discover the TDP shim and receive external reassert updates"
 else
-  fail "the shim did not announce external TDP changes"
+  fail "a client could not discover the shim or receive external TDP changes"
 fi

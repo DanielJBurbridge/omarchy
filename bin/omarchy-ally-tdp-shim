@@ -26,6 +26,24 @@ PROPS = "org.freedesktop.DBus.Properties"
 NOT_SUPPORTED = "org.freedesktop.DBus.Error.NotSupported"
 TDP_PROPERTIES = {"TdpLimit": "limit", "TdpLimitMin": "min", "TdpLimitMax": "max"}
 
+# Steam discovers the supported interfaces through the manager at the bus root.
+OBJECT_MANAGER_XML = """<node>
+  <interface name="org.freedesktop.DBus.ObjectManager">
+    <method name="GetManagedObjects">
+      <arg type="a{oa{sa{sv}}}" direction="out"/>
+    </method>
+    <signal name="InterfacesAdded">
+      <arg type="o"/>
+      <arg type="a{sa{sv}}"/>
+    </signal>
+    <signal name="InterfacesRemoved">
+      <arg type="o"/>
+      <arg type="as"/>
+    </signal>
+  </interface>
+</node>
+"""
+
 # Property names match the public SteamOS Manager API. The text is ours.
 OTHER_XML = """<node>
   <interface name="com.steampowered.SteamOSManager1.PerformanceProfile1">
@@ -147,7 +165,7 @@ def main():
     def on_method(_connection, _sender, _path, _interface, method, _params, invocation):
         invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
-    def on_get(_connection, _sender, _path, interface, name):
+    def get_property(interface, name):
         if interface == TDP:
             info = state["last"]
             if info is not None and name in TDP_PROPERTIES:
@@ -167,6 +185,9 @@ def main():
         if interface == MANAGER and name == "DeviceModel":
             return GLib.Variant("(ss)", ("rog_ally", "RC71L"))
         return None
+
+    def on_get(_connection, _sender, _path, interface, name):
+        return get_property(interface, name)
 
     def on_set(_connection, _sender, _path, interface, name, value):
         if interface == GPU and name == "ManualGpuClock":
@@ -196,9 +217,24 @@ def main():
         nodes = [Gio.DBusNodeInfo.new_for_xml(OTHER_XML)]
         if info is not None:
             nodes.append(Gio.DBusNodeInfo.new_for_xml(tdp_xml))
-        for node in nodes:
-            for interface in node.interfaces:
-                connection.register_object(OBJECT, interface, on_method, on_get, on_set)
+        interfaces = [interface for node in nodes for interface in node.interfaces]
+        for interface in interfaces:
+            connection.register_object(OBJECT, interface, on_method, on_get, on_set)
+
+        def get_managed_objects(_connection, _sender, _path, _interface, _method, _params, invocation):
+            managed = {}
+            for interface in interfaces:
+                properties = {}
+                for prop in interface.properties:
+                    value = get_property(interface.name, prop.name)
+                    if value is not None:
+                        properties[prop.name] = value
+                managed[interface.name] = properties
+            invocation.return_value(GLib.Variant("(a{oa{sa{sv}}})", ({OBJECT: managed},)))
+
+        # The interfaces stay registered until the bus name is released.
+        manager = Gio.DBusNodeInfo.new_for_xml(OBJECT_MANAGER_XML).interfaces[0]
+        connection.register_object("/", manager, get_managed_objects, None, None)
 
     def on_lost(_connection, _name):
         if not state["stopping"]:
