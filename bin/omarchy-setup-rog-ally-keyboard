@@ -11,7 +11,7 @@ Usage: omarchy-setup-rog-ally-keyboard --configure-reviewed-package
        omarchy-setup-rog-ally-keyboard --remove
 
 Optional ROG Ally RC71L desktop keyboard setup. Configure-reviewed-package
-requires the already installed, reviewed wvkbd 0.21-1 and never installs.
+requires the already installed, reviewed wvkbd 0.21-1 or 0.21-1.1 and never installs.
 Install-reviewed-aur installs wvkbd from AUR if it is missing
 (existing installations are not upgraded by this command) and adds Desktop Keyboard to this user's app launcher.
 Review the current AUR PKGBUILD before running: it builds third-party source.
@@ -90,11 +90,11 @@ if [[ $action == --configure-reviewed-package ]]; then
   # Exact sprint approval uses the pinned artifact installed by the coordinator.
   # This package-management setup boundary intentionally queries pacman directly.
   installed=$(pacman -Q wvkbd 2>/dev/null) || {
-    echo 'Install the reviewed wvkbd 0.21-1 package first; no installation attempted.' >&2
+    echo 'Install the reviewed wvkbd 0.21-1 or 0.21-1.1 package first; no installation attempted.' >&2
     exit 1
   }
-  [[ $installed == 'wvkbd 0.21-1' ]] || {
-    echo 'Expected reviewed wvkbd 0.21-1; no installation attempted.' >&2
+  [[ $installed == 'wvkbd 0.21-1' || $installed == 'wvkbd 0.21-1.1' ]] || {
+    echo 'Expected reviewed wvkbd 0.21-1 or 0.21-1.1; no installation attempted.' >&2
     exit 1
   }
 else
@@ -106,6 +106,12 @@ flags=$(wvkbd-mobintl --help 2>&1) || { echo 'Cannot inspect the keyboard build.
   echo 'A compatible wvkbd 0.21 or newer build is required; existing packages are not upgraded automatically.' >&2
   exit 1
 }
+if [[ $action == --configure-reviewed-package && $installed == 'wvkbd 0.21-1.1' ]]; then
+  [[ $flags == *'--output CONNECTOR'* ]] || {
+    echo 'Expected the dock-capable wvkbd 0.21-1.1 build.' >&2
+    exit 1
+  }
+fi
 apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$apps"
 launcher="$apps/omarchy-desktop-keyboard.desktop"

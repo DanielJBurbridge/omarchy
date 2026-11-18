@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Ui
 import qs.Commons
 
@@ -7,6 +8,8 @@ import qs.Commons
 BarWidget {
   id: root
   moduleName: "omarchy.desktop-keyboard"
+  visible: root.bar?.shell?.handheldAlly !== true
+    || root.bar.shell.isHandheldScreen(root.QsWindow.window?.screen)
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight

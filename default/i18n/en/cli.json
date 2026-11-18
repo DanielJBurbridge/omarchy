@@ -412,6 +412,7 @@
   "gaming.desktopKeyboard": "Desktop Keyboard",
   "keyboard.missingTitle": "Desktop keyboard",
   "keyboard.missingBody": "wvkbd-mobintl is missing. Use the optional ROG Ally keyboard setup.",
+  "keyboard.internalDisplayOnly": "Use the Ally’s built-in display. While another display is enabled, the keyboard needs a wvkbd build that can select its display.",
   "gaming.keyboardToggle": "Show or hide the touch keyboard",
   "gaming.installKeyboard": "Install desktop keyboard…",
   "gaming.keyboardAur": "Optional third-party AUR keyboard for this Ally",

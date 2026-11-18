@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "--help")) {
     if (getenv("OLD_OPTIONS")) puts("old build");
     else puts("--non-exclusive --wayland-layer --text-press-sp");
+    if (getenv("OUTPUT_OPTION")) puts("--output CONNECTOR");
     return 0;
   }
   fd = open(getenv("SIGNALS"), O_WRONLY|O_CREAT|O_APPEND, 0600);
@@ -136,6 +137,30 @@ def hardware_acceptance():
         assert 'Keyboard button' not in setup.stdout + setup.stderr
         print('[Haki] PASS DMI override: RC71L setup gate open; Ally X, Xbox Ally, laptops and missing DMI closed')
 
+        pacman.write_text('#!/bin/bash\nprintf "wvkbd %s\\n" "$REVIEW_PACKAGE"\n')
+        keyboard = stub / 'wvkbd-mobintl'
+        keyboard.write_text('#!/bin/bash\necho "--non-exclusive --wayland-layer ${OUTPUT_OPTION:-}"\n')
+        keyboard.chmod(0o700)
+        ally = root / 'ally'
+        env = base | {
+            'OMARCHY_DMI_SYS_VENDOR_PATH': str(ally / 'sys_vendor'),
+            'OMARCHY_DMI_PRODUCT_NAME_PATH': str(ally / 'product_name'),
+            'OMARCHY_DMI_BOARD_NAME_PATH': str(ally / 'board_name'),
+            'XDG_DATA_HOME': str(root / 'data'),
+            'WAYLAND_DISPLAY': '',
+        }
+        for version, flags, accepted in (
+            ('0.21-1', '', True),
+            ('0.21-1.1', '--output CONNECTOR', True),
+            ('0.21-1.1', '', False),
+            ('0.21-2', '--output CONNECTOR', False),
+        ):
+            setup = subprocess.run(
+                [str(repo / 'bin/omarchy-setup-rog-ally-keyboard'), '--configure-reviewed-package'],
+                env=env | {'REVIEW_PACKAGE': version, 'OUTPUT_OPTION': flags},
+                capture_output=True, text=True)
+            assert (setup.returncode == 0) == accepted, (version, flags, setup.stderr)
+        print('[Haki] PASS setup accepts only the reviewed stock and dock-capable builds')
 
 def main():
     assert HELPER.is_file(), f'Helper missing: {HELPER}'
@@ -175,6 +200,9 @@ if [[ -n $EDGE_IPC && $1 == "--batch" ]]; then
     echo
   done
   exit 0
+fi
+if [[ -n $EDGE_IPC && -f $EDGE_IPC/$2 ]]; then
+  exec cat "$EDGE_IPC/$2"
 fi
 case $2 in
   monitors) printf '[{"solitaryBlockedBy":["%s"]}]\\n' "${MONITOR_BLOCKER:-CANDIDATE}" ;;
@@ -330,6 +358,40 @@ esac
             assert (state / 'visibility').read_text().strip() == 'manual'
             run('stop')
             print('PASS edge summon requires a known desktop and one internal panel and touch device')
+
+            external = monitor | {'name': 'DP-1'}
+            docked = [monitor | {'focused': False}, external]
+            pinned = edge | {'OUTPUT_OPTION': '1'}
+            run('show', extra=edge)
+            pid = int(record.read_text().split()[0])
+            assert b'--output' not in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            (root / 'monitors').write_text(json.dumps(docked))
+            run('check-output', extra=edge)
+            assert not record.exists()
+            run('show', ok=False, extra=edge)
+            run('toggle', ok=False, extra=edge)
+            assert not record.exists()
+            run('show', extra=pinned)
+            panel_record = record.read_text()
+            pid = int(panel_record.split()[0])
+            argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            assert argv[argv.index(b'--output') + 1] == b'eDP-1', argv
+            run('check-output', extra=pinned)
+            assert record.read_text() == panel_record
+            (root / 'monitors').write_text(json.dumps([external]))
+            run('check-output', extra=pinned)
+            run('show', ok=False, extra=pinned)
+            assert not record.exists()
+            (root / 'monitors').write_text(json.dumps(docked))
+            menu = levels | {'3': [{'namespace': 'omarchy-menu'}]}
+            (root / 'layers').write_text(json.dumps({'DP-1': {'levels': menu}}))
+            run('show-for-menu', extra=pinned)
+            assert not record.exists()
+            (root / 'layers').write_text(json.dumps({'eDP-1': {'levels': menu}}))
+            run('show-for-menu', extra=pinned)
+            assert (state / 'visibility').read_text().strip() == 'menu'
+            run('stop')
+            print('PASS stock and pinned display selection, dock teardown and menu ownership')
 
             failed = start_with_gate('failed', fail=True)
             assert not record.exists() and failed.read_text() == 'W'

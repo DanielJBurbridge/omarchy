@@ -41,6 +41,12 @@ if is_ally and o.cmd_present("wvkbd-mobintl") then
 
   sync_monitor_transforms()
   hl.on("monitor.layout_changed", sync_monitor_transforms)
+
+  local function check_keyboard_output()
+    hl.exec_cmd("omarchy-toggle-desktop-keyboard check-output")
+  end
+  hl.on("monitor.added", check_keyboard_output)
+  hl.on("monitor.removed", check_keyboard_output)
 end
 -- Resolve the same managed-session gate as the menu row before binding.
 local gaming_switch = os.getenv("OMARCHY_HANDHELD_SESSION") and

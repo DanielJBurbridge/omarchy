@@ -14,6 +14,8 @@ Toggle is the default; show/hide are idempotent. Stop releases the process.
 Requires optional wvkbd 0.21 or newer and a Hyprland desktop session.
 Install it through the optional ROG Ally keyboard setup after reviewing AUR.
 No automatic startup, input-device permissions or system service is needed.
+On RC71L the keyboard opens on the built-in screen. Docked use also
+requires a build of wvkbd that supports selecting that screen.
 
 Tap Desktop Keyboard in the bar or open it from Apps. On a configured RC71L,
 Super+Ctrl+Y also toggles it. Enable menu.onScreenKeyboard in shell.json to
@@ -28,7 +30,7 @@ Steam owns its keyboard in Gaming Mode; this command never starts Steam.
 HELP
     exit 0
     ;;
-  toggle | show | hide | stop | show-for-edge | show-for-menu | hide-for-menu) action=${1:-toggle} ;;
+  toggle | show | hide | stop | show-for-edge | show-for-menu | hide-for-menu | check-output) action=${1:-toggle} ;;
   *) echo 'Unknown action; use --help.' >&2; exit 2 ;;
 esac
 if [[ $action == "show-for-edge" ]]; then
@@ -37,6 +39,7 @@ elif (( $# > 1 )); then
   echo 'Too many arguments; use --help.' >&2
   exit 2
 fi
+requested_action=$action
 
 fail() {
   echo "Desktop keyboard: $*" >&2
@@ -59,6 +62,7 @@ fi
 session=${WAYLAND_DISPLAY##*/}
 [[ $session =~ ^[[:alnum:]_.-]+$ ]] || fail 'invalid Wayland display name.'
 state="$XDG_RUNTIME_DIR/omarchy-desktop-keyboard-$session"
+[[ $action != "check-output" || -f $state/process ]] || exit 0
 umask 077
 mkdir -p "$state"
 [[ -d $state && ! -L $state && -O $state ]] || fail 'unsafe state directory.'
@@ -93,30 +97,38 @@ if $alive && [[ -f $state/visibility ]]; then
   read -r visibility < "$state/visibility" || true
 fi
 
+handheld=false
+case "$action" in
+  show | toggle | show-for-menu | show-for-edge | check-output)
+    if omarchy-hw-rog-ally 2>/dev/null; then handheld=true; fi
+    ;;
+esac
+
 # Wayland delivers a seat's touch events without the hardware identity, and
 # wvkbd chooses its own output. Require an unambiguous panel and touchscreen.
+edge_output=''
 edge_can_show() {
   [[ :${desktop,,}: == *:hyprland:* ]] || return 1
-  omarchy-hw-rog-ally || return 1
-  hyprctl --batch 'j/monitors;j/devices;j/activewindow;j/layers' | jq -se --argjson transform "$1" '
+  $handheld || return 1
+  hyprctl --batch 'j/monitors;j/devices;j/activewindow;j/layers' | jq -ser --argjson transform "$1" '
     select(length == 4) | . as [$monitors, $devices, $window, $layers] |
     ($monitors | select(length == 1) | .[0] |
       select(($transform == null or .transform == $transform) and .focused == true and .dpmsStatus == true) |
       select(.solitaryBlockedBy | type == "array" and index("WINDOWED") != null and index("LOCK") == null and index("WORKSPACE") == null) |
       .name | select(test("^eDP-[0-9]+$"))) as $panel |
     $layers[$panel].levels as $l |
-    ($devices.touch | length == 1 and (.[0].name | test("^nvtk0603:00-0603:f200($|-touchscreen$)")))
+    select(($devices.touch | length == 1 and (.[0].name | test("^nvtk0603:00-0603:f200($|-touchscreen$)")))
     and ($window | .mapped == true and ([.class, .initialClass] | all(type == "string" and length > 0 and
       (ascii_downcase | contains("gamescope") | not))))
     and (($layers | keys) == [$panel]) and ($l["1"] | any(.namespace == "omarchy-keyboard-edge"))
     and ($l["2"] | type == "array" and all(.namespace == "omarchy-bar" or .namespace == "omarchy-dock"))
-    and ($l["3"] | type == "array" and all(.namespace == "omarchy-notifications"))' >/dev/null
+    and ($l["3"] | type == "array" and all(.namespace == "omarchy-notifications"))) | [$panel, 1] | @tsv'
 }
 
 case "$action" in
   show-for-edge)
     [[ $(omarchy-shell lock isLocked 2>/dev/null) == "false" ]] || exit 0
-    edge_can_show "${2:-null}" 2>/dev/null || exit 0
+    edge_output=$(edge_can_show "${2:-null}" 2>/dev/null) || exit 0
     action=show
     ;;
   show-for-menu)
@@ -136,6 +148,71 @@ case "$action" in
   hide-for-menu)
     [[ $visibility == "menu" ]] || exit 0
     action=hide
+    ;;
+esac
+
+find_keyboard() {
+  omarchy-cmd-present wvkbd-mobintl || fail 'wvkbd-mobintl is missing; use optional ROG Ally keyboard setup.'
+  binary=$(readlink -f "$(type -P wvkbd-mobintl)")
+  # Refuse older builds rather than starting an unexpectedly exclusive surface.
+  flags=$("$binary" --help 2>&1) || fail 'cannot read wvkbd options.'
+  [[ $flags == *--non-exclusive* && $flags == *--wayland-layer* ]] || fail 'wvkbd 0.21 or newer is required.'
+}
+
+output_args=()
+handheld_output_available() {
+  local monitors target=$edge_output panel count arg selected=''
+  if [[ -z $target ]]; then
+    monitors=$(hyprctl -j monitors 2>/dev/null) || return 1
+    target=$(jq -er 'length as $count | [.[] | select(.name | test("^eDP-[0-9]+$"))] |
+      select(length == 1 and .[0].dpmsStatus == true) | [.[0].name, $count] | @tsv' <<<"$monitors") || return 1
+  fi
+  read -r panel count <<<"$target"
+  if [[ $action == "show-for-menu" ]]; then
+    jq -e --arg panel "$panel" 'any(.[$panel].levels[][]; .namespace == "omarchy-menu")' \
+      <<<"$layers" >/dev/null 2>&1 || return 1
+  fi
+  if $alive; then
+    # Read the owned process's actual arguments. A keyboard started before a
+    # package upgrade, or before this guard existed, can still be unpinned.
+    while IFS= read -r -d '' arg; do
+      if [[ $arg == "--output" ]]; then
+        IFS= read -r -d '' selected || return 1
+        break
+      fi
+    done <"/proc/$pid/cmdline"
+    [[ $selected == "$panel" || ( -z $selected && $count == 1 ) ]]
+  elif [[ $flags == *'--output CONNECTOR'* ]]; then
+    output_args=(--output "$panel")
+  else
+    # Stock wvkbd asks the compositor to choose a monitor for every map.
+    (( count == 1 ))
+  fi
+}
+
+case "$action" in
+  show | toggle | show-for-menu)
+    if ! $alive; then find_keyboard; fi
+    if $handheld && ! handheld_output_available; then
+      case "$requested_action" in
+        show-for-edge | show-for-menu) exit 0 ;;
+        toggle)
+          if $alive && [[ $visibility == "manual" || $visibility == "menu" ]]; then
+            action=hide
+          fi
+          ;;
+      esac
+      if [[ $action != "hide" ]]; then
+        omarchy-notification-send -u normal -i input-keyboard \
+          "$(omarchy-i18n keyboard.missingTitle)" "$(omarchy-i18n keyboard.internalDisplayOnly)" >/dev/null 2>&1 || true
+        fail 'the built-in display must be active and selected by wvkbd when docked.'
+      fi
+    fi
+    ;;
+  check-output)
+    $alive && $handheld || exit 0
+    if handheld_output_available; then exit 0; fi
+    action=stop
     ;;
 esac
 
@@ -187,11 +264,6 @@ elif [[ $action == hide || $action == stop ]]; then
   rm -f "$state/visibility"
   exit 0
 else
-  omarchy-cmd-present wvkbd-mobintl || fail 'wvkbd-mobintl is missing; use optional ROG Ally keyboard setup.'
-  binary=$(readlink -f "$(type -P wvkbd-mobintl)")
-  # Refuse older builds rather than starting an unexpectedly exclusive surface.
-  flags=$("$binary" --help 2>&1) || fail 'cannot read wvkbd options.'
-  [[ $flags == *--non-exclusive* && $flags == *--wayland-layer* ]] || fail 'wvkbd 0.21 or newer is required.'
   style=()
   if [[ -r $HOME/.local/state/omarchy/current/theme/colors.toml && $flags == *--text-press-sp* ]]; then
     # Use the shell palette and its monospace alias. Mix two levels of key
@@ -235,7 +307,7 @@ else
   # up Wayland, when it is ready to handle controls through signalfd.
   nohup env --default-signal=USR1,USR2,RTMIN "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
     -l full,special --landscape-layers full,special \
-    --no-popup "${style[@]}" >"$state/output.log" 2>&1 < /dev/null 9>&- &
+    --no-popup "${output_args[@]}" "${style[@]}" >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
   abort_startup() {
     # Address the sole background job through the shell tracking its child.
