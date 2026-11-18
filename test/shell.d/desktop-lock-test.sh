@@ -309,13 +309,23 @@ cat > "$sweep/omarchy-system-lock" <<EOF
 printf '%s\n' lock >> "$work/desktop-actions"
 exit 0
 EOF
+cat > "$sweep/systemctl" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+cat > "$sweep/python3" <<'EOF'
+#!/bin/bash
+[[ ${1##*/} == input-profile-watch.py ]] || exit 1
+printf '%s\n' ready
+cat >/dev/null
+EOF
 chmod +x "$sweep/"*
 sed 's|source /usr/share/omarchy/default/bash/env-bootstrap|:|' "$ROOT/bin/omarchy-session-start" > "$work/session-start"
 chmod +x "$work/session-start"
 run_desktop_entry() {
   local expect=$1
   local status=0
-  local log actions=$work/desktop-actions
+  local actions=$work/desktop-actions
   : > "$actions"
   rm -rf "$HOME/.local/state" "$work/runtime"
   mkdir -p "$HOME/.local/state/omarchy/gaming-session" "$work/runtime"
@@ -323,30 +333,30 @@ run_desktop_entry() {
   XDG_RUNTIME_DIR=$work/runtime XDG_SESSION_ID=locktest OMARCHY_GAMING_RETRY_GAP=0 \
     PATH="$sweep:$stub:$PATH" \
     "$work/session-start" preferred || status=$?
-  [[ $status == "$expect" ]] || fail "switch to desktop exited $expect" "$status"
-  log=$HOME/.local/state/omarchy/gaming-session/session.log
-  if [[ $3 == locked ]]; then
-    grep -q '^lock$' "$actions" || fail "$2 never locked" "$(cat "$actions")"
-    grep -q '^uwsm:' "$actions" || fail "$2 never started the desktop" "$(cat "$actions")"
-  elif [[ $3 == desktop ]]; then
-    if grep -q '^lock$' "$actions"; then fail "$2 locked" "$(cat "$actions")"; fi
+  [[ $status == "$expect" ]] || fail "$2 exited with status $status, expected $expect" "$(cat "$actions")"
+  if grep -q '^lock$' "$actions"; then
+    fail "$2 attempted a lock before the compositor was running" "$(cat "$actions")"
+  fi
+  if [[ $expect == 0 ]]; then
     grep -q '^uwsm:' "$actions" || fail "$2 never started the desktop" "$(cat "$actions")"
   else
-    if grep -q '^lock$' "$actions" || grep -q '^uwsm:' "$actions"; then
-      fail "$2 started a desktop or a lock" "$(cat "$actions")"
+    if grep -q '^uwsm:' "$actions"; then
+      fail "$2 started an unauthenticated desktop" "$(cat "$actions")"
     fi
-    grep -q 'returning to gaming' "$log" || fail "$2 did not return to gaming" "$(cat "$log" 2>/dev/null)"
   fi
 }
 root_do rm -f "$marker"
 write_value on
 LOCK_HW=ally LOCK_PKG=yes LOCK_KEYBOARD=1
-run_desktop_entry 1 "switch to desktop with explicit on and no keyboard" return
+run_desktop_entry 1 "managed desktop with explicit on and no keyboard"
+LOCK_KEYBOARD=0 run_desktop_entry 1 "managed desktop with explicit on and a keyboard"
+pass "a keyboard does not bypass the sign-in requirement"
 root_do rm -f "$value"
-run_desktop_entry 0 "switch to desktop with default-off and no keyboard" desktop
-write_value on
-LOCK_KEYBOARD=0 run_desktop_entry 0 "switch to desktop with a keyboard and explicit on" locked
-pass "switch to desktop never leaves a keyboard-less handheld on the lock screen before K07"
+run_desktop_entry 0 "managed desktop with default-off and no keyboard"
+root_do install -o root -g root -m 0644 /dev/null "$marker"
+write_value explicit-off
+run_desktop_entry 0 "managed desktop with explicit-off after K07"
+pass "the managed desktop starts when the policy allows a passwordless session"
 
 if "$ROOT/bin/omarchy-setup-gaming-session" desktop-lock off >/dev/null 2>"$work/off.err"; then
   fail "desktop-lock off without a terminal must not succeed"

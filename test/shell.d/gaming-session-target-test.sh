@@ -56,6 +56,10 @@ trap cleanup EXIT
 handheld_prepare_gaming "$work"
 vendor_units=$work/vendor/systemd/user
 sed -i "s|/usr/lib/systemd/user/|$vendor_units/|" "$HANDHELD_TREE/bin/omarchy-session-start"
+# Exercise the pre-K07 passwordless path with no marker or lock policy.
+sed -i -e "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
+  -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock-absent|" \
+  "$HANDHELD_TREE/default/gaming/session.sh"
 cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 [[ $* == omarchy-gaming-session ]]
@@ -98,12 +102,14 @@ handheld_gaming_env
 export XDG_CONFIG_HOME=$work/config
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
 run_session() {
-  local entry=$1
+  local entry=$1 status=0
   : > "$HANDHELD_LOG"
   setsid timeout 8 "$HANDHELD_TREE/bin/omarchy-session-start" "$entry" >"$work/out" 2>"$work/err" &
   session_pid=$!
-  wait "$session_pid" || true
+  wait "$session_pid" || status=$?
   session_pid=
+  (( status == 0 )) ||
+    fail "the $entry supervisor exits cleanly" "$(printf 'status=%s\n' "$status"; cat "$HANDHELD_LOG" "$work/err")"
 }
 export OMARCHY_DRM_PATH=$work/drm
 mkdir -p "$OMARCHY_DRM_PATH/"{card0-eDP-1,card0-DP-1}
