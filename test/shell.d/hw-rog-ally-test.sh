@@ -969,37 +969,52 @@ run_greeter_migration
 [[ $(<"$pkg_log") == qt6-virtualkeyboard ]] || fail "the Ally catch-up does not install qt6-virtualkeyboard" "$(<"$pkg_log")"
 pass "the greeter keyboard package is installed only on the Ally"
 
-# Setup retries even when the fresh-install marker is already present, and a
-# failed build does not create that marker or skip the next try.
+# Status and invalid options must not install anything or create session state.
+# An explicit retry works even when the fresh-install marker already exists.
 setup_home="$test_tmp/setup-home"
 mkdir -p "$setup_home"
 run_power_setup() {
+  local power_install=$1 gaming_session=$2
+  shift 2
   OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
     OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
     OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
     OMARCHY_PATH="$ROOT" HOME="$setup_home" XDG_STATE_HOME="$setup_home/.local/state" \
-    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="${1:-0}" FAKE_GAMING_SESSION="${2:-0}" \
+    PKG_LOG="$pkg_log" FAKE_POWER_INSTALL="$power_install" FAKE_GAMING_SESSION="$gaming_session" \
     PATH="$power_stub:$ROOT/bin:$PATH" \
-    "$ROOT/bin/omarchy-setup-gaming-session" status
+    "$ROOT/bin/omarchy-setup-gaming-session" "$@"
 }
 : >"$pkg_log"
 write_dmi "$vendor" "ROG Ally" "RC71L"
-run_power_setup 0 0 >/dev/null
+run_power_setup 0 1 >/dev/null
+run_power_setup 0 1 status >/dev/null
+if run_power_setup 0 1 default unknown >/dev/null 2>&1; then
+  fail "gaming setup rejects an invalid session preference"
+fi
+[[ ! -s $pkg_log ]] || fail "status and invalid preferences do not install the power button" "$(<"$pkg_log")"
+[[ ! -e $setup_home/.local/state/omarchy/gaming-session ]] ||
+  fail "status and invalid preferences do not create session state"
+pass "status and invalid preferences leave power-button packages and session state alone"
+
+if run_power_setup 0 0 install-power-button >/dev/null 2>&1; then
+  fail "an explicit install without the gaming session reports failure"
+fi
 [[ ! -s $pkg_log ]] || fail "setup does not install the power button without the gaming session" "$(<"$pkg_log")"
-pass "setup does not install the power button without the gaming session"
+pass "the explicit power-button install requires the gaming session"
 
 : >"$pkg_log"
 mkdir -p "$setup_home/.local/state/omarchy/migrations"
 marked="$setup_home/.local/state/omarchy/migrations/1795075200.sh"
 touch "$marked"
 marked_stamp=$(stat -c %Y -- "$marked")
-if ! setup_err=$(run_power_setup 1 1 2>&1 >/dev/null); then
-  fail "a failed build aborts gaming setup" "$setup_err"
+if setup_err=$(run_power_setup 1 1 install-power-button 2>&1 >/dev/null); then
+  fail "a failed power-button build reports success" "$setup_err"
 fi
-if ! setup_err2=$(run_power_setup 1 1 2>&1 >/dev/null); then
-  fail "a second failed build aborts gaming setup" "$setup_err2"
+if setup_err2=$(run_power_setup 1 1 install-power-button 2>&1 >/dev/null); then
+  fail "a second failed power-button build reports success" "$setup_err2"
 fi
-[[ $setup_err == *"omarchy-setup-gaming-session"* && $setup_err2 == *"omarchy-setup-gaming-session"* ]] ||
+[[ $setup_err == *"omarchy-setup-gaming-session install-power-button"* &&
+  $setup_err2 == *"omarchy-setup-gaming-session install-power-button"* ]] ||
   fail "a failed build does not warn" "$setup_err"
 [[ $(grep -c install-powerbutton "$pkg_log") == 2 ]] ||
   fail "a pre-marked migration or a failed build skips the next setup" "$(<"$pkg_log")"

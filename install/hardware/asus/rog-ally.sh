@@ -9,7 +9,7 @@ if omarchy-hw-rog-ally; then
   echo "ROG Ally RC71L: skipping ROG laptop asusctl setup. Steam is optional under Install > Gaming."
   if omarchy-pkg-present omarchy-gaming-session; then
     if ! omarchy-install-rog-ally-powerbutton; then
-      printf 'warning: RC71L power-button companion was not installed; re-run: omarchy-setup-gaming-session\n' >&2
+      printf 'warning: RC71L power-button companion was not installed; re-run: omarchy-setup-gaming-session install-power-button\n' >&2
     fi
   fi
 fi

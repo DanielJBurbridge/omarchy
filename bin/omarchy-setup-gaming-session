@@ -1,47 +1,55 @@
 #!/bin/bash
 # omarchy:summary=Choose a reversible authenticated gaming session preference
-# omarchy:args=[status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|reset]
+# omarchy:args=[status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|install-power-button|reset]
 
 set -euo pipefail
 if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
-  echo 'Usage: omarchy-setup-gaming-session [status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|reset]'
+  echo 'Usage: omarchy-setup-gaming-session [status|default <desktop|gaming|last|auto>|next <desktop|gaming|clear>|display <native|720p|900p|1080p> [fps] [linear|nearest|fsr|nis]|overlay <on|off>|desktop-lock <on|off>|install-power-button|reset]'
   echo 'Select Omarchy (session preference) at SDDM. Password sign-in is retained.'
   echo 'Display settings affect game rendering, not physical output modes. FPS: 0,30,40,45,60,90,120.'
+  echo 'Use install-power-button to install or repair the optional gaming power-button companion.'
   exit 0
 fi
 source "$OMARCHY_PATH/default/gaming/session.sh"
 omarchy-hw-rog-ally || { gaming_fail 'this setup supports the original RC71L only.'; exit 1; }
-# Online retry. A fresh install marks the migration before the build can run,
-# and a failed build writes no success marker, so the next setup tries again.
-if omarchy-pkg-present omarchy-gaming-session; then
-  if ! omarchy-install-rog-ally-powerbutton; then
-    printf 'warning: RC71L power-button companion was not installed; re-run: omarchy-setup-gaming-session\n' >&2
-  fi
-fi
-gaming_state_init
 case ${1:-status} in
   status)
     (( $# <= 1 )) || exit 2
-    for setting in preference next last display overlay recovery; do
-      if [[ -f $gaming_state/$setting ]]; then
-        printf '%s: %s\n' "$setting" "$(cat "$gaming_state/$setting")"
-      fi
-    done
+    if [[ -e $gaming_state || -L $gaming_state ]]; then
+      [[ -d $gaming_state && ! -L $gaming_state && -O $gaming_state ]] || exit 1
+      for setting in preference next last display overlay recovery; do
+        if [[ -f $gaming_state/$setting ]]; then
+          printf '%s: %s\n' "$setting" "$(cat "$gaming_state/$setting")"
+        fi
+      done
+    fi
     echo 'Absent preference means desktop; choose Omarchy (session preference) at sign-in.'
+    ;;
+  install-power-button)
+    (( $# == 1 )) || exit 2
+    omarchy-pkg-present omarchy-gaming-session || { gaming_fail 'install the optional gaming session package first.'; exit 1; }
+    if ! omarchy-install-rog-ally-powerbutton; then
+      printf 'warning: RC71L power-button companion setup failed; re-run: omarchy-setup-gaming-session install-power-button\n' >&2
+      exit 1
+    fi
     ;;
   default)
     (( $# == 2 )) || exit 2
     case $2 in desktop | gaming | last | auto) ;; *) exit 2 ;; esac
+    gaming_state_init
     gaming_save preference "$2"
     rm -f "$gaming_state/recovery"
     ;;
   next)
     (( $# == 2 )) || exit 2
-    case $2 in
-      desktop | gaming) gaming_save next "$2"; rm -f "$gaming_state/recovery" ;;
-      clear) rm -f "$gaming_state/next" ;;
-      *) exit 2 ;;
-    esac
+    case $2 in desktop | gaming | clear) ;; *) exit 2 ;; esac
+    gaming_state_init
+    if [[ $2 == "clear" ]]; then
+      rm -f "$gaming_state/next"
+    else
+      gaming_save next "$2"
+      rm -f "$gaming_state/recovery"
+    fi
     ;;
   display)
     (( $# >= 2 && $# <= 4 )) || exit 2
@@ -51,11 +59,14 @@ case ${1:-status} in
     printf '%s %s %s\n' "$2" "${3:-0}" "${4:-linear}" > "$candidate/display"
     # shellcheck disable=SC2030
     (gaming_state=$candidate; gaming_display_args) || { gaming_fail 'invalid display settings; use --help.'; exit 2; }
+    gaming_state_init
     gaming_save display "$(cat "$candidate/display")"
     ;;
   overlay)
     (( $# == 2 )) || exit 2
-    case $2 in on | off) gaming_save overlay "$2" ;; *) exit 2 ;; esac
+    case $2 in on | off) ;; *) exit 2 ;; esac
+    gaming_state_init
+    gaming_save overlay "$2"
     ;;
   desktop-lock)
     (( $# == 2 )) || exit 2
@@ -79,6 +90,7 @@ case ${1:-status} in
     ;;
   reset)
     (( $# == 1 )) || exit 2
+    gaming_state_init
     # shellcheck disable=SC2031
     rm -f "$gaming_state/"{preference,next,last,display,overlay,recovery}
     ;;
