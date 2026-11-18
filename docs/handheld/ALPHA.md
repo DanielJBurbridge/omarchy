@@ -93,7 +93,7 @@ fi
 
 `/etc/default/limine.pre-tpm2` is the copy taken before the cmdline edit. If that file is missing, do not invent a cmdline. Stay on the snapshot entry. A damaged header is `cryptsetup luksHeaderRestore`, with this `LUKS_DEV` and this `backup`, and only when `backup` is a non-empty file on the removable drive. The ESP and any other partition of the internal disk are the wrong place for that file. The runbook's section 13 is the full restore.
 
-Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot applies the stored sign-in policy. From SSH, you can remove the session and account drop-ins to return to the greeter. This also removes the recorded account for future boots. Use the recovery step below to restore it when you are ready.
+Repeated failed gaming starts pin relogin off using `/run/omarchy/handheld-autologin/stop` and `Relogin=false`. The supervisor returns to the existing greeter when desktop sign-in is required. With passwordless Desktop enabled it opens the recovery desktop with the on-screen keyboard. The failure handler leaves the current SDDM daemon running. A reboot clears `/run`; the user’s repeated-failure record is stored in `~/.local/state/omarchy/gaming-session/`. From SSH, you can remove the session and account drop-ins to return to the greeter. This also removes the recorded account for future boots. Use the recovery step below to restore it when you are ready.
 
 ```bash
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
