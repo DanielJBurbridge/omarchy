@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import qs.Commons
@@ -30,13 +31,20 @@ Panel {
     updateProfiles("")
     if (opened && !profilesProc.running) profilesProc.readProfiles()
   }
-  readonly property bool canAdjustOutput: handheld && opened && !!Pipewire.defaultAudioSink
-    && Pipewire.defaultAudioSink.name !== "auto_null"
+  readonly property string volumeSink: {
+    var name = handheld && opened ? Pipewire.defaultAudioSink?.name : ""
+    return name && name !== "auto_null" ? name : ""
+  }
+  onVolumeSinkChanged: {
+    if (controlProc.steps.length) controlProc.steps = controlProc.steps.filter(function(step) { return step.row !== "volume" })
+  }
+  readonly property var controlScreen: handheld && opened && Hyprland.focusedMonitor?.name === displayName ? panel.screen : null
+  onControlScreenChanged: controlProc.steps = []
   property string brightnessDisplay: ""
   readonly property var controlRows: {
     var rows = profiles.length > 0 ? ["profiles"] : []
     if (handheld && opened && displayName && brightnessDisplay === displayName) rows.push("brightness")
-    if (canAdjustOutput) rows.push("volume")
+    if (volumeSink) rows.push("volume")
     return rows
   }
   property string cursorRow: ""
@@ -61,11 +69,10 @@ Panel {
   }
 
   function stepControl(row, index) {
-    if (!handheld || controlProc.running || controlRows.indexOf(row) < 0) return
-    controlProc.command = row === "brightness"
-      ? ["omarchy-brightness-display", "--monitor", brightnessDisplay, index ? "+5%" : "5%-"]
-      : ["omarchy-audio-output-volume", index ? "raise" : "lower"]
-    controlProc.running = true
+    if (!controlScreen || controlRows.indexOf(row) < 0 || controlProc.steps.length >= controlProc.maxPendingSteps) return
+    var target = row === "brightness" ? brightnessDisplay : volumeSink
+    controlProc.steps.push({ row: row, increase: index === 1, target: target })
+    if (!controlProc.running) controlProc.nextStep()
   }
 
   readonly property bool showPercentage: setting("showPercentage", false) === true
@@ -298,9 +305,30 @@ Panel {
 
   Process {
     id: controlProc
+    property var steps: []
+    // Keep a short sequence of taps; holding Return behind a slow helper
+    // must not leave dozens of changes to run after the key is released.
+    readonly property int maxPendingSteps: 4
+    // Run the read/change/OSD helpers in tap order. A pending step belongs
+    // to the backlight or audio output the user saw when they pressed it.
+    function nextStep() {
+      while (root.controlScreen && steps.length) {
+        var step = steps.shift()
+        if (step.row === "brightness") {
+          if (step.target !== root.brightnessDisplay) continue
+          command = ["omarchy-brightness-display", "--monitor", step.target, step.increase ? "+5%" : "5%-"]
+        } else {
+          if (step.target !== root.volumeSink) continue
+          command = ["omarchy-audio-output-volume", step.increase ? "raise" : "lower", step.target]
+        }
+        running = true
+        return
+      }
+    }
     onExited: function(code) {
       if (code !== 0 && command[0] === "omarchy-brightness-display" && command[2] === root.probeDisplay)
         root.brightnessDisplay = ""
+      nextStep()
     }
   }
 

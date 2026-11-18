@@ -130,6 +130,13 @@ grep -qx 'C pactl get-sink-mute alsa_output.speakers' "$CALLS" ||
 pass 'audio-output-volume reads pactl outputs in the C locale'
 
 : >"$CALLS"
+omarchy-audio-output-volume raise alsa_output.headphones
+grep -q ' pactl set-sink-volume alsa_output.headphones 55%$' "$CALLS" &&
+  ! grep -q ' pactl get-default-sink$' "$CALLS" ||
+  fail 'a named volume step targets its original output even when another sink is the default' "$(calls)"
+pass 'a named volume step stays on its original output'
+
+: >"$CALLS"
 (
   eval "$(sed -n '/^app_streams() {/,/^}/p' "$ROOT/bin/omarchy-audio-tuning")"
   LC_ALL=en_US.UTF-8 app_streams 2>/dev/null >/dev/null
