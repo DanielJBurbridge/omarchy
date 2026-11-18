@@ -1,16 +1,23 @@
 #!/bin/bash
 
 # omarchy:summary=Returns a list of all the available power profiles on the system.
-# omarchy:args=[--active-state]
+# omarchy:args=[--ppd-only] [--active-state]
 
-if [[ ${1:-} != "" && ${1:-} != "--active-state" ]]; then
-  echo "Usage: omarchy-powerprofiles-list [--active-state]" >&2
+ppd_only=false
+if [[ ${1:-} == "--ppd-only" ]]; then
+  ppd_only=true
+  shift
+fi
+if (( $# > 1 )) || [[ ${1:-} != "" && ${1:-} != "--active-state" ]]; then
+  echo "Usage: omarchy-powerprofiles-list [--ppd-only] [--active-state]" >&2
   exit 1
 fi
 
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/ally-tdp/profiles.sh"
 if ally_tdp_profiles_enabled; then
+  # The managed handheld masks PPD. A regular desktop panel has no PPD rows.
+  if $ppd_only; then exit 0; fi
   while IFS=$'\t' read -r profile _ active; do
     if [[ $1 == "--active-state" ]]; then
       printf '%s\t%s\n' "$profile" "$active"

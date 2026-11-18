@@ -556,6 +556,17 @@ battery_table
 no_active_presets=$'power-saver\t0\nbalanced\t0\nperformance\t0'
 [[ $(list_profiles) == "$no_active_presets" && ! -e $lock && ! -e $run && ! -e $state/request ]] ||
   fail "a masked profile query lists available presets without creating a request or snapshot"
+# The same managed system opens an ordinary panel on a dock. A previously
+# visible preset cannot reach the handheld writer after the output changes.
+regular=$(env "${profile_env[@]}" "$ROOT/bin/omarchy-powerprofiles-list" --ppd-only --active-state) ||
+  fail "the regular power panel cannot refresh when PPD is masked"
+[[ -z $regular ]] || fail "the regular power panel exposes Ally firmware presets"
+before=$(tuple)
+if set_profile --ppd-only ac performance || [[ $(tuple) != "$before" || -e $state/request || -s $POWERPROFILES_LOG ]]; then
+  fail "a stale regular panel action changes a power profile on the managed Ally"
+fi
+pass "regular panels omit handheld presets and cannot apply one on the managed Ally"
+
 mkdir -p "$work/profiles-state"
 printf 'balanced\n' >"$work/profiles-state/battery"
 [[ -z $(OMARCHY_ALLY_TDP_CONFLICT=asusd.service list_profiles) ]] ||

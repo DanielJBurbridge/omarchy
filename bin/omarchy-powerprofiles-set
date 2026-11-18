@@ -1,13 +1,18 @@
 #!/bin/bash
 
 # omarchy:summary=Set and remember the power profile for AC or battery use
-# omarchy:args=[autodetect|ac|battery] [power-saver|balanced|performance]
+# omarchy:args=[--ppd-only] [autodetect|ac|battery] [power-saver|balanced|performance]
 
+ppd_only=false
+if [[ ${1:-} == "--ppd-only" ]]; then
+  ppd_only=true
+  shift
+fi
 action="${1:-autodetect}"
 requested_profile="${2:-}"
 
 usage() {
-  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance]" >&2
+  echo "Usage: omarchy-powerprofiles-set [--ppd-only] [autodetect|ac|battery] [power-saver|balanced|performance]" >&2
   exit 1
 }
 
@@ -31,6 +36,10 @@ esac
 source "$OMARCHY_PATH/default/ally-tdp/profiles.sh"
 ally_tdp=0
 if ally_tdp_profiles_enabled; then
+  if $ppd_only; then
+    echo "Power profiles are unavailable while power-profiles-daemon is masked." >&2
+    exit 1
+  fi
   # Wake and AC changes reapply the shared request from the root services.
   # Only an explicit preset should replace a request made in Gaming Mode.
   [[ -n $requested_profile ]] || exit 0
@@ -46,7 +55,7 @@ if ally_tdp_profiles_enabled; then
     exit 1
   fi
 else
-  mapfile -t profiles < <(omarchy-powerprofiles-list)
+  mapfile -t profiles < <(omarchy-powerprofiles-list --ppd-only)
 fi
 
 profile_available() {

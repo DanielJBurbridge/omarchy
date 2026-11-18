@@ -21,8 +21,15 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
-  readonly property bool handheld: !!(bar && bar.shell && bar.shell.handheldAlly)
-  readonly property string displayName: panel.screen ? panel.screen.name : ""
+  // A detached layer can inherit the compositor's default output during hotplug.
+  // Only offer handheld controls while the bar and panel agree on the screen.
+  readonly property bool handheld: !!panel.anchorWindow && panel.anchorWindow.screen === panel.screen
+    && bar?.shell?.isHandheldScreen?.(panel.screen) === true
+  readonly property string displayName: handheld ? panel.screen.name : ""
+  onHandheldChanged: {
+    updateProfiles("")
+    if (opened && !profilesProc.running) profilesProc.readProfiles()
+  }
   readonly property bool canAdjustOutput: handheld && opened && !!Pipewire.defaultAudioSink
     && Pipewire.defaultAudioSink.name !== "auto_null"
   property string brightnessDisplay: ""
@@ -54,9 +61,9 @@ Panel {
   }
 
   function stepControl(row, index) {
-    if (controlProc.running || controlRows.indexOf(row) < 0) return
+    if (!handheld || controlProc.running || controlRows.indexOf(row) < 0) return
     controlProc.command = row === "brightness"
-      ? ["omarchy-brightness-display", "--monitor", displayName, index ? "+5%" : "5%-"]
+      ? ["omarchy-brightness-display", "--monitor", brightnessDisplay, index ? "+5%" : "5%-"]
       : ["omarchy-audio-output-volume", index ? "raise" : "lower"]
     controlProc.running = true
   }
@@ -188,7 +195,7 @@ Panel {
     if (!batteryPresent) return
 
     if (!batteryProc.running) batteryProc.running = true
-    if (!profilesProc.running) profilesProc.running = true
+    if (!profilesProc.running) profilesProc.readProfiles()
     if (!systemProc.running) systemProc.running = true
   }
 
@@ -213,8 +220,10 @@ Panel {
   }
 
   function setProfile(profile) {
-    if (!profile || actionProc.running) return
-    actionProc.command = ["omarchy-powerprofiles-set", root.discharging ? "battery" : "ac", profile]
+    if (profiles.indexOf(profile) < 0 || actionProc.running) return
+    var command = ["omarchy-powerprofiles-set"]
+    if (!handheld) command.push("--ppd-only")
+    actionProc.command = command.concat([root.discharging ? "battery" : "ac", profile])
     actionProc.running = true
   }
 
@@ -260,7 +269,7 @@ Panel {
   implicitHeight: batteryPresent ? button.implicitHeight : 0
 
   // Probe the panel's own output once per open. The same helper routes the
-  // adjustment to its backlight or DDC device and shows the resulting level.
+  // adjustment to this built-in backlight and shows the resulting level.
   readonly property string probeDisplay: handheld && opened ? displayName : ""
   onProbeDisplayChanged: {
     brightnessDisplay = ""
@@ -297,11 +306,23 @@ Panel {
 
   Process {
     id: profilesProc
-    command: ["omarchy-powerprofiles-list", "--active-state"]
+    property bool readingHandheld: false
+    function readProfiles() {
+      readingHandheld = root.handheld
+      command = readingHandheld ? ["omarchy-powerprofiles-list", "--active-state"]
+        : ["omarchy-powerprofiles-list", "--ppd-only", "--active-state"]
+      running = true
+    }
     stdout: StdioCollector { id: profileOutput; waitForEnd: true }
     // A failed PPD read can be transient. A successful empty read says no
     // presets are available and clears any previously displayed buttons.
-    onExited: function(code) { if (code === 0) root.updateProfiles(profileOutput.text) }
+    onExited: function(code) {
+      if (readingHandheld !== root.handheld) {
+        if (root.opened) readProfiles()
+      } else if (code === 0) {
+        root.updateProfiles(profileOutput.text)
+      }
+    }
   }
 
   Process {

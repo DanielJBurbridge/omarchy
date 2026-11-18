@@ -38,7 +38,9 @@ export OMARCHY_PATH=$ROOT
 export OMARCHY_ALLY_TDP_PPD_RECORD="$tmp_dir/absent-ppd-record"
 export OMARCHY_POWERPROFILES_STATE_DIR="$tmp_dir/state"
 
-"$ROOT/bin/omarchy-powerprofiles-set" ac balanced
+[[ $("$ROOT/bin/omarchy-powerprofiles-list" --ppd-only --active-state) == *$'balanced\t1'* ]] ||
+  fail "the regular power panel reads the active PPD profile"
+"$ROOT/bin/omarchy-powerprofiles-set" --ppd-only ac balanced
 [[ $(<"$tmp_dir/state/ac") == "balanced" ]] || fail "power profile stores AC preference"
 [[ $(tail -n 1 "$tmp_dir/calls") == "balanced" ]] || fail "power profile applies selected AC preference"
 pass "power profile stores and applies AC preference"
