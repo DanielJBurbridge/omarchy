@@ -54,6 +54,8 @@ cleanup() {
 trap cleanup EXIT
 
 handheld_prepare_gaming "$work"
+vendor_units=$work/vendor/systemd/user
+sed -i "s|/usr/lib/systemd/user/|$vendor_units/|" "$HANDHELD_TREE/bin/omarchy-session-start"
 cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 [[ $* == omarchy-gaming-session ]]
@@ -79,6 +81,7 @@ EOF
 chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/omarchy-pkg-present" \
   "$HANDHELD_STUB/omarchy-hw-physical-keyboard"
 handheld_gaming_env
+export XDG_CONFIG_HOME=$work/config
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
 run_session() {
   local entry=$1
@@ -89,6 +92,9 @@ run_session() {
   session_pid=
 }
 run_session gaming
+user_units=$XDG_CONFIG_HOME/systemd/user
+cmp -s "$unit" "$user_units/$name" ||
+  fail "the runtime still supplies the target for an older gaming-session package"
 
 start_line=$(grep -n 'systemctl:--user start omarchy-gaming-session.target' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 stop_line=$(grep -n 'systemctl:--user stop omarchy-gaming-session.target' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
@@ -139,7 +145,11 @@ fi
 exit 0
 EOF
 chmod +x "$HANDHELD_STUB/systemctl"
+printf '\n# User override\n' >> "$user_units/$name"
+cp "$user_units/$name" "$work/user-target"
 run_session gaming
+cmp -s "$work/user-target" "$user_units/$name" ||
+  fail "the legacy unit setup preserves a user's existing target"
 absent=$(cat "$HANDHELD_LOG")
 if grep -q 'restart omarchy-ally-tdp-shim.service' <<<"$absent"; then
   fail "a missing TDP shim is not restarted" "$absent"
@@ -148,6 +158,17 @@ grep -q 'start omarchy-rog-ally-input.service' <<<"$absent" &&
   fail "a missing bridge unit is not started" "$absent"
 grep -q '^gamescope$' <<<"$absent" || fail "a missing TDP shim still starts Gamescope" "$absent"
 pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
+
+mkdir -p "$vendor_units"
+cp "$unit" "$vendor_units/$name"
+rm "$user_units/omarchy-gaming-input-profile.service"
+run_session gaming
+grep -q '^gamescope$' "$HANDHELD_LOG" || fail "the installed gaming package still starts Gamescope"
+[[ ! -e $user_units/omarchy-gaming-input-profile.service ]] ||
+  fail "the installed gaming package does not recreate per-user units"
+cmp -s "$work/user-target" "$user_units/$name" ||
+  fail "the installed gaming package leaves the user's override in place"
+pass "the gaming-session package supplies units without rewriting user configuration"
 
 printf 'desktop\n' > "$XDG_STATE_HOME/omarchy/gaming-session/preference"
 run_session preferred

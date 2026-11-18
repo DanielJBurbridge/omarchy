@@ -2,7 +2,7 @@
 # Checksums are of the files below. Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=9
+pkgrel=10
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -17,6 +17,10 @@ source=(
   'omarchy-handheld-autologin'
   'omarchy-handheld-autologin-guard'
   'omarchy-handheld-autologin-guard.hook'
+  '../../default/systemd/user/omarchy-gaming-session.target'
+  '../../default/systemd/user/omarchy-gaming-input-profile.service'
+  'rog-ally-input-gaming-session.conf::../../default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf'
+  'ally-tdp-shim-gaming-session.conf::../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf'
   '../../LICENSE'
 )
 sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
@@ -27,6 +31,10 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
             'ddd92f974d0d0ea45c28100dc1153a6a29fa36b33b9e1125b4be7070d578fb69'
             '3457b821b30501f7213c0978520acb00b6cdf6cd0900d0ee558a2d16c0f55f69'
+            'a10c59d21030638f862c1b28a1b7d806fcfdca296578587b3874228c6569508b'
+            'f69ce16c70cc1414a61ab36fa898d3900d31dd4be46ce5fe1075c9d22152b3a2'
+            'a3153f79823df7aaf53f3b569026126ef714864ea66f58d0e4d2d28cde16c781'
+            'a0a33c2e9e9b03a5571accecda57f08b4f760f8b37e6b01a4fd8838af2de2d2c'
             '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2')
 install=omarchy-gaming-session.install
 
@@ -36,6 +44,12 @@ package() {
   install -Dm644 "$srcdir/Omarchy Gaming.desktop" "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
   install -Dm755 "$srcdir/steamos-update" "$pkgdir/usr/bin/steamos-polkit-helpers/steamos-update"
   install -Dm755 "$srcdir/sddm-user.sh" "$pkgdir/usr/lib/omarchy-gaming-session/sddm-user.sh"
+  install -Dm644 "$srcdir/omarchy-gaming-session.target" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target"
+  install -Dm644 "$srcdir/omarchy-gaming-input-profile.service" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-input-profile.service"
+  install -Dm644 "$srcdir/rog-ally-input-gaming-session.conf" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+  install -Dm644 "$srcdir/ally-tdp-shim-gaming-session.conf" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
   # Opt-in only. The base tree does not ship this NOPASSWD grant. visudo -c
   # is the same check the shell test runs; a build host without visudo still
   # installs the file the test already parsed.
