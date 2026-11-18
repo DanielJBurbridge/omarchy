@@ -1,10 +1,10 @@
 # Omarchy Handheld UX specs
 
-Current feature and acceptance checklist: [ROG Ally feature parity](feature-parity.md). Earlier deployment record: [HANDOFF-20261116.md](HANDOFF-20261116.md). Installation and rollback: [ALPHA.md](ALPHA.md).
+Start with the [feature-parity checklist](feature-parity.md) for what works on the original ROG Ally RC71L, which build was tested and what still needs hardware. The physical results are from a Z1 Extreme. The Z1, Ally X and Xbox Ally need their own acceptance runs.
 
-Status: draft, 16 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md). The mode round trip is [08](08-mode-round-trip.md). Keyboard-free boot is [09](09-keyboard-free-boot.md). Switch to Desktop with no dock and no keyboard is [11](11-undocked-touch-desktop.md). The handheld install recommendation for the disk is TPM2 auto-unlock bound to PCR 7, with the recovery passphrase kept: [10](tpm-unlock-installer-spec.md), and [tpm-unlock.md](tpm-unlock.md) for a machine that is already installed. What this tip actually does on an RC71L, and how to install and roll it back, is in [ALPHA.md](ALPHA.md).
+The [alpha guide](ALPHA.md) covers installation and recovery. The [Gaming session reference](../rog-ally-gaming-session.md) covers the optional companion, session preferences and desktop controls. The narrow installer draft detects the RC71L and offers Gaming setup at first login. The full handheld desktop and the touch-driven installer wizard have separate development and test histories.
 
-Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Secondary (design for, verify later): Ally X (RC72LA), Xbox Ally (RC73X/Y), Lenovo Legion Go, Steam Deck, MSI Claw.
+The specifications below describe the intended experience. The [16 November handoff](HANDOFF-20261116.md) records an earlier deployment.
 
 ## Index
 
@@ -19,7 +19,7 @@ Primary device: original 2023 ASUS ROG Ally **RC71L** (Z1 / Z1 Extreme). Seconda
 | 07 | [On-screen keyboard (desktop wvkbd and Steam OSK)](07-on-screen-keyboard.md) | Draft, revision 8 |
 | 08 | [Mode round trip (gaming ⇄ desktop)](08-mode-round-trip.md) | Draft, revision 1 |
 | 09 | [Keyboard-free boot](09-keyboard-free-boot.md) | Draft, revision 2 |
-| 10 | [Disk unlock (installer choice)](tpm-unlock-installer-spec.md) | Draft, 16 Nov 2026. Default: TPM2, PCR 7, recovery passphrase kept |
+| 10 | [Disk unlock (installer choice)](tpm-unlock-installer-spec.md) | Proposed TPM2 unlock with a retained recovery passphrase |
 | 11 | [Undocked touch desktop](11-undocked-touch-desktop.md) | Draft, 16 Nov 2026. No dock, no keyboard |
 | — | [TPM unlock runbook](tpm-unlock.md) | Procedure for an installed machine |
 
@@ -33,7 +33,7 @@ Lock-screen and greeter UI stay with AUTH. Disk unlock for a handheld install is
 | P2 | Still Omarchy | Controller actions call existing Omarchy entry points (`omarchy-menu`, `omarchy-shell` panels, Hyprland binds in `default/hypr/bindings/*.lua`, `bin/omarchy-*`). No parallel launcher, no second theme system. |
 | P3 | One input owner | InputPlumber (lead decision, 12 Nov) owns the physical controller. Steam Input consumes its virtual pad. Nothing else grabs the devices. |
 | P4 | Steam owns games | In gamepad mode Omarchy never rebinds face buttons, sticks or triggers; per-game layouts stay in Steam Input. |
-| P5 | Build on what ships | `feat/ally-input-20261111` (InputPlumber profiles + bridge) is the baseline. Specs list each change against it with rationale. |
+| P5 | Build on what ships | Use the controller profiles in `default/inputplumber/profiles/` and existing Omarchy commands and panels. |
 | P6 | Fail safe | Unknown/locked/inactive Hyprland session ⇒ gamepad profile, no desktop actions. A gaming session keeps its own profile (spec 01). A broken daemon must leave firmware controls usable. |
 | P7 | Verify on hardware | Anything not exercised on the RC71L is an open question, not a feature. Source tests ≠ physical acceptance. |
 | P8 | Tables over prose | Australian English, concise, testable acceptance criteria. |
@@ -45,12 +45,12 @@ Lock-screen and greeter UI stay with AUTH. Disk unlock for a handheld install is
 | AC | Armoury Crate button. **Right** side of the RC71L screen, below Menu. InputPlumber `QuickAccess` (tap) / `QuickAccess2` (long). The long press is a real firmware key (`KEY_F17`). |
 | CC | Command Centre button. **Left** side of the RC71L screen, below View. InputPlumber `Guide` (tap) / `Keyboard` (long). The long press is not a separate hold code: firmware sends Ctrl+Alt+Delete, or `KEY_F20` when `hid-asus-ally` is present. |
 | View / Menu | Xbox-style Select / Start (`BTN_SELECT` / `BTN_START`). These have a real press and release. CC and AC do not. |
-| M2 / M1 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). Not on the xpad pad; they arrive via the ASUS N-KEY HID interface, and on the stock Omarchy kernel they may not arrive at all. |
+| M2 / M1 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). On the tested stock kernel, both paddles produced the same F15 event on the ASUS N-KEY interface. |
 | N-KEY | ASUS USB HID device `0b05:1abe` (driver `hid-asus`); interface 2 carries the OEM buttons and paddles. |
-| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). Controller in the `gaming` profile (DualSense Edge target; spec 01). `gamepad` (Xbox Elite) remains the shipped fallback. |
-| Desktop mode | Omarchy Hyprland session. Controller in `desktop` profile (mouse + keyboard targets only). |
-| Controller profile | InputPlumber DeviceProfile loaded on the composite device: `desktop`, `gamepad`, `dualsense` (shipped), `gaming` / `osk` / `swap` / `hand-left` / `hand-right` (proposed). |
-| Bridge | `default/rog-ally-input/bridge.py`: user service that switches profiles on session/lock state and runs desktop actions from D-Bus events. |
+| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). The gaming service requests the `gaming` InputPlumber profile, which exposes a DualSense Edge target to Steam. |
+| Desktop mode | Managed Hyprland session. The `desktop` profile keeps an Xbox Elite target alongside the virtual mouse and keyboard. The right stick moves the pointer, RT left-clicks and LT right-clicks. |
+| Controller profile | The integration contains four InputPlumber profiles for the desktop, Gaming, keyboard recovery and greeter pointer. The greeter uses the left stick and A. |
+| Profile broker and desktop observer | The system service `omarchy-inputplumber-profile` loads the profiles. The managed desktop starts `default/gaming/input-profile-watch.py` to request its profile and handle OEM button events. |
 | QAM | Steam Quick Access Menu (right-hand panel in Gaming Mode). |
 | OSK | On-screen keyboard: Steam OSK in game mode, wvkbd (`omarchy-toggle-desktop-keyboard`) in desktop mode. |
 | Tap / Long | OEM-button gestures. Armoury long is a firmware key. Command Centre long is a different firmware chord or key. Neither is a userspace hold timer. |
