@@ -16,6 +16,8 @@ trap 'rm -rf "$work"' EXIT
 stub=$work/bin
 db=$work/desktop-db
 mkdir -p "$stub"
+# The no-Steam case must also work on a host with Steam installed.
+ln -s /usr/bin/{bash,cat,cp,mkdir} "$stub/"
 : > "$db"
 cat > "$stub/update-desktop-database" <<'EOF'
 #!/bin/bash
@@ -39,14 +41,15 @@ run_migration() {
   printf '%s\n' "$vendor" > "$dmi/sys_vendor"
   printf '%s\n' "$product" > "$dmi/product_name"
   printf '%s\n' "$board" > "$dmi/board_name"
-  PATH="$stub:$ROOT/bin:/usr/bin:/bin" \
+  PATH="$stub:$ROOT/bin" \
     HOME=$home \
     OMARCHY_PATH=$ROOT \
     OMARCHY_DMI_SYS_VENDOR_PATH=$dmi/sys_vendor \
     OMARCHY_DMI_PRODUCT_NAME_PATH=$dmi/product_name \
     OMARCHY_DMI_BOARD_NAME_PATH=$dmi/board_name \
     HANDHELD_DESKTOP_DB=$db \
-    bash -euo pipefail "$ROOT/migrations/1794367738.sh" >"$home/out" 2>"$home/err"
+    bash -euo pipefail "$ROOT/migrations/1794367738.sh" >"$home/out" 2>"$home/err" ||
+    fail "launcher migration completes on $product" "$(cat "$home/err")"
 }
 
 apps_of() {
