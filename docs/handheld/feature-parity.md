@@ -29,6 +29,8 @@ The candidate combined Quattro `c6be7abb9` and draft head `515d61405` at merge `
 
 Twelve installed package versions differed between the original RC71L guests because the mirror advanced. The matched clones controlled that difference. The exact late recovery-menu timeout remains unresolved, with a similar wrong-output state on reverted code and a candidate pass on identical inputs. The cloned runs test desktop behaviour. The original fresh installs provide the installer evidence. Candidate ISO SHA-256: `7eb22d176d0b804de4a707aba6f5bbfb69748810f1eac3f658f1de5fd654ff5d`.
 
+Two local follow-up commits address the desktop findings outside the installer branch. `e77b09b5a` limits the layout hint OCR to the panel's output. `d6d2dda9d` lets Hyprland choose the focused output when an overlay opens. In a disposable Hyprland session with stale Quickshell focus, the original component opened on the primary display. The fixed component opened on the focused 1.5× output, retained typed text when that output was removed and reopened on a new focused output. The probe used the production component with a minimal text field. Full menu and panel acceptance on Rune is pending.
+
 Local review branch `draft/rc71l-first-login-retry` at `c8c861626` builds on Quattro `419a5a709` and contains the original draft plus the offline retry fix. First-run, RC71L setup and hardware-quirks fixtures passed on that exact tree. Offline lifecycle VM replay and a fresh ISO with the retry fix are separate checks.
 
 ## Controller, touch and accessibility
