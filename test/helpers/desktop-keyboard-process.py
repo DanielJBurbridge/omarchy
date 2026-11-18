@@ -43,12 +43,24 @@ int main(int argc, char **argv) {
   if (getenv("FAIL_START")) return 42;
   fd = open(getenv("SIGNALS"), O_WRONLY|O_CREAT|O_APPEND, 0600);
   if (fd < 0) return 43;
-  signal(SIGUSR1, handle); signal(SIGUSR2, handle);
-  signal(SIGRTMIN, handle); signal(SIGTERM, handle);
+  // wvkbd completes its Wayland handshake before it starts reading signals.
+  const char *gate = getenv("START_GATE");
+  if (gate) {
+    (void)write(fd, "W", 1);
+    while (access(gate, F_OK) != 0) usleep(5000);
+  }
+  sigset_t commands;
+  sigemptyset(&commands);
+  sigaddset(&commands, SIGUSR1); sigaddset(&commands, SIGUSR2);
+  sigaddset(&commands, SIGRTMIN); sigaddset(&commands, SIGTERM);
+  if (sigprocmask(SIG_BLOCK, &commands, NULL) < 0) return 44;
   (void)write(fd, "B", 1);
   for (int i=1; i<argc; i++) { (void)write(fd, argv[i], strlen(argv[i])); (void)write(fd, "\n", 1); }
   (void)write(fd, "E", 1);
-  for (;;) pause();
+  for (;;) {
+    int sig;
+    if (sigwait(&commands, &sig) == 0) handle(sig);
+  }
 }
 '''
 
@@ -134,7 +146,7 @@ def main():
         # Only the fixture keyboard and the helper's real system dependencies
         # are visible. Appending the host PATH lets a genuinely installed
         # wvkbd escape the missing-dependency case when ours is renamed.
-        for name in ('awk', 'cat', 'dirname', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm', 'jq', 'sort'):
+        for name in ('awk', 'cat', 'dirname', 'env', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm', 'jq', 'sort'):
             tool = shutil.which(name)
             assert tool, f'Required system tool missing: {name}'
             (root / name).symlink_to(tool)
@@ -267,6 +279,15 @@ esac
             assert (state / 'visibility').read_text().strip() == 'manual'
             run('stop')
             print('PASS edge summon requires a known desktop and one internal panel and touch device')
+
+            gate = root / 'compositor-ready'
+            run('show', extra={'START_GATE': str(gate)})
+            wait_for(lambda: events().endswith('W'))
+            run('show')
+            gate.touch()
+            wait_for(lambda: events().endswith('ES'))
+            run('stop')
+            print('PASS a second show during startup reaches the original keyboard')
 
             for _ in range(3):
                 run('show')

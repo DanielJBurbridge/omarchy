@@ -195,7 +195,9 @@ else
   # Six rows in full: 44 logical units per row, before upstream key borders.
   # At scale 2, 264 becomes 528px; no global display or physical keymap change.
   # Both orientations are explicit. No auto input-method or focus stealing.
-  nohup "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
+  # wvkbd reads these through signalfd after its first Wayland round trips.
+  # Queue early button presses even before the keyboard has mapped.
+  nohup env --block-signal=USR1,USR2,RTMIN "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
     -l full,special --landscape-layers full,special \
     --no-popup "${style[@]}" >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
