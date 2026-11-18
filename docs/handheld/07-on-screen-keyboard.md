@@ -94,6 +94,18 @@ The remembered profile and the armed generation are written under `$XDG_RUNTIME_
 
 Hyprland does not release a closed virtual keyboard's keys unless told to. `input:virtualkeyboard:release_pressed_on_close` defaults to false. The handheld variant sets it to **true** in `default/hypr/input.lua`, gated by `omarchy-hw-rog-ally`, so other machines keep the default. The bridge cannot send those key-ups itself: spec 01 §8.1 requires the release from the device that pressed the key. If a latched Shift or Ctrl still sticks after that setting, force a keyboard focus leave and enter once wvkbd has gone. This closes OQ-2.
 
+#### Managed desktop implementation check (18 Nov 2026)
+
+**Automatic profile switching is blocked on held-input handling in InputPlumber 0.84.0-1.** On the integrated source (`49bfb1c20`), the managed login's observer requests `desktop` for an ordinary desktop, `osk` for recovery and `pointer` on an orderly sign-out after a successful load. The following checks used the shipped profiles.
+
+- **Visibility.** In disposable Hyprland 0.57.2 with wvkbd 0.21, a probe connected to the disposable instance's `.socket2.sock`, read `hyprctl -j layers` on connection and again on `openlayer>>wvkbd` and `closelayer>>wvkbd`. The layer PID matched the helper's saved PID, executable and process start time. Reconnecting while visible recovered the matching PID. Reconnecting while hidden found no wvkbd layer with the same wvkbd process still alive. Hide, stop and SIGKILL all removed the layer. Repeated show kept a single surface.
+- **Ownership and lock.** The helper's `visibility` file records intent. With wvkbd paused, `hide` wrote `hidden` while its layer was still mapped. SIGKILL left a stale `manual` entry. Manual show took ownership of a menu-opened keyboard, and subsequent menu cleanup left it available. Pointer clicks on the themed keys submitted `abd` to the original menu prompt. A manually opened keyboard still appeared in the layer list behind the compositor lock. Lock and active-login checks are separate from layer membership.
+- **Controller transition.** In a networkless QEMU guest with synthetic RC71L DMI and an xpad source, hold the right stick deflected and RT down, load the other profile via `LoadProfileFromYaml`, then release RT. In both directions the original mouse, keyboard and gamepad target paths survived and the mouse delivered the RT release. Held-stick motion stopped at the load and resumed only on fresh stick input.
+- **Lost release.** In the same guest, press logical East under `desktop`, load `osk` and release East. The original mouse delivered `BTN_RIGHT` down. It delivered no up event, and querying that open evdev target with `EVIOCGKEY` still showed the button down after release. The Omarchy broker's load routine reproduced this with both the synthetic xpad and a matching 0b05:1abe companion present.
+- **Restart and sign-out.** The existing observer's private-bus test re-requested the login's selected profile after service reappearance and requested `pointer` on supervisor EOF. In the guest, restarting the actual daemon and loading `desktop` restored RT press/release. Loading the sign-out profile reported `Omarchy Ally pointer` with all three target types. The guest exercised the broker's load routine directly.
+
+The compositor supplies a wake-up and a snapshot suitable for rechecking keyboard state. A future handshake also needs to reconcile helper identity publication if the first map arrives before the process record, and observe lock and seat changes independently. Before enabling profile loads on show or hide, InputPlumber needs to release remapped held controls on their original targets and preserve pointer motion when the stick mapping stays the same. The focus and kernel-input checks ran in separate environments; focus during a safe profile transition remains unverified.
+
 ### 3.4 Auto-show feasibility
 
 | Option | Feasible now? | Why |
@@ -220,7 +232,7 @@ If the lock is up at resume and the keyboard is gone (§3.4, the same keyboard s
 | OQ-3 | Patch wvkbd for d-pad key focus, or accept pointer + A? | dev-lead |
 | OQ-4 | Does the Guide+West macro open Steam OSK on the `deck-uhid` and `ds5-edge` targets? | Hardware test |
 | OQ-5 | Is `deskintl` (larger desktop layout) better than `mobintl` at 1280×720 logical? | Daniel |
-| OQ-6 | Show/hide signal from the helper to the bridge: D-Bus signal vs inotify on the state file (spec 01 OQ-10). | dev-lead |
+| OQ-6 | Hyprland layer events and a PID-matched snapshot cover map, unmap and reconnect (§3.3). The helper owns the process record. Safe held-input transfer on profile load remains open. | dev-lead |
 | OQ-7 | SDDM greeter controller navigation for the Qt keyboard. | AUTH |
 | OQ-8 | Does `KEY_F17` (`omarchy_overlay`) reach the intercept D-Bus target? AC 23. It gates the implementation pull request, not this spec and not #27, and it does not choose the trigger. | Hardware test |
 
