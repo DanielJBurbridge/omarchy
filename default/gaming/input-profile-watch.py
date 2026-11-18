@@ -28,8 +28,8 @@ DESKTOP_ACTIONS = {
 }
 
 
-def run(command, env=None):
-  return subprocess.run(command, env=env, capture_output=True, text=True, timeout=1)
+def run(command, env=None, timeout=1):
+  return subprocess.run(command, env=env, capture_output=True, text=True, timeout=timeout)
 
 
 def active_desktop_login(session):
@@ -43,36 +43,45 @@ def active_desktop_login(session):
           and bool(properties & {"Service=sddm", "Service=sddm-autologin"}))
 
 
-def desktop_action(commands):
+def unlocked_desktop_env():
   session = os.environ.get("XDG_SESSION_ID", "")
   runtime = os.environ.get("XDG_RUNTIME_DIR", "")
   if not re.fullmatch(r"[a-zA-Z0-9_-]+", session) or not runtime:
     return
+  if (Path(runtime) / f"omarchy-gaming-{session}/active").read_text().strip() != "desktop":
+    return
+  if not active_desktop_login(session):
+    return
+  # UWSM knows the managed compositor. Never infer it from an arbitrary
+  # Wayland socket in the runtime directory.
+  manager_env = run(["systemctl", "--user", "show-environment"])
+  if manager_env.returncode:
+    return
+  manager = dict(line.split("=", 1) for line in manager_env.stdout.splitlines() if "=" in line)
+  signature = manager.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+  display = manager.get("WAYLAND_DISPLAY", "")
+  if (manager.get("OMARCHY_HANDHELD_SESSION") != session
+      or not re.fullmatch(r"[a-zA-Z0-9_.-]+", signature)
+      or not re.fullmatch(r"wayland-[a-zA-Z0-9_.-]+", display)
+      or not (Path(runtime) / display).is_socket()):
+    return
+  env = os.environ | {"HYPRLAND_INSTANCE_SIGNATURE": signature, "WAYLAND_DISPLAY": display}
+  if run(["omarchy-hyprland-session-locked"], env).returncode != 1:
+    return
+  lock = run(["omarchy-shell", "lock", "isLocked"], env)
+  if lock.returncode == 0 and lock.stdout.strip() == "false":
+    return env
+
+
+def desktop_action(commands):
   try:
-    if (Path(runtime) / f"omarchy-gaming-{session}/active").read_text().strip() != "desktop":
-      return
-    if not active_desktop_login(session):
-      return
-    # UWSM knows the managed compositor. Never infer it from an arbitrary
-    # Wayland socket in the runtime directory.
-    manager_env = run(["systemctl", "--user", "show-environment"])
-    if manager_env.returncode:
-      return
-    manager = dict(line.split("=", 1) for line in manager_env.stdout.splitlines() if "=" in line)
-    signature = manager.get("HYPRLAND_INSTANCE_SIGNATURE", "")
-    display = manager.get("WAYLAND_DISPLAY", "")
-    if (manager.get("OMARCHY_HANDHELD_SESSION") != session
-        or not re.fullmatch(r"[a-zA-Z0-9_.-]+", signature)
-        or not re.fullmatch(r"wayland-[a-zA-Z0-9_.-]+", display)
-        or not (Path(runtime) / display).is_socket()):
-      return
-    env = os.environ | {"HYPRLAND_INSTANCE_SIGNATURE": signature, "WAYLAND_DISPLAY": display}
-    if run(["omarchy-hyprland-session-locked"], env).returncode != 1:
-      return
-    lock = run(["omarchy-shell", "lock", "isLocked"], env)
-    if lock.returncode == 0 and lock.stdout.strip() == "false":
-      for command in commands:
-        run(command, env)
+    for command in commands:
+      # Closing the menu can take long enough for the desktop to lock or yield the seat.
+      env = unlocked_desktop_env()
+      if env is None:
+        return
+      # Allow the shell's two-second IPC deadline to run before the caller gives up.
+      run(command, env, timeout=3)
   except (OSError, ValueError, subprocess.TimeoutExpired):
     # Login, display and lock state are required even when a probe fails.
     return

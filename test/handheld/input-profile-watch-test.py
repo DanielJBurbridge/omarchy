@@ -61,6 +61,12 @@ case $command in
       exit 0
     fi
     printf '%s %s via %s %s\n' "$command" "$*" "$HYPRLAND_INSTANCE_SIGNATURE" "$WAYLAND_DISPLAY" >> "$DESKTOP_TEST_ROOT/actions"
+    if [[ $command == "omarchy-menu" && $1 == "close" ]]; then
+      case $state in
+        slow-close) sleep 1.2 ;;
+        locked-on-close|inactive-on-close) printf '%s\n' "${state%-on-close}" > "$DESKTOP_TEST_ROOT/state" ;;
+      esac
+    fi
     ;;
 esac
 """)
@@ -134,6 +140,7 @@ def main(root):
       try:
         observer_name = expect(profile, True)
         if profile == "desktop":
+          state.write_text("slow-close\n")
           emit(backend, "omarchy_menu")
           emit(backend, "omarchy_menu", 0.0)
           emit(backend, "omarchy_power")
@@ -142,6 +149,13 @@ def main(root):
           emit(backend, "omarchy_menu", target_path=INPUTPLUMBER_PATH)
           sync_events(backend, observer_name)
           assert actions.read_text() == expected, actions.read_text()
+
+          for transition in ("locked-on-close", "inactive-on-close"):
+            state.write_text(f"{transition}\n")
+            emit(backend, "omarchy_power")
+            sync_events(backend, observer_name)
+            expected += "omarchy-menu close via test-hypr wayland-5\n"
+            assert actions.read_text() == expected, transition
 
           for blocked in ("inactive", "stale", "stranded", "unknown", "locked"):
             state.write_text(f"{blocked}\n")
