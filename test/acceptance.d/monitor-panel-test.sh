@@ -46,6 +46,10 @@ find_virtual_monitor() {
   [[ -n $virtual_monitor ]]
 }
 
+temporary_monitor_has_bar() {
+  hyprctl -j layers | jq -e --arg monitor "$virtual_monitor" 'any(.[$monitor].levels[]?[]?; .namespace == "omarchy-bar")'
+}
+
 # Logical rectangles, as the layout map draws them.
 primary_is() {
   hyprctl -j monitors | jq -e --arg p "$primary" --arg v "$virtual_monitor" --arg side "$1" '
@@ -68,6 +72,8 @@ wait_until "temporary second monitor appears" 15 find_virtual_monitor
 hyprctl eval "hl.monitor({ output = \"$virtual_monitor\", mode = \"1920x1080@60\", position = \"auto\", scale = 1 })" >/dev/null
 hyprctl dispatch "hl.dsp.focus({ monitor = \"$primary\" })" >/dev/null
 
+# Hyprland reports the output before the shell has built its per-output UI.
+wait_until "shell mounts the bar on the temporary monitor" 15 temporary_monitor_has_bar
 omarchy-shell shell summon omarchy.monitor >/dev/null
 wait_until "display panel opens" 15 layer_present "omarchy-keyboard-panel"
 sleep 1
