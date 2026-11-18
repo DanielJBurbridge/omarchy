@@ -10,18 +10,18 @@ PanelWindow {
   anchors.bottom: true
   implicitWidth: Math.min(480, Math.round(screen.width / 2))
   implicitHeight: 36
-  exclusiveZone: implicitHeight
+  exclusiveZone: keyboardMapped ? 0 : implicitHeight
   color: "transparent"
   WlrLayershell.namespace: "omarchy-keyboard-edge"
   WlrLayershell.layer: WlrLayer.Bottom
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-  // Keep the tile reservation stable while another surface owns the edge.
   mask: Region { item: touch.enabled ? touch : null }
 
   readonly property var client: ToplevelManager.activeToplevel
   readonly property bool available: layersClear && !!client && client.activated && !client.fullscreen
     && !!client.appId && !/gamescope/i.test(client.appId)
   property bool layersClear: false
+  property bool keyboardMapped: false
 
   // Hyprland signals a layer's name but not its stack level. Read the stack
   // once on startup and again when it changes, including external surfaces.
@@ -42,6 +42,8 @@ PanelWindow {
       }
       try {
         const levels = JSON.parse(snapshot.text)[edge.screen.name].levels
+        // wvkbd reserves the space for its own keys down to the panel edge.
+        if (code === 0) edge.keyboardMapped = Object.values(levels).some(level => level.some(s => s.namespace === "wvkbd"))
         edge.layersClear = code === 0 && levels["2"].every(s => s.namespace === "omarchy-bar" || s.namespace === "omarchy-dock")
           && levels["3"].every(s => s.namespace === "omarchy-notifications")
       } catch (_) { edge.layersClear = false }
