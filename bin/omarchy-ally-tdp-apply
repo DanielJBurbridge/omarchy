@@ -344,6 +344,76 @@ plan_tuple() {
   printf '%s\n%s\n%s\n' "$applied" "$sppt" "$fppt"
 }
 
+read_tdp_tuple() {
+  local attr value
+  for attr in "${ATTRS[@]}"; do
+    value=$(read_int "$armoury/$attr/current_value") || return 1
+    printf '%s\n' "$value"
+  done
+}
+
+verify_power_source() {
+  if [[ $(power_source) != "$1" ]]; then
+    log "power source changed; $2"
+    return 1
+  fi
+}
+
+restore_tdp_tuple() {
+  local source=$1 previous=$2 planned=$3 last_attempt=$4
+  local index path current remaining
+  local -a previous_values planned_values
+  mapfile -t previous_values <<<"$previous"
+  mapfile -t planned_values <<<"$planned"
+
+  # Undo attempted changes in reverse order. A failed store may have left its
+  # old value in place. Leave it and any untouched fields alone.
+  for (( index = last_attempt; index >= 0; index-- )); do
+    [[ ${previous_values[index]} != "${planned_values[index]}" ]] || continue
+    path=$armoury/${ATTRS[index]}/current_value
+    current=$(read_int "$path") || current=""
+    [[ $current != "${previous_values[index]}" ]] || continue
+    verify_power_source "$source" "TDP rollback skipped" || return
+    write_int "$path" "${previous_values[index]}" || log "could not restore ${ATTRS[index]}"
+  done
+  verify_power_source "$source" "TDP rollback not verified" || return
+  if ! remaining=$(read_tdp_tuple); then
+    log "could not read TDP limits after rollback"
+  elif [[ $remaining != "$previous" ]]; then
+    log "TDP rollback incomplete: expected ${previous//$'\n'/,}, read ${remaining//$'\n'/,}"
+  fi
+}
+
+apply_tdp_tuple() {
+  local source=$1 planned=$2 previous index readback
+  local -a names=(SPL SPPT FPPT) planned_values
+  if ! previous=$(read_tdp_tuple); then
+    log "cannot read previous TDP limits"
+    return 1
+  fi
+  mapfile -t planned_values <<<"$planned"
+
+  # Preserve the firmware write order. Reassert must still send a value when
+  # the driver's cached current_value already matches the plan.
+  for index in "${!ATTRS[@]}"; do
+    verify_power_source "$source" "TDP write stopped" || return 1
+    if ! write_int "$armoury/${ATTRS[index]}/current_value" "${planned_values[index]}"; then
+      log "${names[index]} write failed"
+      restore_tdp_tuple "$source" "$previous" "$planned" "$index"
+      return 1
+    fi
+  done
+
+  readback=$(read_tdp_tuple) || readback=""
+  verify_power_source "$source" "TDP write not verified" || return 1
+  if [[ $readback != "$planned" ]]; then
+    log "TDP readback does not match the requested limits"
+    restore_tdp_tuple "$source" "$previous" "$planned" "$index"
+    return 1
+  fi
+  printf '%s\n' "$readback"
+}
+
 slider_bounds() {
   local source=$1 live_min live_max boot_max policy ceil snap_max
   live_min=$(read_int "$armoury/ppt_pl1_spl/min_value") || return 1
@@ -472,35 +542,11 @@ if ! planned=$(plan_tuple "$watts" "$source"); then
   log "refusing to write"
   exit 1
 fi
-plan_spl=$(printf '%s\n' "$planned" | sed -n '1p')
-plan_sppt=$(printf '%s\n' "$planned" | sed -n '2p')
-plan_fppt=$(printf '%s\n' "$planned" | sed -n '3p')
-
-# MIT write order: SPL, then SPPT, then FPPT. current_value is the store.
-if ! write_int "$armoury/ppt_pl1_spl/current_value" "$plan_spl"; then
-  log "SPL write failed"
-  exit 1
-fi
-if ! write_int "$armoury/ppt_pl2_sppt/current_value" "$plan_sppt"; then
-  log "SPPT write failed"
-  exit 1
-fi
-if ! write_int "$armoury/ppt_pl3_fppt/current_value" "$plan_fppt"; then
-  log "FPPT write failed"
-  exit 1
-fi
-
-got_spl=$(read_int "$armoury/ppt_pl1_spl/current_value") || exit 1
-got_sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value") || exit 1
-got_fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value") || exit 1
-if (( got_spl > got_sppt || got_sppt > got_fppt )); then
-  log "readback $got_spl/$got_sppt/$got_fppt breaks SPL <= SPPT <= FPPT"
-  exit 1
-fi
-if [[ $got_spl != "$plan_spl" || $got_sppt != "$plan_sppt" || $got_fppt != "$plan_fppt" ]]; then
-  log "readback $got_spl/$got_sppt/$got_fppt does not match $plan_spl/$plan_sppt/$plan_fppt"
-  exit 1
-fi
+got=$(apply_tdp_tuple "$source" "$planned") || exit 1
+mapfile -t limits <<<"$got"
+got_spl=${limits[0]}
+got_sppt=${limits[1]}
+got_fppt=${limits[2]}
 
 if [[ $verb == set ]]; then
   mkdir -p -- "$state_dir"

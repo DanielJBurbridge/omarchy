@@ -59,6 +59,13 @@ exit 1
 EOF
 cat >"$work/bin/logger" <<'EOF'
 #!/bin/bash
+if [[ $* == *"SPPT write failed"* ]]; then
+  if [[ -n ${TEST_UNPLUG_ON_WRITE_FAILURE:-} ]]; then
+    printf '0\n' >"$TEST_UNPLUG_ON_WRITE_FAILURE"
+  elif [[ -n ${TEST_FPPT_CHANGE_ON_WRITE_FAILURE:-} ]]; then
+    printf '52\n' >"$TEST_FPPT_CHANGE_ON_WRITE_FAILURE"
+  fi
+fi
 exit 0
 EOF
 cat >"$work/bin/systemctl" <<'EOF'
@@ -246,6 +253,37 @@ if run_apply --set 15 >/dev/null 2>"$work/err"; then
 fi
 [[ $(tuple) == 9/40/25 ]] || fail "a rejected plan still writes" "$(tuple)"
 pass "a tuple that breaks order writes nothing"
+
+reset_state
+ac_table
+run_apply --set 30 >/dev/null
+sppt_file=$armoury/ppt_pl2_sppt/current_value
+chmod 0444 "$sppt_file"
+if run_apply --set 12 >/dev/null 2>"$work/err"; then
+  fail "a failed SPPT write reports success"
+fi
+[[ $(tuple) == 30/43/53 ]] || fail "a failed SPPT write restores the earlier SPL write" "$(tuple)"
+[[ $(stored) == 30 ]] || fail "a failed TDP write changes the saved request" "$(stored)"
+
+fppt_file=$armoury/ppt_pl3_fppt/current_value
+if TEST_FPPT_CHANGE_ON_WRITE_FAILURE="$fppt_file" run_apply --set 12 >/dev/null 2>"$work/err"; then
+  fail "a failed SPPT write reports success after the firmware changes FPPT"
+fi
+[[ $(tuple) == 30/43/52 ]] || fail "rollback preserves an FPPT value it did not write" "$(tuple)"
+grep -q 'TDP rollback incomplete.*30,43,52' "$work/err" ||
+  fail "the remaining mismatch after rollback is not logged" "$(cat "$work/err")"
+printf '53\n' >"$fppt_file"
+
+if TEST_UNPLUG_ON_WRITE_FAILURE="$work/supply/ADP1/online" run_apply --set 12 >/dev/null 2>"$work/err"; then
+  fail "a failed SPPT write during unplug reports success"
+fi
+chmod 0644 "$sppt_file"
+[[ $(<"$work/supply/ADP1/online") == 0 ]] || fail "unplug fixture did not switch the power source"
+[[ $(tuple) == 12/43/53 ]] || fail "rollback replays the AC setting after unplug" "$(tuple)"
+[[ $(stored) == 30 ]] || fail "a failed write during unplug changes the saved request" "$(stored)"
+grep -q 'power source changed.*rollback skipped' "$work/err" ||
+  fail "skipping rollback when the power source changes is not logged" "$(cat "$work/err")"
+pass "a partial write rolls back only on the original power source"
 
 reset_state
 ac_table
