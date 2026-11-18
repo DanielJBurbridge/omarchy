@@ -50,8 +50,12 @@ if type(gaming_switch) == "string" and o.shell_succeeds(gaming_switch .. " --ava
 end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
--- A press on the Ally fingerprint sensor can also fire the power key.
-o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = not is_ally })
+if is_ally then
+  -- A press on the Ally fingerprint sensor can also fire the power key.
+  o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = false })
+else
+  o.bind("XF86PowerOff", "Power menu", { menu = "system" }, { locked = true })
+end
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + CTRL + K", "Herdr keybindings", "omarchy-menu-herdr-keybindings")

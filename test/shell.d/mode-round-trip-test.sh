@@ -92,7 +92,8 @@ package.path = os.getenv("OMARCHY_PATH") .. "/?.lua;" .. package.path
 hl = {
   bind = function(keys, command, options)
     if keys == "XF86PowerOff" and os.getenv("TEST_POWER_BIND") == "1" then
-      print(command .. ":" .. tostring(options.locked == true))
+      local dispatch = type(command) == "table" and command.global or command
+      print(dispatch .. ":" .. tostring(options.locked == true) .. ":" .. options.description)
     elseif keys == "SUPER + CTRL + G" and os.getenv("TEST_POWER_BIND") ~= "1" then
       print(command)
     end
@@ -100,7 +101,7 @@ hl = {
   config = function() end,
   get_monitors = function() return {} end,
   on = function() end,
-  dsp = setmetatable({}, { __index = function(_, name)
+  dsp = setmetatable({ global = function(value) return { global = "global:" .. value } end }, { __index = function(_, name)
     return function(value) return name .. ":" .. tostring(value) end
   end }),
 }
@@ -129,8 +130,10 @@ fi
   fail "Super+Ctrl+G is absent when the managed supervisor is outside Desktop"
 pass "both routes require a managed desktop that can switch"
 
-[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally RC71L' RC71L present) == 'exec_cmd:omarchy-system-power-button:false' ]] ||
+[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally RC71L' RC71L present) == 'exec_cmd:omarchy-system-power-button:false:Power button' ]] ||
   fail "Hyprland does not dispatch the RC71L power button while locked"
-[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally X RC72LA' RC72LA present) == 'exec_cmd:omarchy-system-power-button:true' ]] ||
-  fail "the power-button binding keeps its locked behavior on other hardware"
-pass "only the RC71L power-button binding is inhibited while locked"
+[[ $(TEST_POWER_BIND=1 bind_for 'XPS 13' 0A1B present 'Dell Inc.') == 'global:omarchy:menu.system:true:Power menu' ]] ||
+  fail "the laptop power button keeps the upstream System menu shortcut while locked"
+[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally X RC72LA' RC72LA present) == 'global:omarchy:menu.system:true:Power menu' ]] ||
+  fail "the Ally X power button keeps the upstream System menu shortcut while locked"
+pass "the RC71L power button is inhibited while locked and other models open the stock System menu"
