@@ -96,6 +96,8 @@ grep -qx 'C pactl list sink-inputs' "$CALLS" ||
   fail 'audio-output-set-default reads sink-inputs in the C locale' "$(calls)"
 grep -q 'pactl move-sink-input 42 alsa_output.speakers' "$CALLS" ||
   fail 'audio-output-set-default moves streams' "$(calls)"
+grep -qx 'wpctl set-default 42' "$CALLS" ||
+  fail 'the audio panel can still select its native PipeWire node' "$(calls)"
 pass 'audio-output-set-default reads sink-inputs in the C locale'
 
 : >"$CALLS"
@@ -112,6 +114,11 @@ grep -qx 'C pactl get-sink-volume alsa_output.headphones' "$CALLS" ||
   fail 'audio-output-switch reads sink volume in the C locale' "$(calls)"
 grep -qx 'C pactl get-sink-mute alsa_output.headphones' "$CALLS" ||
   fail 'audio-output-switch reads sink mute in the C locale' "$(calls)"
+grep -q ' pactl set-default-sink alsa_output.headphones$' "$CALLS" ||
+  fail 'cycling outputs selects headphones by their PulseAudio sink name' "$(calls)"
+if grep -qx 'wpctl set-default 2' "$CALLS"; then
+  fail 'cycling outputs must not select an unrelated PipeWire node by PulseAudio index' "$(calls)"
+fi
 pass 'audio-output-switch reads pactl outputs in the C locale'
 
 : >"$CALLS"

@@ -53,8 +53,9 @@ else
   icon_state="high"
 fi
 
-if [[ $next_sink_name != $current_sink_name ]]; then
-  omarchy-audio-output-set-default "$(jq -r '.index' <<<"$next_sink")" "$next_sink_name"
+if [[ $next_sink_name != "$current_sink_name" ]]; then
+  # A PulseAudio index can belong to a different object in PipeWire.
+  omarchy-audio-output-set-default "$next_sink_name"
 fi
 
 omarchy-osd -i "volume-${icon_state}" -m "$next_sink_description"

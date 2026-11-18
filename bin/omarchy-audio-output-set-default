@@ -1,18 +1,23 @@
 #!/bin/bash
 
 # omarchy:summary=Set the default audio output and move active streams
-# omarchy:args=<node-id> <sink-name>
+# omarchy:args=[node-id] <sink-name>
 # omarchy:examples=omarchy audio output set default 42 alsa_output.pci-0000_00_1f.3.analog-stereo
 
-node_id=${1:-}
-sink_name=${2:-}
-
-if [[ -z $node_id || -z $sink_name ]]; then
-  echo "Usage: omarchy-audio-output-set-default <node-id> <sink-name>" >&2
+node_id=''
+if (( $# == 2 )) && [[ -n $1 ]]; then
+  node_id=$1
+  shift
+fi
+if (( $# != 1 )) || [[ -z $1 ]]; then
+  echo "Usage: omarchy-audio-output-set-default [node-id] <sink-name>" >&2
   exit 1
 fi
+sink_name=$1
 
-timeout 2 wpctl set-default "$node_id" 2>/dev/null || true
+if [[ -n $node_id ]]; then
+  timeout 2 wpctl set-default "$node_id" 2>/dev/null || true
+fi
 timeout 2 pactl set-default-sink "$sink_name" 2>/dev/null || true
 
 # Move only real application streams. A DSP filter-chain's own output is also a
