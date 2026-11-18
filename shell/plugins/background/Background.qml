@@ -587,7 +587,7 @@ Item {
   // pixel. Reserve a shallow strip only on the opted-in handheld desktop.
   Variants {
     model: root.shell?.handheldAlly === true && root.shell?.shellConfig?.desktopKeyboard?.edgeSwipe === true
-      && root.shell?.barConfig?.position !== "bottom" && Quickshell.screens.length === 1
+      && String(root.shell?.barConfig?.position || "").trim() !== "bottom" && Quickshell.screens.length === 1
       && /^eDP-[0-9]+$/.test(Quickshell.screens[0].name) ? Quickshell.screens : []
 
     KeyboardEdge {
