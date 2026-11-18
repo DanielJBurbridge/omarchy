@@ -83,7 +83,9 @@ bind_for() {
 package.path = os.getenv("OMARCHY_PATH") .. "/?.lua;" .. package.path
 hl = {
   bind = function(keys, command, options)
-    if keys == "SUPER + CTRL + G" then
+    if keys == "XF86PowerOff" and os.getenv("TEST_POWER_BIND") == "1" then
+      print(command .. ":" .. tostring(options.locked == true))
+    elseif keys == "SUPER + CTRL + G" and os.getenv("TEST_POWER_BIND") ~= "1" then
       print(command)
     end
   end,
@@ -107,3 +109,9 @@ LUA
 [[ -z $(bind_for 'ROG Ally X RC72LA' RC72LA present) ]] ||
   fail "Super+Ctrl+G is absent on Ally X"
 pass "Super+Ctrl+G follows the Ally gaming-session gate and launches gaming"
+
+[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally RC71L' RC71L present) == 'exec_cmd:omarchy-system-power-button:false' ]] ||
+  fail "Hyprland does not dispatch the RC71L power button while locked"
+[[ $(TEST_POWER_BIND=1 bind_for 'ROG Ally X RC72LA' RC72LA present) == 'exec_cmd:omarchy-system-power-button:true' ]] ||
+  fail "the power-button binding keeps its locked behavior on other hardware"
+pass "only the RC71L power-button binding is inhibited while locked"

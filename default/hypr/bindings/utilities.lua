@@ -11,7 +11,8 @@ o.bind("SUPER + CTRL + H", "Hardware menu", { menu = "hardware" })
 -- when this option is on, and it defaults to off.
 local paths = require("default.hypr.paths")
 local ally = o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-ally")
-if o.cmd_present("wvkbd-mobintl") and o.shell_succeeds(ally) then
+local is_ally = type(ally) == "string" and o.shell_succeeds(ally)
+if is_ally and o.cmd_present("wvkbd-mobintl") then
   o.bind("SUPER + CTRL + Y", "Desktop keyboard", "omarchy-toggle-desktop-keyboard")
   hl.config({
     input = {
@@ -26,12 +27,13 @@ end
 -- loader that stubs o.shell_quote gets nil back; skip the gate instead of
 -- concatenating that.
 local pkg_present = o.shell_quote(paths.omarchy_path .. "/bin/omarchy-pkg-present")
-if type(ally) == "string" and type(pkg_present) == "string" and o.shell_succeeds(ally .. " && " .. pkg_present .. " omarchy-gaming-session") then
+if is_ally and type(pkg_present) == "string" and o.shell_succeeds(pkg_present .. " omarchy-gaming-session") then
   o.bind("SUPER + CTRL + G", "Switch to Gaming", "omarchy-launch-gaming-session")
 end
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
-o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = true })
+-- A press on the Ally fingerprint sensor can also fire the power key.
+o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = not is_ally })
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + CTRL + K", "Herdr keybindings", "omarchy-menu-herdr-keybindings")

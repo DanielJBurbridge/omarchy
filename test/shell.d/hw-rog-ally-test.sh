@@ -348,6 +348,12 @@ cat >"$stub/systemctl" <<'SH'
 #!/bin/bash
 echo "systemctl $*" >>"$PKG_LOG"
 SH
+cat >"$stub/hyprctl" <<'SH'
+#!/bin/bash
+[[ $* == "locked" ]] || exit 2
+printf '%s\n' "${FAKE_COMPOSITOR_LOCKED:-false}"
+exit "${FAKE_HYPRCTL_RESULT:-0}"
+SH
 cat >"$stub/omarchy-sleep-disabled" <<'SH'
 #!/bin/bash
 exit "${FAKE_SLEEP_DISABLED:-1}"
@@ -358,7 +364,7 @@ cat >"$stub/omarchy-toggle-enabled" <<'SH'
 exit 1
 SH
 chmod +x "$power_omarchy/bin/omarchy-system-sleep-lock" "$stub/omarchy-menu" \
-  "$stub/systemctl" "$stub/omarchy-sleep-disabled" "$stub/omarchy-toggle-enabled"
+  "$stub/systemctl" "$stub/hyprctl" "$stub/omarchy-sleep-disabled" "$stub/omarchy-toggle-enabled"
 
 run_desktop_action() {
   OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
@@ -409,6 +415,18 @@ for entry in run_power_button run_menu_suspend; do
   [[ $(<"$pkg_log") == "lock" ]] || fail "a failed lock never reaches systemctl"
 done
 pass "the RC71L Suspend row and power button both cancel suspend when the desktop lock fails"
+
+: >"$pkg_log"
+FAKE_COMPOSITOR_LOCKED=true run_power_button
+FAKE_COMPOSITOR_LOCKED=unknown run_power_button
+FAKE_HYPRCTL_RESULT=1 run_power_button
+[[ ! -s $pkg_log ]] || fail "an RC71L power press requires a confirmed unlocked compositor"
+pass "the RC71L power button leaves locked and unreadable compositor states alone"
+
+: >"$pkg_log"
+FAKE_COMPOSITOR_LOCKED=true run_menu_suspend
+[[ $(<"$pkg_log") == $'lock\nsystemctl suspend' ]] || fail "the Suspend row still follows its lock-before-sleep policy"
+pass "the RC71L Suspend row retains explicit lock-before-sleep behavior"
 
 : >"$pkg_log"
 FAKE_SLEEP_DISABLED=0 run_power_button
