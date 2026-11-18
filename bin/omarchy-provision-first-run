@@ -39,6 +39,11 @@ done
 state_dir=~/.local/state/omarchy
 FIRST_RUN_DONE="first-run-user"
 if omarchy-done check "$FIRST_RUN_DONE" && (( force == 0 )); then
+  if omarchy-done check rog-ally-gaming-invitation-scheduled &&
+    ! omarchy-done check rog-ally-gaming-invitation &&
+    omarchy-hw-rog-ally; then
+    bash "$OMARCHY_PATH/install/user/first-run/wifi.sh" --retry-rog-ally
+  fi
   echo "First-run already complete."
   exit 0
 fi

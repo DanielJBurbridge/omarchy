@@ -5,13 +5,24 @@ set -e
 # Offer setup after networking is ready, never during offline hardware setup.
 # Gaming Setup is an optional enhancement; the existing installer menu is usable
 # even when that enhancement has not shipped yet.
-if omarchy-hw-rog-ally && omarchy-done ensure rog-ally-gaming-invitation; then
-  if omarchy-cmd-present omarchy-setup-gaming; then
-    action=(omarchy-setup-gaming)
-  else
-    action=(omarchy-menu summon install.gaming)
-  fi
-  omarchy-notification-send -u critical -g  "$(omarchy-i18n firstRun.rogAllyTitle)" \
-    "$(omarchy-i18n firstRun.rogAllyBody)" \
-    --exec "${action[@]}"
+if ! omarchy-hw-rog-ally; then
+  exit 0
 fi
+invitation=rog-ally-gaming-invitation
+state_dir=$HOME/.local/state/omarchy
+mkdir -p "$state_dir"
+exec 9>"$state_dir/$invitation.lock"
+if ! flock -n 9 || omarchy-done check "$invitation"; then
+  exit 0
+fi
+
+if omarchy-cmd-present omarchy-setup-gaming; then
+  action=(omarchy-setup-gaming)
+else
+  action=(omarchy-menu summon install.gaming)
+fi
+omarchy-notification-send -u critical -g  "$(omarchy-i18n firstRun.rogAllyTitle)" \
+  "$(omarchy-i18n firstRun.rogAllyBody)" \
+  --exec "${action[@]}"
+# A rejected send leaves the scheduled offer available on the next login.
+omarchy-done mark "$invitation"

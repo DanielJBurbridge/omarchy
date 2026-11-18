@@ -28,6 +28,7 @@ notify_wifi() {
 }
 
 announce_network() {
+  local retry_rog_ally=$1
   # Ethernet is still negotiating DHCP when the session starts, so probing
   # right away calls a working machine offline. NetworkManager reports startup
   # complete once it has tried every connection it could auto-activate, which
@@ -37,11 +38,21 @@ announce_network() {
   # -x takes that answer as it stands rather than waiting out the timeout, so
   # a laptop with nothing to connect to gets prompted immediately.
   if ! nm-online -q -x -t 30; then
-    notify_wifi
+    if [[ $retry_rog_ally != "--retry-rog-ally" ]]; then
+      notify_wifi
+    fi
     # Nothing to install or update until a link lands, so hold those prompts
     # for however long that takes. nm-online has no "forever", so wait out its
     # timeout as often as needed.
     until nm-online -q -t 86400; do :; done
+  fi
+
+  if [[ $retry_rog_ally == "--retry-rog-ally" ]]; then
+    # A later login skipped the notification-server wait in first run.
+    if omarchy-notification-wait; then
+      bash "$OMARCHY_PATH/install/user/first-run/setup-rog-ally.hook"
+    fi
+    return
   fi
 
   # Optional setup invitations wait for the link rather than for the
@@ -57,4 +68,9 @@ announce_network() {
 }
 
 # Detached, so a slow or absent connection never holds up the rest of first run.
-announce_network &
+# Record the offer before detaching. The next graphical session can retry it
+# if this session ends offline or before the notification server accepts it.
+if [[ ${1:-} != "--retry-rog-ally" ]] && omarchy-hw-rog-ally; then
+  omarchy-done mark rog-ally-gaming-invitation-scheduled || exit 1
+fi
+announce_network "${1:-}" &
