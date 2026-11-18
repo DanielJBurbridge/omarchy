@@ -22,7 +22,7 @@
 
   // Root Menu
   "apps": {"icon":"󰀻","label":"Apps","aliases":["app","applications"],"provider":"apps","action":"omarchy-shell omarchy.dock apps"},
-  "switch-window": {"icon":"󰖲","label":"Switch Window","when":"omarchy-hw-rog-ally","provider":"windows"},
+  "switch-window": {"icon":"󰖲","label":"Switch Window","handheldScreen":true,"when":"omarchy-hw-rog-ally","provider":"windows"},
   "agent": {"icon":"󰚩","label":"Agent"},
   "appearance": {"icon":"󰏘","label":"Appearance","aliases":["style"]},
   "trigger": {"icon":"󱓞","label":"Trigger"},
@@ -67,7 +67,7 @@
   "agent.instructions": {"icon":"󰈙","label":"Instructions","action":"omarchy-agent-instructions --edit"},
 
   // System
-  "system.switch-gaming": {"icon":"","label":"Switch to Gaming","when":"[[ -n ${OMARCHY_HANDHELD_SESSION:-} ]] && omarchy-launch-gaming-session --available","action":"omarchy-launch-gaming-session"},
+  "system.switch-gaming": {"icon":"","label":"Switch to Gaming","handheldScreen":true,"when":"[[ -n ${OMARCHY_HANDHELD_SESSION:-} ]] && omarchy-launch-gaming-session --available","action":"omarchy-launch-gaming-session"},
   "system.screensaver": {"icon":"󱄄","label":"Screensaver","action":"omarchy-launch-screensaver force"},
   "system.lock": {"icon":"","label":"Lock","action":"omarchy-system-lock"},
   "system.suspend": {"icon":"󰒲","label":"Suspend","when":"! omarchy-toggle-enabled suspend-off && ! omarchy-sleep-disabled","action":"omarchy-system-suspend"},
@@ -266,7 +266,7 @@
   "setup.keyboard.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/bindings.lua\""},
   "setup.keyboard.inputs": {"icon":"","label":"Keyboard Inputs","action":"omarchy-setup-keyboard"},
   "setup.keyboard.input-methods": {"icon":"","label":"Input Methods","action":"omarchy-setup-input"},
-  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
+  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","handheldScreen":true,"when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
   "setup.input": {"icon":"","label":"Input","when":"[[ -f ~/.config/hypr/input.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/input.lua\""},
   "setup.language": {"icon":"","label":"Language","provider":"languages"},
   "setup.network": {"icon":"󰛳","label":"Network","aliases":["network"]},
@@ -275,8 +275,8 @@
   "setup.network.dns.cloudflare": {"icon":"󰅟","label":"Cloudflare","checked":"[[ \"$(omarchy-dns)\" == \"Cloudflare\" ]]","action":"omarchy-dns Cloudflare"},
   "setup.network.dns.google": {"icon":"󰊭","label":"Google","checked":"[[ \"$(omarchy-dns)\" == \"Google\" ]]","action":"omarchy-dns Google"},
   "setup.network.dns.custom": {"icon":"","label":"Custom","checked":"[[ \"$(omarchy-dns)\" == \"Custom\" ]]","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-dns Custom'"},
-  "setup.network.wifi": {"icon":"󰛳","label":"Wi-Fi","when":"omarchy-hw-rog-ally","action":"omarchy-shell shell summon omarchy.network"},
-  "setup.network.bluetooth": {"icon":"󰂯","label":"Bluetooth","when":"omarchy-hw-rog-ally","action":"omarchy-shell shell summon omarchy.bluetooth"},
+  "setup.network.wifi": {"icon":"󰛳","label":"Wi-Fi","handheldScreen":true,"when":"omarchy-hw-rog-ally","action":"omarchy-shell shell summon omarchy.network"},
+  "setup.network.bluetooth": {"icon":"󰂯","label":"Bluetooth","handheldScreen":true,"when":"omarchy-hw-rog-ally","action":"omarchy-shell shell summon omarchy.bluetooth"},
   "setup.network.qr": {"icon":"󰐲","label":"QR Code","aliases":["wifi-qr"],"when":"omarchy-network-wifi-connected","action":"omarchy-shell shell summon omarchy.wifiqr"},
   "setup.direct-boot": {"icon":"","label":"Direct Boot","when":"! omarchy-hw-aarch64-apple && [[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-setup-direct-boot"},
   "setup.reset": {"icon":"󰑓","label":"Reset Computer","when":"[[ $(findmnt -no FSTYPE /) == btrfs ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-system-factory-reset"},

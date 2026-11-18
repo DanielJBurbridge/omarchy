@@ -19,8 +19,27 @@ Item {
   // Plugin lifecycle hooks. The host calls open(payloadJson) after
   // `omarchy-shell shell summon omarchy.menu ...` and close() when hidden.
   property string pendingInitialMenu: "root"
+  property string pendingScreenRoute: ""
+  // Same-size outputs can satisfy Qt's geometry and scale checks while its
+  // new surface still reports the old screen. Wait for the opening output.
+  property string openingOutput: ""
+  readonly property bool screenConfirmed: !!panel.targetScreen && !!panel.targetMonitor
+    && (!openingOutput || panel.targetScreen.name === openingOutput
+        || !Hyprland.monitors.values.some(m => m.name === openingOutput))
+  readonly property bool handheldScreen: screenConfirmed && root.shell?.isHandheldScreen?.(panel.targetScreen) === true
+  onScreenConfirmedChanged: if (screenConfirmed) Qt.callLater(finishMappedRequest)
+  readonly property bool touchMenu: handheldScreen && (!dmenuActive || windowChoices !== null)
+
+  onHandheldScreenChanged: {
+    if (opened && !handheldScreen && (windowChoices !== null || item(activeMenu)?.handheldScreen)) openExistingMenu("root")
+    // An extension may use the power-profile provider. Drop its old rows and
+    // in-flight result when changing between Omarchy and native PPD controls.
+    if (itemOrder.some(id => item(id)?.provider === "power-profiles")) rebuildItemsFromSources(true)
+    else if (opened && !dmenuActive) rebuildDisplay()
+  }
 
   function open(payloadJson) {
+    if (!root.opened) root.openingOutput = Hyprland.focusedMonitor?.name || ""
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
@@ -110,9 +129,10 @@ Item {
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
-  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null; windowChoices = null }
+  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null; windowChoices = null; pendingScreenRoute = "" }
 
   readonly property bool canShowSearchKeyboard: root.shell?.shellConfig?.menu?.onScreenKeyboard === true
+    && (!root.shell.handheldAlly || root.handheldScreen)
     && root.opened && (root.mode === "menu" || root.windowChoices !== null) && !root.deleteConfirmOpen && filterInput.activeFocus
     && filterInput.Window.active && panel.contentRevealed
   property bool searchKeyboardRequested: false
@@ -156,7 +176,9 @@ Item {
   readonly property real rowReservedBorderRight: Border.right(selectedBorderSpec)
   readonly property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
-  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
+  readonly property int labelSize: touchMenu ? Math.max(Style.font.heading, Style.space(18)) : Style.font.heading
+  readonly property int detailSize: touchMenu ? Math.max(Style.font.bodySmall, Style.font.subtitle) : Style.font.bodySmall
+  property int headerHeight: Math.max(Style.space(touchMenu ? 44 : 34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
   property int baseRowHeight: Math.max(Style.space(50), Style.font.body + Style.spacing.rowPaddingX * 2)
   property int detailRowHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
@@ -167,7 +189,7 @@ Item {
   property int dividerHeight: Style.space(17)
   property bool searchDivider: false
   property int layoutSerial: 0
-  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(300)), panel.width - Style.gapsOut * 2)
+  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "appearance.font" || root.activeMenu === "update.kernel") ? Style.space(520) : Style.space(root.touchMenu ? 360 : 300)), panel.width - Style.gapsOut * 2)
   property int visibleRowsHeight: root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)
   property int cardHeight: root.dmenuActive
     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
@@ -360,7 +382,7 @@ Item {
       actionFor: function(value) { return "omarchy-font-set " + Util.shellQuote(value) }
     },
     "power-profiles": {
-      script: "omarchy-powerprofiles-list --active-state 2>/dev/null | awk -F '\\t' '{ printf \"%s\\t%s\\t%s\\n\", $1, $1, ($2 == 1 ? $1 : \"\") }'",
+      script: "omarchy-powerprofiles-list " + (root.handheldScreen ? "" : "--ppd-only ") + "--active-state 2>/dev/null | awk -F '\\t' '{ printf \"%s\\t%s\\t%s\\n\", $1, $1, ($2 == 1 ? $1 : \"\") }'",
       icon: "\udb81\udc0b",
       volatile: true,
       // Profile names are stable ids; only the label is translated,
@@ -371,7 +393,7 @@ Item {
         if (value === "performance") return Commons.I18n.t("menu.powerProfilePerformance")
         return value
       },
-      actionFor: function(value) { return "omarchy-powerprofiles-set autodetect " + Util.shellQuote(value) }
+      actionFor: function(value) { return "omarchy-powerprofiles-set " + (root.handheldScreen ? "" : "--ppd-only ") + "autodetect " + Util.shellQuote(value) }
     },
     // Kernel names are package names, the same in every language.
     "kernels": {
@@ -531,9 +553,10 @@ Item {
 
   function loadProviderForMenu(id) {
     var entry = root.item(id)
+    if (entry?.provider === "power-profiles" && (!root.screenConfirmed || !panel.contentRevealed)) return
     if (entry?.provider === "windows") {
       // Window titles belong only in the open picker, never in global search.
-      if (root.activeMenu === id && !root.dmenuActive) root.openWindowPicker(entry)
+      if (root.activeMenu === id && !root.dmenuActive && root.handheldScreen) root.openWindowPicker(entry)
       return
     }
     if (!entry || !entry.provider || root.providersLoaded[id]) return
@@ -588,7 +611,7 @@ Item {
   // submenus are also hidden when none of their descendants are visible;
   // provider-backed menus stay visible because their rows load on demand.
   function isVisible(entry) {
-    return MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry)
+    return MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry, root.handheldScreen)
   }
 
   // Label with the ✓ marker baked in when `checked:` or `disabled:` evaluated
@@ -909,6 +932,7 @@ Item {
       if (index < 0 || index >= displayModel.count) return
       var picked = displayModel.get(index)
       if (root.windowChoices) {
+        if (!root.handheldScreen) { root.openExistingMenu("root"); return }
         var client = root.windowChoices[Number(picked.itemId.substring(6))]
         root.cancel()
         if (!client || Hyprland.toplevels.values.indexOf(client) < 0 || !client.wayland || !client.workspace) return
@@ -1091,6 +1115,16 @@ Item {
   function openRoute(initialMenu) {
     var id = root.resolveRoute(initialMenu)
     var entry = root.items[id]
+    root.pendingScreenRoute = ""
+    var destination = entry?.kind === "link" ? root.item(entry.target) : entry
+    if (destination && (entry.handheldScreen || destination.handheldScreen)) {
+      // The compositor picks the actual output when the overlay maps. Resolve
+      // direct handheld routes there, including the warm, already-open case.
+      root.openExistingMenu("root")
+      root.pendingScreenRoute = destination.id
+      root.finishScreenRoute()
+      return "ok"
+    }
     // If the resolved id is an action (i.e. the user invoked an alias for
     // a leaf, e.g. `omarchy menu summon screenrecord-stop`), run it directly
     // instead of opening an action with no children.
@@ -1104,6 +1138,26 @@ Item {
     root.pendingInitialMenu = id
     root.openExistingMenu(id)
     return "ok"
+  }
+
+  function finishScreenRoute() {
+    if (!root.pendingScreenRoute || !root.screenConfirmed || !panel.contentRevealed) return
+    const entry = root.item(root.pendingScreenRoute)
+    root.pendingScreenRoute = ""
+    if (!root.handheldScreen || !root.isVisible(entry)) return
+    if (entry.kind === "action") root.applySelected(entry.id, entry.action)
+    else if (entry.provider === "windows") root.openWindowPicker(entry)
+    else root.setActiveMenu(entry.id, false)
+  }
+
+  function finishMappedRequest() {
+    if (!root.opened || !root.screenConfirmed || !panel.contentRevealed) return
+    root.openingOutput = ""
+    root.finishScreenRoute()
+    if (!root.dmenuActive) {
+      if (root.filterText.trim()) root.loadProvidersForSearch()
+      else if (root.item(root.activeMenu)?.provider === "power-profiles") root.loadProviderForMenu(root.activeMenu)
+    }
   }
 
   function disarmPointer() {
@@ -1365,6 +1419,7 @@ Item {
     }
     onShownChanged: if (!shown) { cardTop = -1; maxRowsHeight = -1 }
     onTargetScreenChanged: { cardTop = -1; maxRowsHeight = -1 }
+    onContentRevealedChanged: if (contentRevealed) root.finishMappedRequest()
 
     Rectangle {
       anchors.fill: parent
@@ -1472,9 +1527,27 @@ Item {
           radius: root.cornerRadius
           color: "transparent"
 
+          PanelActionButton {
+            id: back
+            visible: root.touchMenu && (root.windowChoices !== null || root.activeMenu !== "root")
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            size: root.headerHeight
+            z: 1
+            iconText: Commons.I18n.rightToLeft ? "→" : "←"
+            tooltipText: Commons.I18n.t("menu.back")
+            Accessible.role: Accessible.Button
+            Accessible.name: tooltipText
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: root.labelSize
+            onClicked: root.goBack()
+          }
+
           FilterInput {
             id: filterInput
             anchors.left: parent.left
+            anchors.leftMargin: back.visible ? back.width + Style.spacing.sm : 0
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             keyHandler: keyCatcher
@@ -1482,7 +1555,7 @@ Item {
             readOnly: root.deleteConfirmOpen
             color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
+            font.pixelSize: root.labelSize
             onTextChanged: if (text !== root.filterText) root.setFilter(text)
           }
 
@@ -1495,7 +1568,7 @@ Item {
             color: root.foreground
             opacity: 0.58
             font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
+            font.pixelSize: root.labelSize
             elide: Text.ElideRight
           }
 
@@ -1641,7 +1714,7 @@ Item {
                   text: row.label
                   color: row.hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
+                  font.pixelSize: root.labelSize
                   font.weight: Font.Medium
                   elide: Text.ElideRight
                 }
@@ -1655,7 +1728,7 @@ Item {
                   color: root.foreground
                   opacity: 0.52
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: root.detailSize
                   elide: Text.ElideRight
                 }
               }
@@ -1685,7 +1758,7 @@ Item {
                   color: row.hasCursor ? root.selectedText : root.foreground
                   opacity: row.kind === "menu" || row.kind === "link" ? 0.36 : 0
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
+                  font.pixelSize: root.labelSize
                   font.weight: Font.Normal
                   anchors.verticalCenter: parent.verticalCenter
                 }

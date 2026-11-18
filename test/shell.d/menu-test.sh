@@ -109,6 +109,11 @@ assert(menu.isVisible(visibilityItems, visibilityOrder, { 'hardware.laptop': tru
 assert(!menu.isVisible(visibilityItems, visibilityOrder, { 'nested.branch.leaf': false }, visibilityItems.nested), 'menu hides recursively empty submenus')
 assert(menu.isVisible(visibilityItems, visibilityOrder, {}, visibilityItems.dynamic), 'menu keeps provider-backed submenus visible')
 
+const handheld = menu.normalizeItem('hardware.window-list', { provider: 'windows' })
+const screens = { hardware: visibilityItems.hardware, switcher: handheld }
+assert(!menu.isVisible(screens, Object.keys(screens), {}, screens.hardware, false), 'an external display hides a submenu containing only handheld rows')
+assert(menu.isVisible(screens, Object.keys(screens), {}, screens.hardware, true), 'the handheld display exposes its window picker')
+
 // `disabled:` is the softer guard: the row stays listed and only loses the
 // cursor, which is how an already-installed app keeps its place in Install.
 const installed = menu.normalizeItem('install.browser.zen', { label: 'Zen', disabled: 'omarchy-pkg-present zen-browser-bin', action: 'install-zen' })

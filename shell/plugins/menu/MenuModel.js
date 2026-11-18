@@ -20,7 +20,7 @@ function normalizeItem(id, raw) {
 
   var kind = value.action ? "action" : (value.target ? "link" : "menu")
 
-  return {
+  var entry = {
     id: id,
     parent: parent,
     kind: kind,
@@ -41,6 +41,9 @@ function normalizeItem(id, raw) {
     checked: value.checked || "",
     disabled: value.disabled || ""
   }
+  if (value.handheldScreen !== undefined || value.provider === "windows")
+    entry.handheldScreen = value.handheldScreen === true || value.provider === "windows"
+  return entry
 }
 
 function parseMenuJsonc(raw) {
@@ -278,8 +281,8 @@ function childCount(items, itemOrder, id) {
   return count
 }
 
-function isVisible(items, itemOrder, whenResults, entry, depth) {
-  if (!entry) return false
+function isVisible(items, itemOrder, whenResults, entry, handheldScreen, depth) {
+  if (!entry || (entry.handheldScreen && !handheldScreen)) return false
   if (entry.when && whenResults && whenResults[entry.id] === false) return false
   if (entry.kind !== "menu" && entry.kind !== "link") return true
   if (entry.provider) return true
@@ -291,7 +294,7 @@ function isVisible(items, itemOrder, whenResults, entry, depth) {
   var order = Array.isArray(itemOrder) ? itemOrder : []
   for (var i = 0; i < order.length; i++) {
     var child = item(items, order[i])
-    if (child && child.parent === target && isVisible(items, itemOrder, whenResults, child, guard + 1)) return true
+    if (child && child.parent === target && isVisible(items, itemOrder, whenResults, child, handheldScreen, guard + 1)) return true
   }
 
   return false
