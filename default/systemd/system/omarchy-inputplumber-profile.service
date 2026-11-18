@@ -2,9 +2,9 @@
 Description=Omarchy InputPlumber profile switch
 After=inputplumber.service dbus.service
 ConditionPathExists=/usr/bin/inputplumber
-ExecCondition=/usr/bin/omarchy-hw-rog-ally
 
 [Service]
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
 Type=dbus
 BusName=org.omarchy.InputPlumberProfile
 ExecStart=/usr/bin/omarchy-inputplumber-profile serve

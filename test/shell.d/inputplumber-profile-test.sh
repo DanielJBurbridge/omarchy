@@ -22,18 +22,12 @@ grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
 grep -q '^Before=display-manager.service$' \
   "$ROOT/default/systemd/system/omarchy-ally-pointer.service" ||
   fail "the greeter unit stays before the display manager"
-grep -q '^ExecCondition=/usr/bin/omarchy-hw-rog-ally$' \
-  "$ROOT/default/systemd/system/omarchy-ally-pointer.service" ||
-  fail "the greeter unit is gated on the Ally"
 grep -q 'omarchy-ally-pointer-load\|CompositeDevice0\|LoadProfilePath' \
   "$ROOT/default/systemd/system/omarchy-ally-pointer.service" &&
   fail "the greeter unit still names the old pointer loader"
 grep -q '^BusName=org.omarchy.InputPlumberProfile$' \
   "$ROOT/default/systemd/system/omarchy-inputplumber-profile.service" ||
   fail "the switch service owns its bus name"
-grep -q '^ExecCondition=/usr/bin/omarchy-hw-rog-ally$' \
-  "$ROOT/default/systemd/system/omarchy-inputplumber-profile.service" ||
-  fail "the switch service is gated on the Ally"
 
 migration=$ROOT/migrations/1794902400.sh
 [[ $(stat -c %a -- "$migration") == 644 ]] || fail "the migration is mode 0644"
@@ -102,6 +96,7 @@ grep -q 'LoadProfilePath\|CompositeDevice' "$work/busctl.log" &&
 pass "gaming load asks the service for one allowlisted name"
 
 ROOT="$ROOT" WORK="$work" python3 - <<'PY'
+import configparser
 import importlib.util
 import os
 import subprocess
@@ -111,6 +106,10 @@ from pathlib import Path
 
 root = Path(os.environ["ROOT"])
 work = Path(os.environ["WORK"])
+for name in ("omarchy-ally-pointer", "omarchy-inputplumber-profile"):
+    unit = configparser.ConfigParser()
+    unit.read(root / "default/systemd/system" / f"{name}.service")
+    assert unit["Service"].get("ExecCondition") == "/usr/bin/omarchy-hw-rog-ally", name
 helper = root / "bin" / "omarchy-inputplumber-profile"
 loader = SourceFileLoader("inputplumber_profile", str(helper))
 spec = importlib.util.spec_from_loader("inputplumber_profile", loader)
