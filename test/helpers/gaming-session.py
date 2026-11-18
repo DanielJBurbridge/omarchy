@@ -91,6 +91,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if 'is-active' in sys.argv:
             sys.exit(0 if sys.argv[-1] in os.environ.get('ACTIVE_UNITS', '').split(',') else 3)
         if 'start' in sys.argv:
+            if sys.argv[-1] == 'omarchy-gaming-session.target' and 'TARGET_DELAY' in os.environ:
+                import time
+                time.sleep(float(os.environ['TARGET_DELAY']))
             sys.exit(1 if sys.argv[-1] == os.environ.get('POWER_FAIL') else 0)
         if not sys.argv[-1].endswith('.scope'): sys.exit(0)
         import time
@@ -121,6 +124,10 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
           steamos-session-select plasma
           exec sleep 10
         fi
+        # There is no display in this fixture. Signal the ready FIFO when the simulated client starts.
+        if [[ $MODE == normal || $MODE == switch ]]; then
+          printf 'started\\n' > "$OMARCHY_GAMING_RUNTIME/ready"
+        fi
         # Let the supervisor consume startup before the client exits normally.
         sleep 0.05
         if [[ $MODE == steam-fail ]]; then exit 42; fi
@@ -138,7 +145,8 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
                    XDG_RUNTIME_DIR=str(directory / 'runtime'), XDG_SESSION_ID='c71',
                    DBUS_SESSION_BUS_ADDRESS=bus, DBUS_SYSTEM_BUS_ADDRESS=bus,
                    OMARCHY_PATH=str(repo), TEST_ROOT=str(directory), MODE='normal',
-                   OMARCHY_GAMING_READY_TIMEOUT='0.2', OMARCHY_GAMING_RETRY_GAP='0',
+                   OMARCHY_GAMING_READY_TIMEOUT='3', OMARCHY_GAMING_RETRY_GAP='0',
+                   OMARCHY_STEAM_PROC_ROOT=str(directory / 'proc'),
                    PATH=f'{bindir}:{repo / "bin"}:/usr/bin:/bin')
         env.update(updates)
         return directory, env
@@ -178,12 +186,14 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
 
     for mode in ('crash', 'early', 'timeout', 'steam-fail', 'return', 'return-up', 'switch'):
         directory, env = case(mode, MODE=mode)
+        if mode == 'timeout':
+            env['OMARCHY_GAMING_READY_TIMEOUT'] = '0.2'
         run(env, setup, 'default', 'gaming')
         if mode == 'switch':
             run(env, setup, 'default', 'desktop')
             run(env, selector, 'preferred')
         elif mode in ('return', 'return-up'):
-            # Steam switches at startup. The default 0.2s ready timeout can
+            # Steam switches at startup. The readiness timeout can
             # win that race under a loaded CI runner and stop the scope
             # before the return FIFO is read. Give the explicit return time
             # to land, which is what writes next=desktop.
@@ -312,11 +322,13 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     # The historical companion contains its profiles and service, but the
     # matching gamepad helper used to come from the runtime package.
     (bindir / 'omarchy-hw-rog-ally-input').unlink()
-    directory, env = case('legacy-companion-without-helper', INPUT='installed')
+    directory, env = case('legacy-companion-without-helper', INPUT='installed',
+                          TARGET_DELAY='1.1', OMARCHY_GAMING_READY_TIMEOUT='1')
     run(env, selector, 'gaming')
     actions = (directory / 'actions').read_text()
     assert '--user start omarchy-gaming-session.target' in actions and 'steam:-steamos3' in actions, actions
-    print('PASS Gaming starts through its own profile target with the older input archive installed')
+    assert actions.count('gamescope:') == 1 and not (state(directory) / 'recovery').exists(), actions
+    print('PASS Gaming starts once after the older input target prepares the controller')
 
     for name in ('omarchy-launch-gaming-session', 'omarchy-launch-gaming-desktop'):
         run({'PATH': '/usr/bin:/bin'}, repo / 'bin' / name, '--help')

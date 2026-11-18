@@ -491,11 +491,6 @@ run_gaming() {
   fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" || return 1
-  local ready_timeout=${OMARCHY_GAMING_READY_TIMEOUT:-60}
-  [[ $ready_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] || ready_timeout=60
-  # Open read/write to make timeout include the wait for the first writer.
-  (read -r -t "$ready_timeout" event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
-  ready_pid=$!
   (read -r event <> "$gaming_runtime/return" && [[ $event == "desktop" ]]) &
   return_pid=$!
   export OMARCHY_GAMING_RUNTIME=$gaming_runtime
@@ -532,6 +527,12 @@ run_gaming() {
   if systemctl --user cat omarchy-ally-tdp-shim.service >/dev/null 2>&1; then
     systemctl --user restart omarchy-ally-tdp-shim.service || true
   fi
+  local ready_timeout=${OMARCHY_GAMING_READY_TIMEOUT:-60}
+  [[ $ready_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] || ready_timeout=60
+  # Give Steam its full readiness window after the session units have started.
+  # Opening the FIFO read/write includes the wait for the first writer.
+  (read -r -t "$ready_timeout" event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
+  ready_pid=$!
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
     gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
