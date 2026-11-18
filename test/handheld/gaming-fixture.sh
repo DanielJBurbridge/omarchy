@@ -161,3 +161,22 @@ handheld_gaming_env() {
   export OMARCHY_GAMING_READY_TIMEOUT=1
   export OMARCHY_GAMING_RETRY_GAP=0
 }
+
+# Keep Steam alive without a GUI readiness signal, then use its normal menu
+# command once the supervisor has decided to leave the session running.
+handheld_late_desktop_return() {
+  cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+finish=$OMARCHY_GAMING_RUNTIME/test-steam-exit
+if [[ $* == "-ifrunning -shutdown" ]]; then
+  printf 'steam:shutdown\n' >> "$HANDHELD_ACTIONS"
+  printf 'exit\n' > "$finish"
+else
+  mkfifo "$finish" || exit 1
+  while ! grep -qs 'leaving them up' "$XDG_STATE_HOME/omarchy/gaming-session/fallback.log"; do sleep 0.05; done
+  steamos-session-select plasma || exit 1
+  read -r -t 6 reply <> "$finish" && [[ $reply == "exit" ]]
+fi
+EOF
+  chmod +x "$HANDHELD_STUB/steam"
+}

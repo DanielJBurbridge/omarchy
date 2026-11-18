@@ -128,30 +128,28 @@ pass "only the waiter-timeout recovery latch is cleared"
 
 source "$here/../handheld/gaming-fixture.sh"
 handheld_prepare_gaming "$work/hang"
-cat > "$HANDHELD_STUB/steam" <<'EOF'
+handheld_late_desktop_return
+cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
-printf 'steam\n' >> "$HANDHELD_ACTIONS"
-sleep 30
+[[ $* == "omarchy-gaming-session" ]]
 EOF
-chmod +x "$HANDHELD_STUB/steam"
+printf '#!/bin/bash\nexit 0\n' > "$HANDHELD_STUB/omarchy-handheld-autologin"
+chmod +x "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/omarchy-handheld-autologin"
 handheld_gaming_env
+export OMARCHY_STEAM_PROC_ROOT=$work/proc-no-ui
+mkdir -p "$OMARCHY_STEAM_PROC_ROOT"
 setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/hang-out" 2>"$work/hang-err" &
 child=$!
-sleep 4
+wait "$child" || fail "the late desktop return completes" "$(cat "$work/hang-err" "$HANDHELD_LOG")"
+child=
 actions=$(cat "$HANDHELD_LOG" 2>/dev/null || true)
-kill -- -"$child" 2>/dev/null || true
-wait "$child" 2>/dev/null || true
-if grep -q '^uwsm:' <<< "$actions"; then
-  fail "a live Gamescope was stopped when the ready waiter timed out" "$actions"
-fi
-if grep -q 'systemctl:--user stop' <<< "$actions"; then
-  fail "the ready waiter stopped the Gamescope scope" "$actions"
-fi
 fallback=$HANDHELD_HOME/.local/state/omarchy/gaming-session/fallback.log
 grep -q 'leaving them up' "$fallback" || fail "the timeout did not record that Steam was left up" "$(cat "$fallback" 2>/dev/null)"
 recovery=$HANDHELD_HOME/.local/state/omarchy/gaming-session/recovery
-[[ ! -e $recovery ]] || fail "a live Steam wrote the recovery latch" "$(cat "$recovery")"
-pass "a ready-waiter timeout leaves a live Gamescope and Steam running"
+[[ ! -e $recovery && $(grep -cx gamescope <<< "$actions") == 1 ]] &&
+  grep -Fxq 'steam:shutdown' <<< "$actions" && grep -Fxq 'gamescope-child-exit:0' <<< "$actions" &&
+  grep -q '^uwsm:' <<< "$actions" || fail "switching after the ready timeout closes Steam cleanly and opens Desktop without recovery or retry" "$actions"
+pass "a ready timeout leaves Steam running until a later clean Switch to Desktop"
 
 # The scan stops when the waiter's window ends. Steam keeps running; the
 # 0.2s sleep does not continue for the rest of that process.

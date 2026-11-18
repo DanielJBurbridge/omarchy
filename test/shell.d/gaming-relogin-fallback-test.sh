@@ -400,11 +400,7 @@ for keyboard_status in 1 0; do
 done
 pass "a required lock returns to the greeter with or without a keyboard"
 
-cat > "$HANDHELD_STUB/steam" <<'EOF'
-#!/bin/bash
-printf 'steam\n' >> "$HANDHELD_ACTIONS"
-steamos-session-select plasma
-EOF
+handheld_late_desktop_return
 reset_case
 rm -f "$work/lock-status"
 mkdir -p "$state" "$work/sddm" "$work/run"
@@ -414,11 +410,18 @@ run_locked_session
 ! grep -q '^uwsm:' "$HANDHELD_LOG" || fail "an autologin never starts Hyprland when desktop sign-in is required"
 grep -qx 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" || fail "SDDM will show sign-in on the next display"
 grep -qx 'broker:pointer' "$HANDHELD_LOG" || fail "the greeter gets the pointer profile before sign-out"
-[[ ! -e $state/next && ! -e $failures && ! -e $work/run/stop ]] ||
+grep -Fxq 'steam:shutdown' "$HANDHELD_LOG" && grep -Fxq 'gamescope-child-exit:0' "$HANDHELD_LOG" ||
+  fail "a late sign-in request closes Steam gracefully" "$(detail "$work/lock-err")"
+[[ ! -e $state/next && ! -e $state/recovery && ! -e $failures && ! -e $work/run/stop ]] ||
   fail "sign-in leaves no passwordless desktop request or crash count" "$(detail "$work/lock-err")"
 [[ ! -e $work/run/actions ]] || fail "the sign-in handoff uses the existing SDDM daemon" "$(cat "$work/run/actions")"
-pass "Steam's explicit return prepares SDDM sign-in and exits without opening Hyprland"
+pass "Steam's return after the ready timeout prepares SDDM sign-in and exits without opening Hyprland"
 
+cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+printf 'steam\n' >> "$HANDHELD_ACTIONS"
+steamos-session-select plasma
+EOF
 reset_case
 rm -f "$work/lock-status"
 mkdir -p "$state" "$work/sddm" "$work/run"

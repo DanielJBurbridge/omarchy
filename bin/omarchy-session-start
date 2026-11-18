@@ -52,9 +52,7 @@ drop_desktop_next_after_hyprland() {
         fi
       done
     fi
-    # Builtin timeout, so stopping this waiter does not leave an external
-    # sleep holding inherited descriptors.
-    read -r -t 0.1 _ </dev/zero || true
+    sleep 0.1
     waited=$(( waited + 1 ))
   done
 }
@@ -69,9 +67,10 @@ start_hyprland() {
     rm -f "$gaming_state/preference-reset"
     omarchy-notification-send 'Omarchy' 'Session preference reset' || true
   fi
-  local next_watch_pid=''
+  local next_watch_pid='' before
   if (( gaming_desktop_next )); then
-    drop_desktop_next_after_hyprland "$(existing_hypr_sockets)" &
+    before=$(existing_hypr_sockets)
+    drop_desktop_next_after_hyprland "$before" &
     next_watch_pid=$!
   fi
   uwsm start -g -1 -e -D Hyprland hyprland.desktop
@@ -181,7 +180,7 @@ gaming_start_osk() {
         fi
       done
     fi
-    read -r -t 0.1 _ </dev/zero || true
+    sleep 0.1
     waited=$((waited + 1))
   done
   printf '%s\n' 'on-screen keyboard gave up waiting for Hyprland' >> "$gaming_state/fallback.log"
@@ -191,7 +190,7 @@ gaming_start_osk() {
 # when the root helper can act. The managed loop handles any explicit retry.
 # A required lock stays at the greeter instead of opening an unlocked session.
 gaming_fail_limit_fallback() {
-  local status=0 osk_pid='' spins=0
+  local status=0 osk_pid='' spins=0 before
   gaming_fallback=1
   if [[ -n ${gaming_state:-} && -d $gaming_state && ! -L $gaming_state ]]; then
     gaming_save recovery "$gaming_fail_limit_latch" || true
@@ -215,13 +214,14 @@ gaming_fail_limit_fallback() {
   if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
     # Snapshot the sockets before this compositor starts. The waiter can be
     # scheduled after uwsm has created the new one.
-    gaming_start_osk "$(existing_hypr_sockets)" 9>&- &
+    before=$(existing_hypr_sockets)
+    gaming_start_osk "$before" 9>&- &
     osk_pid=$!
   fi
   desktop || status=$?
   if [[ -n $osk_pid ]]; then
     while kill -0 "$osk_pid" 2>/dev/null && (( spins < 20 )); do
-      read -r -t 0.1 _ </dev/zero || true
+      sleep 0.1 9>&-
       spins=$((spins + 1))
     done
     kill "$osk_pid" 2>/dev/null || true
@@ -552,16 +552,17 @@ run_gaming() {
     [[ -n $scope_pid ]] && kill -0 "$scope_pid" 2>/dev/null
   }
   wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
-  if [[ $finished == "$ready_pid" ]] && (( status == 0 )); then
-    mark_steam_ready
-    wait -n -p finished "$scope_pid" "$return_pid" || status=$?
-  elif [[ $finished == "$ready_pid" ]] && gaming_scope_alive && pgrep -u "$UID" -x steam >/dev/null; then
-    # The fd check can miss a UI that is up. Stopping the scope here is what
-    # turned a running Steam into the recovery desktop on every boot. A
-    # Gamescope that never started Steam still fails and is stopped.
-    printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
-    mark_steam_ready
-    wait -n -p finished "$scope_pid" "$return_pid" || status=$?
+  if [[ $finished == "$ready_pid" ]]; then
+    # The fd check can miss a live Steam UI. Once we accept the running
+    # session, only the next event determines how the session ends.
+    if (( status != 0 )) && gaming_scope_alive && pgrep -u "$UID" -x steam >/dev/null; then
+      printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
+      status=0
+    fi
+    if (( status == 0 )); then
+      mark_steam_ready
+      wait -n -p finished "$scope_pid" "$return_pid" || status=$?
+    fi
   fi
   if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
     returned=true
