@@ -254,18 +254,64 @@ gaming_state_unusable_exit() {
   exit 1
 }
 
-authenticated_login_id() {
-  local properties expected session
+desktop_login_properties() {
   # SDDM invokes this entry in its own PAM session, before UWSM moves apps
   # to the user manager. Ask logind for the caller, using the system bus.
-  properties=$(exec -c /usr/bin/loginctl --no-pager show-session self \
-    -p Id -p Active -p Class -p Remote -p Seat -p Service -p Type -p User) || return 1
-  for expected in Active=yes Class=user Remote=no Seat=seat0 Service=sddm Type=wayland "User=$UID"; do
-    grep -Fxq "$expected" <<< "$properties" || return 1
+  (exec -c /usr/bin/loginctl --no-pager show-session "$1" \
+    -p Id -p Active -p Class -p Remote -p Seat -p Service -p State -p Type -p User)
+}
+
+is_local_desktop_login() {
+  local expected
+  for expected in Class=user Remote=no Seat=seat0 Type=wayland "User=$UID"; do
+    grep -Fxq "$expected" <<< "$1" || return 1
   done
+  grep -Eq '^Service=sddm(-autologin)?$' <<< "$1"
+}
+
+authenticated_login_id() {
+  local properties session
+  properties=$(desktop_login_properties self) || return 1
+  is_local_desktop_login "$properties" && grep -Fxq 'Active=yes' <<< "$properties" &&
+    grep -Fxq 'Service=sddm' <<< "$properties" || return 1
   session=$(sed -n 's/^Id=//p' <<< "$properties")
   [[ $session =~ ^[[:alnum:]_-]+$ ]] || return 1
   printf '%s\n' "$session"
+}
+
+retire_closed_desktop() {
+  local session=${XDG_SESSION_ID:-} unit=wayland-wm@hyprland.desktop.service
+  local snapshot pid owner current previous units attempt
+  local properties=(-p ActiveState -p MainPID -p InvocationID)
+  [[ -n $session ]] || return 0
+  snapshot=$(systemctl --user show "$unit" "${properties[@]}" 2>/dev/null) || return 0
+  grep -Fxq 'ActiveState=active' <<< "$snapshot" &&
+    grep -Eq '^InvocationID=[0-9a-f]{32}$' <<< "$snapshot" || return 0
+  pid=$(sed -n 's/^MainPID=//p' <<< "$snapshot")
+  [[ $pid =~ ^[1-9][0-9]*$ ]] || return 0
+  owner=$(grep -az '^OMARCHY_HANDHELD_SESSION=' "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n') || return 0
+  owner=${owner#*=}
+  [[ $owner =~ ^[[:alnum:]_-]+$ && $owner != "$session" ]] || return 0
+
+  current=$(desktop_login_properties self) && previous=$(desktop_login_properties "$owner") || return 0
+  is_local_desktop_login "$current" && grep -Fxq "Id=$session" <<< "$current" &&
+    grep -Fxq 'Active=yes' <<< "$current" && grep -Fxq 'State=active' <<< "$current" || return 0
+  is_local_desktop_login "$previous" && grep -Fxq "Id=$owner" <<< "$previous" &&
+    grep -Fxq 'State=closing' <<< "$previous" || return 0
+  # SDDM can close PAM before UWSM's user service exits. Stop only the
+  # managed compositor whose exact service invocation was just checked.
+  [[ $(systemctl --user show "$unit" "${properties[@]}" 2>/dev/null) == "$snapshot" ]] || return 0
+  printf '%s\n' "Closing the remaining Hyprland service from session $owner." >> "$gaming_state/fallback.log"
+  timeout --kill-after=1s 12s systemctl --user stop "$unit" || return 1
+  for ((attempt=0; attempt < 30; attempt++)); do
+    units=$(timeout 1s systemctl --user list-units --no-legend --plain --state=active,activating,deactivating \
+      "$unit" wayland-wm-env@hyprland.desktop.service wayland-session@hyprland.desktop.target \
+      wayland-session-pre@hyprland.desktop.target wayland-session-shutdown.target \
+      graphical-session.target graphical-session-pre.target) || return 1
+    [[ -z $units ]] && return 0
+    sleep 0.1
+  done
+  return 1
 }
 
 if ! omarchy-hw-rog-ally || { [[ $1 == authenticated-desktop ]] && ! omarchy-pkg-present omarchy-gaming-session; }; then
@@ -304,6 +350,10 @@ if ! gaming_runtime_init; then
 fi
 if ! { exec 9>"$gaming_runtime/lock" && flock -n 9; }; then
   gaming_fail 'a managed session is already running.'
+  exit 1
+fi
+if ! retire_closed_desktop; then
+  gaming_fail 'The previous managed desktop did not finish closing.'
   exit 1
 fi
 gaming_clear_waiter_latch

@@ -210,6 +210,45 @@ if ! grep -q '^profile:desktop:redteam$' "$HANDHELD_LOG" || ! grep -q '^uwsm:' "
 fi
 pass "a managed Desktop login requests controller mode and can continue if refused"
 
+sed -i -e "s|exec -c /usr/bin/loginctl|exec \"$HANDHELD_STUB/loginctl\"|" \
+  -e "s|/proc/\$pid/environ|$work/compositor-environ|" "$HANDHELD_TREE/bin/omarchy-session-start"
+printf 'OMARCHY_HANDHELD_SESSION=old-desktop\0' > "$work/compositor-environ"
+cat > "$HANDHELD_STUB/loginctl" <<'EOF'
+#!/bin/bash
+case $3 in
+  self) printf '%s\n' "Id=$XDG_SESSION_ID" Active=yes "State=${CURRENT_LOGIN_STATE:-active}" Service=sddm-autologin ;;
+  old-desktop) printf '%s\n' Id=old-desktop Active=no Service=sddm "State=$OLD_LOGIN_STATE" ;;
+  *) exit 1 ;;
+esac
+printf '%s\n' Class=user Remote=no Seat=seat0 Type=wayland "User=$UID"
+EOF
+cat > "$HANDHELD_STUB/systemctl" <<'EOF'
+#!/bin/bash
+printf 'systemctl:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+if [[ $* == '--user show wayland-wm@hyprland.desktop.service '* ]]; then
+  printf '%s\n' ActiveState=active MainPID=1234 InvocationID=0123456789abcdef0123456789abcdef
+fi
+EOF
+chmod +x "$HANDHELD_STUB/loginctl"
+OLD_LOGIN_STATE=closing run_session preferred
+mapfile -t desktop_actions < <(grep -E '^(systemctl:--user stop wayland-wm@|uwsm:)' "$HANDHELD_LOG")
+[[ ${desktop_actions[0]:-} == 'systemctl:--user stop wayland-wm@hyprland.desktop.service' &&
+  ${desktop_actions[1]:-} == uwsm:* ]] ||
+  fail "a new local login retires the compositor from the closed PAM session before starting Hyprland" "$(cat "$HANDHELD_LOG")"
+pass "a closed managed login releases Hyprland before the next desktop starts"
+
+OLD_LOGIN_STATE=active run_session preferred
+grep -q '^uwsm:' "$HANDHELD_LOG" && ! grep -q 'systemctl:--user stop wayland-wm@' "$HANDHELD_LOG" ||
+  fail "a live managed login must keep its compositor" "$(cat "$HANDHELD_LOG")"
+CURRENT_LOGIN_STATE=closing OLD_LOGIN_STATE=closing run_session preferred
+grep -q '^uwsm:' "$HANDHELD_LOG" && ! grep -q 'systemctl:--user stop wayland-wm@' "$HANDHELD_LOG" ||
+  fail "a closing login cannot retire another login's compositor" "$(cat "$HANDHELD_LOG")"
+printf 'OTHER_VARIABLE=first-line\nOMARCHY_HANDHELD_SESSION=old-desktop\0' > "$work/compositor-environ"
+OLD_LOGIN_STATE=closing run_session preferred
+grep -q '^uwsm:' "$HANDHELD_LOG" && ! grep -q 'systemctl:--user stop wayland-wm@' "$HANDHELD_LOG" ||
+  fail "a compositor without a managed login ID must be left alone" "$(cat "$HANDHELD_LOG")"
+pass "live and unmanaged desktop sessions keep their Hyprland service"
+
 # A machine that is not the handheld never enters the gaming supervisor.
 printf 'Dell Inc.\n' > "$work/dmi/sys_vendor"
 printf 'XPS 13\n' > "$work/dmi/product_name"
