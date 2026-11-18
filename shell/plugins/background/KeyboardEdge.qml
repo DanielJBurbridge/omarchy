@@ -92,7 +92,7 @@ PanelWindow {
     width: 128
     height: 6
     radius: height / 2
-    color: touch.tracking && touch.tapCandidate ? Commons.Color.accent : Commons.Color.foreground
+    color: touch.tracking ? Commons.Color.accent : Commons.Color.foreground
     border.color: Commons.Color.background
   }
 
@@ -102,7 +102,6 @@ PanelWindow {
     enabled: edge.available
     z: 1
     mouseEnabled: false
-    readonly property int maximumDrift: 36
     property int contacts: 0
     property bool tracking: false
     property bool tapCandidate: false
@@ -125,6 +124,14 @@ PanelWindow {
     function withinTapDistance(p) {
       return Math.hypot(p.x - p.startX, p.y - p.startY) <= Application.styleHints.startDragDistance
     }
+
+    // Allow a thumb to settle or start on a shallow arc. A clearly sideways
+    // or downward lead cancels the gesture even if it later turns upward.
+    function veersAway(p) {
+      const rise = p.startY - p.y
+      return rise < -16 || Math.abs(p.x - p.startX) > Math.max(36, rise * 1.5)
+    }
+
     onEnabledChanged: if (!enabled) { cancel(); contacts = 0 }
 
     onPressed: points => {
@@ -144,13 +151,14 @@ PanelWindow {
     onUpdated: points => {
       for (const p of points) {
         if (!withinTapDistance(p)) tapCandidate = false
-        if (Math.abs(p.x - p.startX) > maximumDrift || p.y > p.startY + 8) tracking = false
+        if (veersAway(p)) tracking = false
       }
     }
     onReleased: points => {
       const p = points[0]
       const tapped = tapCandidate && withinTapDistance(p) && Date.now() - pressTime < Application.styleHints.mousePressAndHoldInterval
-      const swiped = p.startY - p.y >= 48 && Math.abs(p.x - p.startX) <= maximumDrift
+      const rise = p.startY - p.y
+      const swiped = rise >= 48 && Math.abs(p.x - p.startX) <= rise * 0.75
       if (tracking && (tapped || swiped)) {
         // A quick gesture can lift before the press query returns. Both event
         // orders require the sample to agree with the state cached at contact.
