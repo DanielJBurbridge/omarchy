@@ -14,15 +14,24 @@ steam_launchers=("Steam Big Picture.desktop" "Desktop Mode.desktop")
 changed=false
 
 if (( $# == 0 )); then
+  staging_dir=
   launchers=()
   if omarchy-cmd-present steam; then launchers+=("${steam_launchers[@]}"); fi
   if omarchy-hw-rog-ally; then launchers+=("Gaming Setup.desktop"); fi
   for name in "${launchers[@]}"; do
     entry="$apps/$name"
     if [[ ! -e $entry && ! -L $entry ]]; then
-      mkdir -p "$apps"
-      cp --update=none -T -- "$templates/$name" "$entry"
-      changed=true
+      if [[ -z $staging_dir ]]; then
+        mkdir -p "$apps"
+        staging_dir=$(mktemp -d -- "$apps/.omarchy-gaming.XXXXXXXX")
+        trap 'rm -rf -- "$staging_dir"' EXIT
+      fi
+      # Publish only complete files. A concurrent installer or user can claim
+      # the same desktop ID between the initial check and this rename.
+      staged="$staging_dir/$name.part"
+      cp -- "$templates/$name" "$staged"
+      mv --no-copy --update=none -T -- "$staged" "$entry"
+      if [[ ! -e $staged ]]; then changed=true; fi
     fi
   done
 else

@@ -13,7 +13,7 @@ stub=$work/bin
 db=$work/desktop-db
 mkdir -p "$stub"
 # The no-Steam case must also work on a host with Steam installed.
-ln -s /usr/bin/{bash,cat,cmp,cp,getfattr,mkdir,rm,stat} "$stub/"
+ln -s /usr/bin/{bash,cat,cmp,cp,getfattr,mkdir,mktemp,mv,rm,stat} "$stub/"
 : > "$db"
 cat > "$stub/update-desktop-database" <<'EOF'
 #!/bin/bash
@@ -125,3 +125,24 @@ apps=$(apps_of "$home")
 run_launcher_command "$home" "$laptop_vendor" "$laptop_product" "$laptop_board" omarchy-apply-gaming-launchers --remove-steam
 [[ -f "$apps/Desktop Mode.desktop" ]] || fail "removal preserves a restrictive user mode"
 pass "new entries respect the user's umask and Steam removal preserves private copies"
+
+# A kernel write limit makes a real copy stop mid-file. Retrying must work.
+without_steam
+home=$work/ally-copy-failure
+templates="$work/oversized/default/applications"
+mkdir -p "$templates"
+mkfifo "$templates/Gaming Setup.desktop"
+head -c 8192 /dev/zero > "$templates/Gaming Setup.desktop" &
+producer=$!
+run_launcher_command "$home" "ASUSTeK COMPUTER INC." "ROG Ally RC71L" "RC71L" bash -c '
+  ulimit -c 0
+  ulimit -f 1
+  export OMARCHY_PATH=$1
+  ! omarchy-apply-gaming-launchers
+' bash "$work/oversized"
+wait "$producer" || true
+apps=$(apps_of "$home")
+[[ ! -e "$apps/Gaming Setup.desktop" ]] || fail "a failed copy leaves no partial desktop entry"
+run_launcher_command "$home" "ASUSTeK COMPUTER INC." "ROG Ally RC71L" "RC71L"
+cmp -s "$ROOT/default/applications/Gaming Setup.desktop" "$apps/Gaming Setup.desktop" || fail "retry publishes the complete launcher"
+pass "a failed copy leaves no visible launcher and a retry publishes it"
