@@ -477,7 +477,9 @@ run_gaming() {
   gaming_display_args || { gaming_fail 'invalid display settings; reset them.'; return 2; }
   # These companion integrations are optional; installed backends own their
   # resources and a failed mode switch must not leave a half-switched session.
-  if omarchy-pkg-present omarchy-rog-ally-input; then
+  # The older input companion shipped the profiles, while its runtime
+  # supplied this helper. Current runtimes load the gaming profile via the target.
+  if omarchy-cmd-present omarchy-hw-rog-ally-input && omarchy-pkg-present omarchy-rog-ally-input; then
     omarchy-hw-rog-ally-input gamepad || return 1
   fi
   local display_args=() display_output

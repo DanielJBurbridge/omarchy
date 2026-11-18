@@ -295,6 +295,15 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert 'gamescope:' in actions, actions
     print('PASS optional input, display and overlay, with no ally-power units')
 
+    # The historical companion contains its profiles and service, but the
+    # matching gamepad helper used to come from the runtime package.
+    (bindir / 'omarchy-hw-rog-ally-input').unlink()
+    directory, env = case('legacy-companion-without-helper', INPUT='installed')
+    run(env, selector, 'gaming')
+    actions = (directory / 'actions').read_text()
+    assert '--user start omarchy-gaming-session.target' in actions and 'steam:-steamos3' in actions, actions
+    print('PASS Gaming starts through its own profile target with the older input archive installed')
+
     for name in ('omarchy-launch-gaming-session', 'omarchy-launch-gaming-desktop'):
         run({'PATH': '/usr/bin:/bin'}, repo / 'bin' / name, '--help')
         run({'PATH': '/usr/bin:/bin'}, repo / 'bin' / name, 'unknown', status=2)
