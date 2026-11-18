@@ -10,12 +10,24 @@ The Ally now has runtime and settings candidate `4.0.0.202611180201.r8097.handhe
 
 | Feature | Current evidence | Work and acceptance |
 |---|---|---|
-| RC71L detection and installer isolation | Two fresh KVM installs of [draft #18022](https://github.com/omacom/omarchy/pull/18022) passed the targeted checks. The RC71L skipped asusctl and the laptop soft mixer and showed the first-login gaming offer. The Strix G16 installed asusctl and the soft mixer and showed no Ally offer. Both general acceptance suites reported failures. | Compare failed assertions against unmodified Quattro, then verify the offer opens Gaming, can be dismissed and appears only once, including after an initially offline login. Validate on the physical Ally using a spare target. A later installer that bundles Gaming Mode also needs to refresh the InputPlumber and TDP policies after creating the owner. |
+| RC71L detection and installer isolation | Two fresh KVM installs of [draft #18022](https://github.com/omacom/omarchy/pull/18022) passed the targeted checks. The RC71L skipped asusctl and the laptop soft mixer. Its first-login offer opened Gaming and did not recur after reboot and a second login. The Strix G16 installed asusctl and the soft mixer and showed no Ally offer. | Verify dismissal and initially offline login, then validate on the physical Ally using a spare target. Review the broader VM failures below separately. A later installer that bundles Gaming Mode also needs to refresh the InputPlumber and TDP policies after creating the owner. |
 | Steam Big Picture in the desktop | Older hardware passed controller navigation and return to the Steam desktop client. [Draft #18432](https://github.com/omacom/omarchy/pull/18432) has a merge conflict. | Resolve the conflict against current Quattro. Repeat launch, normal Steam first run, playing a game and return on the fresh candidate. |
 | Dedicated Gaming Mode and return to Hyprland | Gamescope/Steam session and recovery logic in source with fixtures. The latest controller handoff is fixture-only. | Boot into Gaming, launch a game with working audio, then use Steam Power → Switch to Desktop → Switch to Gaming five times. Confirm one Steam client, the expected InputPlumber profile in each mode, and no blank screen, relogin loop or greeter during a normal handoff. See [round-trip spec](08-mode-round-trip.md). |
 | Secure sign-in, lock and recovery | A partial SDDM key grid and fail-limit fallback exist. A policy-required lock now keeps the managed desktop closed until a normal authenticated Hyprland login is available. Full secure keyboard-free unlock remains open. | Implement secure startup with the new compositor, then exercise a wrong password, retry, layout and symbols, lock and wake with no keyboard. Confirm the USB keyboard and recovery passphrase still work. Keep TPM enrolment and autologin as explicit policy decisions. See [keyboard-free boot](09-keyboard-free-boot.md) and [TPM runbook](tpm-unlock.md). |
 | Power button and suspend | Gaming companion in source, short/long handling and relogin recovery have fixtures. The build retry is explicit via `omarchy-setup-gaming-session install-power-button`. | On the candidate, test short press suspend and resume into the same game, long press opening the Steam power menu, and desktop lock before suspend under the chosen policy. Check the actual udev power-button match, wake on AC and battery, input, sound, Wi-Fi and Bluetooth. Record actual MCU version before diagnosing wake failures. |
 | Updates, removal and fallback | Snapshot/recovery procedure and package guards exist. Previous handheld-to-upstream update caused a relogin loop. | Test one matched runtime/settings/gaming package upgrade, update through normal Omarchy, switch back and remove the companion. Verify a usable desktop, original services restored, settings and game saves retained, and working TTY/SSH and snapshot rollback. See [alpha runbook](ALPHA.md). |
+
+### Installer comparison
+
+The candidate combined Quattro `c6be7abb9` and draft head `515d61405` at merge `89ea3e2cb`. Stock Quattro and both candidate suites exited 1. All three reproduced the browser launch, Mozc browser launch, style submenu, notification content and default Chromium assertions. Three candidate assertions remain unresolved.
+
+| Assertion | Stock RC71L | Candidate RC71L | Candidate Strix G16 |
+|---|---|---|---|
+| Layout map shows its keys | Shell was unresponsive earlier in the test | Failed | Failed |
+| Menu opens on the temporary monitor | Passed | Passed | Failed |
+| Recovery menu maps on a tall monitor | Passed | Failed | Unreached |
+
+Twelve installed package versions differed between the two RC71L guests because the mirror advanced. The candidate RC71L acceptance overlay needed one Enter at Limine. This comparison establishes which failures also occurred on stock and leaves version and harness differences open. Candidate ISO SHA-256: `7eb22d176d0b804de4a707aba6f5bbfb69748810f1eac3f658f1de5fd654ff5d`.
 
 ## Controller, touch and accessibility
 
