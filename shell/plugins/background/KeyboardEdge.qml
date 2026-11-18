@@ -10,18 +10,18 @@ PanelWindow {
   anchors.bottom: true
   implicitWidth: Math.min(480, Math.round(screen.width / 2))
   implicitHeight: 36
-  exclusiveZone: keyboardMapped ? 0 : implicitHeight
+  exclusiveZone: implicitHeight
   color: "transparent"
   WlrLayershell.namespace: "omarchy-keyboard-edge"
   WlrLayershell.layer: WlrLayer.Bottom
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+  // Keep the tile reservation stable while another surface owns the edge.
   mask: Region { item: touch.enabled ? touch : null }
 
   readonly property var client: ToplevelManager.activeToplevel
   readonly property bool available: layersClear && !!client && client.activated && !client.fullscreen
     && !!client.appId && !/gamescope/i.test(client.appId)
   property bool layersClear: false
-  property bool keyboardMapped: false
 
   // Hyprland signals a layer's name but not its stack level. Read the stack
   // once on startup and again when it changes, including external surfaces.
@@ -42,8 +42,6 @@ PanelWindow {
       }
       try {
         const levels = JSON.parse(snapshot.text)[edge.screen.name].levels
-        // Release the strip so the keyboard can reach the bottom of the panel.
-        if (code === 0) edge.keyboardMapped = Object.values(levels).some(level => level.some(s => s.namespace === "wvkbd"))
         edge.layersClear = code === 0 && levels["2"].every(s => s.namespace === "omarchy-bar" || s.namespace === "omarchy-dock")
           && levels["3"].every(s => s.namespace === "omarchy-notifications")
       } catch (_) { edge.layersClear = false }
@@ -54,11 +52,7 @@ PanelWindow {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      if (event.name === "openlayer") {
-        edge.layersClear = false
-        // The handle only exists on a single display, so this mapping is ours.
-        if (event.data === "wvkbd") edge.keyboardMapped = true
-      }
+      if (event.name === "openlayer") edge.layersClear = false
       if (event.name === "openlayer" || event.name === "closelayer") layers.refresh()
       if (event.name === "configreloaded"
           || (event.name === "custom" && event.data === "omarchy-monitor-transform:" + edge.screen.name)) {
