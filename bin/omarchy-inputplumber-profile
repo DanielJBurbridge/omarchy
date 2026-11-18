@@ -388,11 +388,10 @@ def load(name: str, wait: bool = False) -> int:
     return 0 if wait else 1
   composite, refused = select_composite(wait)
   if composite is None:
-    # The greeter must not block on a missing daemon. More than one Ally is
-    # a hard refusal for every caller except that greeter wait.
-    if refused and not wait:
-      return 1
-    return 0
+    if not wait and not refused:
+      print("omarchy-inputplumber-profile: no RC71L composite; not loading", file=sys.stderr)
+    # The greeter proceeds when no single composite is ready after the wait.
+    return 0 if wait else 1
   if already_loaded(composite, profile_name, targets):
     print(f"omarchy-inputplumber-profile: {name} already loaded", file=sys.stderr)
     return 0

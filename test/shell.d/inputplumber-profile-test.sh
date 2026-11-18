@@ -309,14 +309,14 @@ prop(ally_x, "IdProduct", 's "1b4c"')
 bus.reset()
 prop(hidraw, "IdProduct", 's "1b4c"')
 prop(event, "IdProduct", 's "1b4c"')
-check(mod.load("gaming") == 0 and bus.methods() == [], "Ally X product 1b4c is not the RC71L")
+check(mod.load("gaming") == 1 and bus.methods() == [], "Ally X product 1b4c is not the RC71L")
 prop(hidraw, "IdProduct", 's "1abe"')
 prop(event, "IdProduct", 's "1abe"')
 
 bus.reset()
 prop(hidraw, "IdVendor", 's "0x0b05"')
 prop(event, "IdVendor", 's "0B05"')
-check(mod.load("gaming") == 0 and bus.methods() == [], "vendor text must be lowercase four digits")
+check(mod.load("gaming") == 1 and bus.methods() == [], "vendor text must be lowercase four digits")
 prop(hidraw, "IdVendor", 's "0b05"')
 prop(event, "IdVendor", 's "0b05"')
 
@@ -368,6 +368,10 @@ check(bus.methods() == ["LoadProfileFromYaml"], "pointer loads once the composit
 bus.reset()
 bus.tree_codes = [1, 1, 1]
 check(mod.load("pointer", wait=True) == 0 and bus.methods() == [], "pointer gives up without failing the greeter")
+
+bus.reset()
+bus.tree_codes = [1]
+check(mod.load("desktop") == 1 and bus.methods() == [], "a missing InputPlumber daemon fails the desktop profile request")
 
 check(mod.load("nope") == 1, "an unknown name is an error")
 check(mod.intercept(1) == 1 and mod.intercept(3) == 1, "intercept rejects values other than 0 and 2")
