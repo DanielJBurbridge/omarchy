@@ -59,7 +59,7 @@ Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`). The
 | D4 | **On RC71L, `CTRL + ALT + DELETE` always asks before it closes windows.** The confirm is keyed only on `omarchy-hw-rog-ally`. InputPlumber being up, down, killed, or not yet started does not matter. Raw Ctrl+Alt+Delete is always possible on this device. |
 | D5 | **No system action is hold-only.** Steam Input hold-chords are unreliable on the Ally (firmware does not give CC or AC a press/release pair). A firmware-distinct key (Armoury `KEY_F17`, Command Centre Ctrl+Alt+Delete or `KEY_F20`) may be a shortcut. It is never the only route. |
 | D6 | **Keep asusctl off the RC71L.** `asusd` fights `power-profiles-daemon` for the platform profile. The skip in `install/hardware/asus/rog-ally.sh` does not stop a copy that is already installed. |
-| D7 | **Left-stick scroll is notched, not analogue.** Gyro's source exists; Steam only sees it through a `ds5-edge` or Steam Deck target. Both are untested on this unit. |
+| D7 | LB/RB scroll on stock InputPlumber. Left-stick scrolling needs the private daemon and paired profiles (§9). Steam gyro still needs a physical test with a `ds5-edge` or Steam Deck target. |
 
 ## 3. Physical layout
 
@@ -102,7 +102,7 @@ Observed on the RC71L with InputPlumber stopped. The 18 November 2026 paddle cap
 | A while a paddle is held, 17 Nov | A was not reported |
 | Command Centre, held about 1 s, 17 Nov | No event recorded |
 
-In a separate labelled capture on the same stock kernel, the embedded xpad reported X as `BTN_NORTH` (307) and Y as `BTN_WEST` (308), each with one down and one up. The desktop profile uses X for middle-click and Y for Enter. In the OSK profile, X is Space and Y is Enter.
+In a separate labelled capture on the same stock kernel, the embedded xpad reported X as `BTN_NORTH` (307) and Y as `BTN_WEST` (308), each with one down and one up. Replaying those measured codes through signed stock InputPlumber and the corrected profiles in QEMU gave X = middle click on desktop and Space on OSK, with Y = Enter in both. Each produced one press and release. Physical app behaviour still needs checking. [Desktop profile](../../default/inputplumber/profiles/desktop.yaml) · [OSK profile](../../default/inputplumber/profiles/osk.yaml)
 
 The gamepad and monitored hidraw interface also yielded no distinct paddle events. A single `KEY_F15` binding on this kernel would fire from either side.
 
@@ -130,11 +130,11 @@ Guide+West is the shipped OSK macro (`gamepad.yaml`, `dualsense.yaml`). If Steam
 | Button | Game | Desktop (baseline) | Menu | OSK | Δ vs baseline |
 |---|---|---|---|---|---|
 | Right stick | Game axis | Pointer, 900 px/s (logical, pre-scale) | Pointer | Pointer (tap keys with A) | Keep. Speed setting → spec 06. |
-| Left stick | Game axis | **Unmapped** in the shipped profile | Unmapped | Unmapped | **Δ4** Notched scroll only: `WheelUp` / `WheelDown` (and the horizontal pair) from an axis direction. Not an analogue wheel. IP 0.84 can do the notched form; `mouse: wheel:` is not in the 0.84 schema but upstream `mouse_keyboard_wasd.yaml` uses a wheel. OQ-7 closed. |
+| Left stick | Game axis | No scroll output on stock | Same | Same | **Δ4** The private analogue-scroll profiles require the patched daemon (§9). |
 | A (South) | A | Left click / drag (hold) | Left click (select under pointer) | Left click (press key) | Keep. |
 | B (East) | B | Right click | **Δ5 Close/back** (Escape, via a layer-scoped bind) | **Δ6 Backspace** | Δ5, Δ6 (§6). |
-| X (West) | X | Middle click | Middle click | **Δ6 Space** | Δ6. |
-| Y (North) | Y | Enter | Enter (activate highlighted) | Enter | Keep. |
+| X (xpad 307, InputPlumber `North`) | X | Middle click | Middle click | **Δ6 Space** | Corrected profile mappings. |
+| Y (xpad 308, InputPlumber `West`) | Y | Enter | Enter (activate highlighted) | Enter | Corrected profile mappings. |
 | LB / RB | LB / RB | Scroll down / up (`LeftBumper` wheel down, `RightBumper` wheel up) | Scroll | Scroll | Keep. |
 | LT / RT | LT / RT | Right / left click (deadzone 0.25) | Same | Same | Keep. |
 | L3 | L3 | Unmapped | Unmapped | Unmapped | Keep. `Super+Ctrl+Z` zoom (`utilities.lua:152`) stays a keyboard chord, not a paddle chord. `Super+Ctrl+X` is the Agents panel (`utilities.lua:137`) and is not a paddle chord either. |
@@ -301,7 +301,7 @@ A, RT and R3 are one row: they all emit `mouse:272`. B and LT both emit `mouse:2
 | RB | `mouse_up` | **Previous workspace** `tiling.lua:82` | No bind | No bind. `SUPER + ALT + mouse_up` (`tiling.lua:102`) needs Alt. |
 | LB | `mouse_down` | **Next workspace** `tiling.lua:81` | No bind | No bind |
 | L3 | nothing | Bare Super, unbound | No bind | No bind. Does not zoom (`utilities.lua:152` needs Z) and does not open Agents (`utilities.lua:137` needs the letter X). |
-| Left stick | none, or notched wheel (Δ4) | Not a Super chord | Not a Ctrl chord | Not a Super+Ctrl chord |
+| Left stick | No stock output. Four-way scroll in the private Δ4 prototype | Not a Super chord | Not a Ctrl chord | Not a Super+Ctrl chord |
 | CC / AC | D-Bus, not a key | The D-Bus action runs; Super stays down if M1 is held | Ctrl stays down if M2 is held | Both stay down |
 
 `SUPER + CTRL` binds that the pad cannot hit, including the dangerous ones and the chord that is now taken: Agents (`utilities.lua:137`, X), tiled full screen (`tiling.lua:9`, F), power (`utilities.lua:136`, P), lock (`utilities.lua:161`, L), emojis (`utilities.lua:3`), capture menu (`utilities.lua:4`), display toggle (`utilities.lua:49`, Delete, not the close-all chord), zoom (`utilities.lua:152`, Z), and the bar-panel number keys (`utilities.lua:144-149`). `CTRL + ALT + DELETE` (`tiling.lua:3`) needs Alt as well as Delete. Paddles cannot produce it. The firmware Command Centre long can, which is Δ9, not a paddle chord. `SUPER + CTRL + X` stays the Agents panel on every machine, including the RC71L. Δ8's close is `SUPER + mouse:274`, not this chord.
@@ -321,11 +321,13 @@ OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above 
 |---|---|---|
 | Pointer | Right stick, 900 px/s, IP fixed 0.20 deadzone | Baseline |
 | Clicks | A/RT left (hold = drag), B/LT right, X middle, R3 left | Baseline |
-| Scroll | LB/RB vertical. Left stick: notched wheel only (Δ4, OQ-7 closed). | Baseline + Δ4 |
+| Scroll | LB scrolls down and RB scrolls up by one detent per press. The shipped left-stick axis-to-wheel-button entries emit no kernel wheel events with signed InputPlumber `0.84.0-1`. | Stock |
 | Trackpad emulation | None (RC71L has no trackpad). Touchscreen stays direct touch. The pattern file is `default/hypr/rog-ally-touch.lua` on `feat/ally-display-20261111` (early-return unless `omarchy-hw-rog-ally` succeeds). It is not on the parity or input branch. DS5 touchpad is not synthesised. | Statement |
 | Gyro mouse | Optional, **off by default**, desktop only, enabled from the quick-access overlay (spec 04). `bmi323-imu` is on the composite and IP 0.84 accepts a gyro source. OQ-14 closed for capability. Still untested on this unit. | D7 |
 | Gyro in Steam | The gaming target is `ds5-edge` so Steam can see motion. Xbox Elite cannot. Inferred from InputPlumber's targets, not from a test on this Ally. `deck-uhid` is the fallback target if Edge gyro is flaky. | D1, D7 |
 | Steam closed | Pointer, clicks and scroll work with Steam not running | Baseline acceptance |
+
+The private `0.84.0-1.2` daemon and its separate analogue-scroll profiles produced horizontal and vertical kernel wheel events in QEMU. The rate increases with deflection past a 25% deadzone to 16 detents/s at full travel. Diagonal motion, centring one axis and stopping repeat on source removal passed. An attended desktop test still needs to establish scroll direction and feel in real apps.
 
 ## 10. Conflict rules with Steam Input
 
@@ -461,7 +463,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 3. In Game, AC tap opens and closes Steam QAM and CC tap opens the Steam menu, with a game running. QAM is a button event on the gaming target, not a chord the user holds.
 4. In Game, CC long opens Steam OSK in a Steam search field and an in-game text field. The menu route opens it too.
 5. In Game, AC long opens the quick-access overlay when spec 04 is installed, and Steam QAM when it is not. It does not change profile and it does not take a screenshot by itself.
-6. In Desktop with Steam **closed**: pointer moves, A/RT left click and drag, B/LT right click, X middle click, LB/RB scroll a long page; stick centred for 10 s produces no pointer drift. With Δ4 on, the left stick produces notched wheel ticks and no pointer motion.
+6. In Desktop with Steam **closed**: pointer moves, A/RT left click and drag, B/LT right click, X middle click, LB/RB scroll a long page; stick centred for 10 s produces no pointer drift. For the private Δ4 trial, test slow and full stick deflection in both axes. Confirm scrolling stops at centre and the pointer stays still.
 7. In Desktop, AC tap opens the Omarchy menu; D-pad moves the highlight, Y activates, Menu (Start) closes; B closes it (Δ5).
 8. In Desktop, CC tap opens the power panel (later: quick-access overlay, Δ1).
 9. In Desktop, CC long shows and hides wvkbd; with it visible B = Backspace and X = Space (Δ6). Killing wvkbd, and `omarchy-toggle-desktop-keyboard stop`, both restore the profile from before OSK without a further button press. B right-clicks again.
@@ -487,7 +489,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 | OQ-4 | Is MCU firmware below 319? | Suspend | dev-research | **Resolved.** The kernel warning is printed only below 319, and `mcu_powersave` was 0. Exact integer was not logged. Button codes are not shown to depend on it. Suspend stays with RELIABILITY. Update via Armoury Crate / MyASUS on Windows before chasing suspend bugs. |
 | OQ-5 | Physical placement | Docs | Daniel | **Resolved.** CC left, AC right, M1/M2 back grips. ASUS RC71L manual. |
 | OQ-6 | Is AC double tap acceptable for session switch (adds 250 ms to every AC tap), or menu only? | Spec 02 | dev-lead | Open |
-| OQ-7 | Axis → mouse wheel in IP 0.84? | Δ4 | dev-research | **Resolved.** Notched `WheelUp`/`WheelDown` only, via an axis direction. Not analogue. `mouse: wheel:` is used upstream but is not in the 0.84 schema. |
+| OQ-7 | Axis → mouse wheel in IP 0.84? | Δ4 | dev-research | Signed stock `0.84.0-1` emits no wheel event for the shipped axis mappings. Patched analogue scrolling passed in QEMU (§9). Physical acceptance is open. |
 | OQ-8 | Volume rocker while InputPlumber grabs N-KEY. It is not in the `50-rog_ally.yaml` include list. | AC 16 | Press test | Open |
 | OQ-9 | Layer namespaces of Omarchy menus for the layer-scoped B bind. | Δ5 | dev-lead | Open |
 | OQ-10 | Show/hide signal from `omarchy-toggle-desktop-keyboard` without polling. | Δ6 show path | TOUCH owner | Open for the show signal. The **exit** path is specified (§6): watch the process. |
@@ -504,17 +506,12 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 Shipped files stay as they are, except the new `gaming.yaml` in §12.1. Desktop grips are not an InputPlumber keyboard target. Omit the shipped paddle mappings (`LeftPaddle1` → Left Shift, `RightPaddle1` → Left Ctrl) as well as any `KeyLeftMeta` target. After OQ-17, the bridge writes Super and Ctrl on its persistent uinput keyboard (§8.1) for whichever capabilities the press test shows are the two grips. Until then it writes nothing for them.
 
 ```yaml
-# desktop.yaml — no grip keyboard target. The bridge owns KeyLeftMeta and KeyLeftCtrl.
-# Δ4 notched scroll — one mapping per direction, WheelUp/WheelDown, not an analogue axis
-```
-
-```yaml
 # profiles/osk.yaml — Δ6, copy of desktop.yaml with:
   - name: East
     source_event: { gamepad: { button: East } }
     target_events: [ { keyboard: KeyBackspace } ]
-  - name: West
-    source_event: { gamepad: { button: West } }
+  - name: North
+    source_event: { gamepad: { button: North } } # physical X on the stock RC71L xpad
     target_events: [ { keyboard: KeySpace } ]
 ```
 

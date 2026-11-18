@@ -8,8 +8,8 @@ Status: draft, revision 8, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 |---|---|---|
 | D1 | One keyboard per context, never two on screen: buffyboard (first boot only, spec 03 §3.1), Qt Virtual Keyboard (SDDM greeter, built), wvkbd (Hyprland), Steam OSK (Gamescope), K07 trusted keyboard (lock, AUTH). | §1 |
 | D2 | Desktop summon stays **manual**: CC long, bar button, Apps entry, Omarchy menu, `SUPER + CTRL + Y`. Auto-show on text focus is **not feasible today** (single input-method slot held by Fcitx5). | `docs/rog-ally-touch-keyboard.md` |
-| D3 | While wvkbd is visible the controller uses the **`osk` profile** (spec 01 Δ6): desktop + **B = Backspace, X = Space**; plus Y = Enter (baseline), Start = Esc (baseline). Keys are pressed by **pointer (right stick) + A** or touch; no d-pad key-by-key focus (wvkbd has none). | Spec 01 |
-| D4 | **Restore the previous profile** when wvkbd hides, crashes or the bridge restarts. Remember the profile that was current when `osk` loaded (spec 01 §6). A gaming session stays on its profile. Locked, inactive or unknown loads `gamepad`. A stale wvkbd exit that does not match the current generation is ignored. | Spec 01 §6, §12, C7 |
+| D3 | The **`osk` profile** maps B to Backspace, X to Space, Y to Enter and Start to Escape. Recovery uses this map. The ordinary desktop keeps its current profile when wvkbd appears (§3.3). Keys can be pressed by right stick + RT or by touch. | Spec 01 |
+| D4 | The proposed visibility handler restores the previous profile when wvkbd hides, crashes or the bridge restarts. Remember the profile that was current when `osk` loaded (spec 01 §6). A gaming session stays on its profile. Locked, inactive or unknown loads `gamepad`. A stale wvkbd exit that does not match the current generation is ignored. | Spec 01 §6, §12, C7 |
 | D5 | wvkbd is **themed** from the active Omarchy theme via its colour/font flags at launch and on theme change. | wvkbd 0.21 flags |
 | D6 | Gaming: Steam OSK only, via CC long (`Keyboard` → Guide+West macro) or Steam's own text-field prompt. | Baseline |
 | D7 | Red-team: every hand-over between keyboards/profiles releases held keys first; a keyboard that fails to appear leaves the previous profile unchanged and says why. | Red review |
@@ -20,10 +20,10 @@ Status: draft, revision 8, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 |---|---|---|---|---|
 | ISO installer (TTY) | none (spec 03 §3.1: buffyboard does not run on the live ISO) | Physical keyboard, or the plain form | — | INSTALL |
 | First-boot provisioning (tty1) | **buffyboard**, only as a child of that stage | Stage unit starts it for a text field and stops it when the field is left | `tty` profile (spec 03 §3) | INSTALL |
-| Polkit and sudo prompts (desktop) | wvkbd, with the `osk` profile | Same summon as the desktop row. Turning `desktop-lock` off is one of these prompts (spec 02: interactive password, no passwordless grant) | `osk` while wvkbd is visible | TOUCH |
+| Polkit and sudo prompts (desktop) | wvkbd | Same summon as the desktop row. Turning `desktop-lock` off is one of these prompts (spec 02: interactive password, no passwordless grant) | Current desktop or recovery profile | TOUCH |
 | SDDM greeter | Qt Virtual Keyboard, embedded in the active greeter window. `default/sddm/omarchy/Keyboard.qml` is loaded on demand with `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf`. | Keyboard button or password field | Touch. Controller at the greeter needs a hardware test. | AUTH |
-| Hyprland desktop | **wvkbd-mobintl 0.21** via `omarchy-toggle-desktop-keyboard` | CC long, bar, Apps, menu, `SUPER + CTRL + Y` | `osk` profile while visible | TOUCH / INPUT |
-| Omarchy menus / Apps grid | wvkbd (stays up) | Before or after opening the menu | `osk` profile | TOUCH (acceptance pending) |
+| Hyprland desktop | **wvkbd-mobintl 0.21** via `omarchy-toggle-desktop-keyboard` | CC long, bar, Apps, menu, `SUPER + CTRL + Y` | Desktop profile during ordinary use, `osk` in recovery | TOUCH / INPUT |
+| Omarchy menus / Apps grid | wvkbd (stays up) | Before or after opening the menu | Current desktop or recovery profile | TOUCH (acceptance pending) |
 | Gaming (Gamescope + Steam) | **Steam OSK** | CC long (Guide+West), Steam text field | Steam | Steam |
 | Lock screen | **K07** trusted keyboard (held) | AUTH | AUTH | AUTH |
 | Disk unlock (LUKS) | none today (`unl0kr` candidate, K11) | — | — | AUTH |
@@ -52,7 +52,7 @@ Status: draft, revision 8, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 | Position | Bottom overlay, non-exclusive (does not resize windows). Fields under it: scroll or move the window (baseline). |
 | Physical layout | wvkbd's own keymap; physical layout and Fcitx untouched (baseline). |
 
-### 3.2 Controller while visible (`osk` profile, Δ6)
+### 3.2 Controller with the OSK profile loaded (Δ6)
 
 | Button | Action |
 |---|---|
@@ -69,7 +69,7 @@ Status: draft, revision 8, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 
 Key-by-key d-pad navigation inside wvkbd is out of scope (wvkbd has no focus model; would need a patch, OQ-3).
 
-### 3.3 Profile life cycle (D4)
+### 3.3 Proposed visibility-driven profile life cycle (D4)
 
 The restore target is the **previous** profile, never a hard-coded `desktop`. Compute it in this order (spec 01 §6, §12 and C7):
 
@@ -106,7 +106,9 @@ Hyprland does not release a closed virtual keyboard's keys unless told to. `inpu
 
 The compositor supplies a wake-up and a snapshot suitable for rechecking keyboard state. A future handshake also needs to reconcile helper identity publication if the first map arrives before the process record, and observe lock and seat changes independently. Before enabling profile loads on show or hide, InputPlumber needs to release remapped held controls on their original targets and preserve pointer motion when the stick mapping stays the same. The focus and kernel-input checks ran in separate environments; focus during a safe profile transition remains unverified.
 
-A private InputPlumber candidate (`c7da10d3b` on v0.84.0) released the original right mouse button and Backspace exactly once when switching profiles in either direction. The kernel reported both keys up. An unchanged held trigger remained down until release, and the pointer kept moving across the load. An xpad guest also passed with the analogue-scroll patch applied. These checks cover direct mouse and keyboard outputs on retained targets. Chords and analogue rearming still need review. The installed daemon remains stock and the desktop continues to use its ordinary profile when wvkbd opens.
+The private `0.84.0-1.2` package released a remapped right click or Backspace exactly once on its original virtual device. An unchanged held trigger kept its click until release, and a deflected right stick kept moving the pointer. A changed trigger-to-key binding rearmed after its value fell below both the old and new thresholds, even without reaching zero. The settled F20 shortcut kept Super, Ctrl and Y down across the load and released them in reverse order. These QEMU checks used live targets and profile copies from before the physical X/Y correction.
+
+A profile change partway through a chord, a modifier shared with another input, and newly created targets after wake still need coverage. Before enabling automatic switching, test the corrected B and X mappings, input focus and trigger release while opening and closing wvkbd in an authenticated Ally session, then repeat after a physical suspend and wake. Stock `0.84.0-1` continues to use the ordinary desktop map when wvkbd appears. [Corrected RC71L button map](01-controller-button-map.md#52-face-shoulder-stick-and-system-buttons)
 
 ### 3.4 Auto-show feasibility
 
