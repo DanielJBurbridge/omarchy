@@ -40,6 +40,7 @@ PanelWindow {
 
   required property Item anchorItem
   required property QtObject bar
+  property string layerNamespace: "omarchy-keyboard-panel"
   property var owner: null
   property int margin: Style.gapsOut
   property int padding: Style.spacing.popupPadding
@@ -126,7 +127,7 @@ PanelWindow {
   color: "transparent"
   exclusionMode: ExclusionMode.Ignore
 
-  WlrLayershell.namespace: "omarchy-keyboard-panel"
+  WlrLayershell.namespace: root.layerNamespace
   WlrLayershell.layer: WlrLayer.Overlay
   // Keyboard focus follows `open` (NOT `visible`). The window remains
   // mapped during the fade-out so the opacity animation has something to

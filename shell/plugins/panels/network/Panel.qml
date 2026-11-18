@@ -1109,6 +1109,7 @@ Panel {
     anchorItem: button
     owner: root
     bar: root.bar
+    layerNamespace: root.bar?.shell?.handheldAlly === true ? "omarchy-network-panel" : "omarchy-keyboard-panel"
     open: root.opened
     focusTarget: panel.loadedContent
     contentWidth: panel.fittedContentWidth(Style.space(380))

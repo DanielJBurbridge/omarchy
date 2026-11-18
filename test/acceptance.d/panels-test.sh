@@ -36,16 +36,28 @@ restore_weather() {
 
 trap restore_weather EXIT
 
+keyboard_panel_present() {
+  layer_present omarchy-keyboard-panel || layer_present omarchy-network-panel
+}
+
+keyboard_panels_closed() {
+  ! keyboard_panel_present
+}
+
 open_and_capture_panel() {
   local name="$1" plugin="$2"
+  local namespace=omarchy-keyboard-panel
+  if [[ $plugin == "omarchy.network" ]] && omarchy-hw-rog-ally; then
+    namespace=omarchy-network-panel
+  fi
 
   omarchy-shell shell summon "$plugin" >/dev/null
-  wait_until "$name panel opens" 15 layer_present "omarchy-keyboard-panel"
+  wait_until "$name panel opens" 15 layer_present "$namespace"
   sleep 1
   screenshot "success-panel-$name"
 
   omarchy-shell shell hide "$plugin" >/dev/null
-  wait_until "$name panel closes" 15 layer_absent "omarchy-keyboard-panel"
+  wait_until "$name panel closes" 15 layer_absent "$namespace"
 }
 
 # Give weather deterministic coordinates so this test exercises the real
@@ -69,7 +81,7 @@ while IFS='|' read -r name plugin; do
   if ! (trap - EXIT; open_and_capture_panel "$name" "$plugin"); then
     status=1
     hide_panels
-    wait_until "$name failed panel is dismissed" 15 layer_absent "omarchy-keyboard-panel"
+    wait_until "$name failed panel is dismissed" 15 keyboard_panels_closed
   fi
 done <<<"$panels"
 
@@ -93,10 +105,10 @@ wait_until "panel keyboard navigation starts on bluetooth" 15 screen_contains "B
 screenshot "success-panel-navigation-01-bluetooth"
 wtype -k Tab
 sleep 2
-wait_until "Tab keeps a shell panel open" 15 layer_present "omarchy-keyboard-panel"
+wait_until "Tab keeps a shell panel open" 15 keyboard_panel_present
 screenshot "success-panel-navigation-02-next"
 hide_panels
-wait_until "keyboard-navigated panel closes" 15 layer_absent "omarchy-keyboard-panel"
+wait_until "keyboard-navigated panel closes" 15 keyboard_panels_closed
 
 # Reopening during the fade keeps the layer surface mapped. Verify the focus
 # prime reacquires compositor keyboard focus instead of relying on map-time

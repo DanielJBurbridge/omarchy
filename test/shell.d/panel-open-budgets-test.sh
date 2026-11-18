@@ -52,27 +52,31 @@ for panel in "${panels[@]}"; do
   [[ -n $ready ]] || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel IPC handler becomes available"; }
 done
 
-open_ms() { # panel-id -> ms on stdout, fails when it never maps
-  local id="$1" start end
+open_ms() { # panel-id namespace -> ms on stdout, fails when it never maps
+  local id="$1" namespace="$2" start end
   start=$EPOCHREALTIME
   scratch_ipc_quiet "$id" open >/dev/null 2>&1 || true
-  wait_scratch_layer omarchy-keyboard-panel mapped || return 1
+  wait_scratch_layer "$namespace" mapped || return 1
   end=$EPOCHREALTIME
   echo $(( (${end/[.,]/} - ${start/[.,]/}) / 1000 ))
 }
 
 close_panel() {
   scratch_ipc_quiet "$1" close >/dev/null 2>&1 || true
-  wait_scratch_layer omarchy-keyboard-panel absent || return 1
+  wait_scratch_layer "$2" absent || return 1
 }
 
 for panel in "${panels[@]}"; do
-  first=$(open_ms "$panel") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel first open maps its surface"; }
-  close_panel "$panel" || fail "panel $panel closes after first open"
+  namespace=omarchy-keyboard-panel
+  if [[ $panel == "omarchy.network" ]] && "$ROOT/bin/omarchy-hw-rog-ally"; then
+    namespace=omarchy-network-panel
+  fi
+  first=$(open_ms "$panel" "$namespace") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel first open maps its surface"; }
+  close_panel "$panel" "$namespace" || fail "panel $panel closes after first open"
   reopen=""
   for _ in 1 2; do
-    elapsed=$(open_ms "$panel") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel reopen maps its surface"; }
-    close_panel "$panel" || fail "panel $panel closes after reopen"
+    elapsed=$(open_ms "$panel" "$namespace") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel reopen maps its surface"; }
+    close_panel "$panel" "$namespace" || fail "panel $panel closes after reopen"
     if [[ -z $reopen ]] || (( elapsed < reopen )); then reopen=$elapsed; fi
   done
   (( first <= FIRST_BUDGET_MS )) || fail "panel $panel first open within ${FIRST_BUDGET_MS}ms" "First open took ${first}ms."
