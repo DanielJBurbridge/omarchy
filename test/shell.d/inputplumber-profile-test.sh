@@ -483,8 +483,6 @@ check(all(not (bare / rel).exists() for rel in mod.SERVICE_FILES), "an Ally with
 hookroot = work / "hookroot"
 mod.INSTALL_ROOT = hookroot
 mod.gaming_session_installed = lambda: True
-systemctl_state["value"] = "not-found"
-check(mod.install_greeter() == 0, "the greeter is installed before the gaming package")
 hook_sddm = hookroot / "etc/sddm.conf.d"
 hook_sddm.mkdir(parents=True)
 (hook_sddm / "autologin.conf").write_text("[Autologin]\nUser=daniel\n")
@@ -511,9 +509,11 @@ hook_stub.write_text(
   "spec = spec_from_loader('hooked_profile', loader)\n"
   "hooked = module_from_spec(spec)\n"
   "loader.exec_module(hooked)\n"
-  "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, 'enabled\\n' if args[0] == 'is-enabled' else '', '')\n"
+  "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, 'not-found\\n' if args[0] == 'is-enabled' else '', '')\n"
   "hooked.run_busctl = lambda args: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
   "dest = Path(os.environ['HOOK_ROOT'])\n"
+  "if sys.argv[1] == 'install-greeter':\n"
+  "    raise SystemExit(hooked.install_greeter_into(dest))\n"
   "if sys.argv[1] == 'install-service':\n"
   "    raise SystemExit(hooked.install_service_into(dest))\n"
   "raise SystemExit(hooked.remove_service_into(dest))\n"
@@ -547,10 +547,10 @@ def run_hook(function):
   check(proc.returncode == 0, f"{function} exits 0")
   return hook_calls.read_text().split()
 
-check(run_hook("post_install") == ["install-service"], "post_install installs the profile service")
+check(run_hook("post_install") == ["install-greeter", "install-service"], "post_install installs the profile service")
 hook_rule = hookroot / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules"
 check('subject.user == "daniel"' in hook_rule.read_text(), "the first package install authorizes the recorded handheld user")
-check(run_hook("post_upgrade") == ["install-service"], "post_upgrade installs the profile service")
+check(run_hook("post_upgrade") == ["install-greeter", "install-service"], "post_upgrade installs the profile service")
 check(all((hookroot / rel).is_file() for rel in mod.SERVICE_FILES), "the service files are present before removal")
 check(run_hook("post_remove") == ["remove-service"], "post_remove removes the profile service")
 check(all(not (hookroot / rel).exists() for rel in mod.SERVICE_FILES), "post_remove deletes the service, policy and rule")
@@ -618,7 +618,7 @@ if ! PATH="$warn_bin:$PATH" WARN_CALLS=$work/warn-calls \
   post_install >"$work/warn.out" 2>"$work/warn.err"; then
   fail "a failed profile install still lets post_install return"
 fi
-[[ $(cat "$work/warn-calls") == install-service ]] ||
+[[ $(cat "$work/warn-calls") == $'install-greeter\ninstall-service' ]] ||
   fail "post_install still runs the profile install" "$(cat "$work/warn-calls")"
 grep -F 'warning: InputPlumber profile service install failed; re-run: omarchy-inputplumber-profile install-service' \
   "$work/warn.err" ||

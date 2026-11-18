@@ -1,0 +1,9 @@
+[Trigger]
+Operation = Install
+Type = Package
+Target = inputplumber
+
+[Action]
+Description = Configuring first-boot controller input on the ROG Ally...
+When = PostTransaction
+Exec = /usr/lib/omarchy-gaming-session/enable-new-inputplumber

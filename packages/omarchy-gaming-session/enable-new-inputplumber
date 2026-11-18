@@ -1,0 +1,7 @@
+#!/bin/bash
+# Invoked only when pacman adds InputPlumber for the first time. Queue it at
+# boot so the greeter's After=inputplumber.service can order its profile load.
+if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally &&
+  [[ $(systemctl is-enabled inputplumber.service) == "disabled" ]]; then
+  systemctl enable inputplumber.service
+fi

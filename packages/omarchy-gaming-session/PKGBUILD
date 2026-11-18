@@ -2,12 +2,12 @@
 # Checksums are of the files below. Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=12
+pkgrel=14
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
 license=('MIT')
-depends=('omarchy' 'iproute2' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
+depends=('omarchy' 'iproute2' 'inputplumber' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
 source=(
   '../../default/gaming/wayland-sessions/omarchy-gamescope.desktop'
   '../../default/gaming/wayland-sessions/omarchy-handheld.desktop'
@@ -22,6 +22,8 @@ source=(
   '../../default/systemd/user/omarchy-gaming-input-profile.service'
   'rog-ally-input-gaming-session.conf::../../default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf'
   'ally-tdp-shim-gaming-session.conf::../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf'
+  'enable-new-inputplumber'
+  'omarchy-gaming-inputplumber.hook'
   '../../LICENSE'
 )
 sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
@@ -37,6 +39,8 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             'f69ce16c70cc1414a61ab36fa898d3900d31dd4be46ce5fe1075c9d22152b3a2'
             'a3153f79823df7aaf53f3b569026126ef714864ea66f58d0e4d2d28cde16c781'
             'a0a33c2e9e9b03a5571accecda57f08b4f760f8b37e6b01a4fd8838af2de2d2c'
+            'c225d16e8e6b6e73797006a023f3057cc1650dd3db55728bed8f6e6de495d73b'
+            '3bf621eeb444e281c066dd2457f7f97ab26cbe3d3fa1857d48e9da9d66ca987d'
             '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2')
 install=omarchy-gaming-session.install
 
@@ -68,5 +72,7 @@ package() {
     "$pkgdir/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard"
   install -Dm644 "$srcdir/omarchy-handheld-autologin-guard.hook" \
     "$pkgdir/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook"
+  install -Dm755 "$srcdir/enable-new-inputplumber" "$pkgdir/usr/lib/omarchy-gaming-session/enable-new-inputplumber"
+  install -Dm644 "$srcdir/omarchy-gaming-inputplumber.hook" "$pkgdir/usr/share/libalpm/hooks/omarchy-gaming-inputplumber.hook"
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

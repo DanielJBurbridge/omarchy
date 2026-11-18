@@ -6,18 +6,27 @@ This optional implementation covers the SESSION work in G01–G12 for the origin
 
 ## Session contract
 
-The optional `omarchy-gaming-session` package registers two SDDM entries:
+The optional `omarchy-gaming-session` package registers three SDDM entries.
 
 | File | Visible name | Behaviour after authentication |
 | --- | --- | --- |
 | `omarchy-gamescope.desktop` | Omarchy Gaming | Explicitly launch gaming, clearing the recovery latch |
 | `omarchy-handheld.desktop` | Omarchy (session preference) | Honour this user's saved preference and next-session override |
+| `omarchy-managed-desktop.desktop` | Omarchy (handheld desktop) | Start the managed Hyprland desktop after local sign-in |
 
 The existing `omarchy.desktop` / Omarchy (Hyprland uwsm) is unchanged. Use it as an independent recovery route. SDDM's last-selected session still applies; saved handheld preferences only apply when selecting **Omarchy (session preference)**. The handheld variant autologins into that preference session and starts in gaming when undocked (spec 02; Daniel, 12 Nov 2026). If gaming does not start, the supervisor falls back to the desktop after one retry. Every such desktop start goes through the one choke point in `desktop()` (spec 02). Until K07, the handheld value is `default-off`, so that desktop is not locked. Before the marker is present, that same handheld also skips the ordinary lock on suspend unless a physical keyboard is attached at that moment. The Ally's built-in controller keyboard does not count, and an explicit `on` with no physical keyboard returns to gaming instead of locking. The marker brings the ordinary suspend lock back. Other variants stay `on` and lock before the first frame. A user's `explicit-off` is a different stored value and is not the shipped default. The unchanged Omarchy entry remains a password login.
 
-`omarchy-session-start` is a pre-UWSM login entrypoint. It uses the existing canonical environment bootstrap, then runs UWSM or a Gamescope scope within the authenticated logind session. No username, UID, home directory or display number is guessed. UWSM intentionally excludes `XDG_SESSION_ID` from the desktop user manager; the selector carries its managed login ID as `OMARCHY_HANDHELD_SESSION` through UWSM's normal environment import and cleanup so desktop actions address the correct supervisor. On machines outside `omarchy-hw-rog-ally`, both optional entries run the ordinary Hyprland command without reading gaming preferences.
+`omarchy-session-start` is a pre-UWSM login entrypoint. It uses the existing canonical environment bootstrap, then runs UWSM or a Gamescope scope within the authenticated logind session. No username, UID, home directory or display number is guessed. UWSM intentionally excludes `XDG_SESSION_ID` from the desktop user manager; the selector carries its managed login ID as `OMARCHY_HANDHELD_SESSION` through UWSM's normal environment import and cleanup so desktop actions address the correct supervisor. On machines outside `omarchy-hw-rog-ally`, the optional entries run the ordinary Hyprland command without reading gaming preferences.
 
 Gaming does not start `graphical-session.target`; desktop layer-shell panels and the Hyprland lock monitor do not run there. The scope `omarchy-gamescope-$XDG_SESSION_ID.scope` contains Gamescope, Steam, games and the optional power-button helper. Stop requests clean up that scope before starting UWSM. Games started independently through another service are outside this scope's ownership.
+
+## Controller setup on a stock install
+
+Installing or upgrading the optional `omarchy-gaming-session` companion to `1.0.0-14` pulls in `inputplumber` through pacman. On an RC71L the companion installs the greeter pointer unit and the profile broker. The broker authorises the active local account recorded in `/etc/sddm.conf.d/omarchy-handheld-user.conf`. Managed desktop, gaming, and the return to the greeter use the integrated profiles. The historical `omarchy-rog-ally-input` companion is separate.
+
+When pacman first installs InputPlumber alongside the companion on an RC71L, a post-transaction hook enables the daemon for the next boot. This puts it in the same systemd transaction as the greeter pointer unit, which waits for it. The hook skips masked units and only runs on installation of InputPlumber. If InputPlumber is already installed, its enablement remains the administrator's choice. Its own udev rules can still activate a disabled daemon on board `RC71L`; a mask blocks device activation. After boot, check `systemctl is-active inputplumber.service omarchy-inputplumber-profile.service`. Companion upgrades also preserve existing disables and masks on the Omarchy pointer and broker units.
+
+Keyboard activation on menu search is a user preference. To opt in, merge `"onScreenKeyboard": true` into the `menu` object in `${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json`. The companion leaves that file and the user's session preference in place. [Desktop keyboard setup](rog-ally-touch-keyboard.md)
 
 ## Preferences and use
 
@@ -82,22 +91,26 @@ Focused regression coverage extends `test/shell.d/gaming-setup-test.sh`. It exec
 
 Only the designated Ally rollout owner installs this increment. First build and install the main **omarchy runtime package from this exact reviewed source** through the existing `omarchy-pkgs` workflow. It must contain the five new `bin/omarchy-*` scripts and the complete `default/gaming/` runtime tree, including the executable private shim. `omarchy dev link` alone cannot register SDDM session files. The standalone registration package depends on the matching runtime being installed; an older repository `omarchy` package is insufficient.
 
-Build the optional companion locally from the same commit. The install script does not enable a service:
+Build the companion from the same checkout. Stage its local sources under the filenames makepkg uses for checksum verification.
 
 ```bash
-# In the reviewed source checkout. makepkg reads the local sources next to the PKGBUILD.
 cd packages/omarchy-gaming-session
-makepkg --nodeps --nocheck
-bsdtar -tf omarchy-gaming-session-1.0.0-7-x86_64.pkg.tar.zst
-# Install dependencies through the normal helpers; main runtime already updated.
-omarchy-pkg-add gamescope
-# Steam and lib32 drivers use Omarchy's existing gaming installer if absent.
-sudo pacman -U omarchy-gaming-session-1.0.0-7-x86_64.pkg.tar.zst
+stage=$(mktemp -d)
+source PKGBUILD
+cp PKGBUILD "$install" "$stage/"
+for item in "${source[@]}"; do
+  path=${item#*::}
+  name=${item%%::*}
+  if [[ $name == "$item" ]]; then name=${path##*/}; fi
+  cp "$path" "$stage/$name"
+done
+(cd "$stage" && makepkg --nodeps --nocheck)
+sudo pacman -U "$stage/omarchy-gaming-session-1.0.0-14-x86_64.pkg.tar.zst"
 ```
 
-`--nodeps` permits an isolated build host without Steam; the installation transaction still enforces dependencies. Arch Extra currently supplies Gamescope 3.17.0-1, checked against its primary package page on 11 November 2026. The companion requires Gamescope ≥3.17.0 and `iproute2` (`ss` in `default/gaming/steam-ready.sh`). The checksums in the PKGBUILD are of those local files. Do not overwrite package files using `cp` or edit installed package trees.
+The install transaction resolves dependencies from the configured repositories, including InputPlumber, Gamescope ≥3.17.0 and Steam. Steam requires multilib on x86. For an offline install, stage the dependency closure as well as the matched runtime and settings packages.
 
-The package manifest contains `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop`, `/usr/bin/steamos-polkit-helpers/steamos-update`, `/usr/lib/omarchy-gaming-session/sddm-user.sh`, `/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard`, `/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook`, `/etc/sudoers.d/omarchy-handheld-autologin` and its MIT licence. `steamos-update` is a stub adapted from Pizzarchy (MIT, copyright (c) 2026 Diego Huyke, commit `daa9376`). It updates nothing. Exit 7 tells Steam there is nothing to apply, so first-run setup does not reboot. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker. On an Ally it writes `/etc/sddm.conf.d/omarchy-handheld-user.conf` when that file has no counted `User=`. The name is `[Autologin] User=` from `autologin.conf`, then `[Last] User=` from `/var/lib/sddm/state.conf`. It does not scan the password file and it does not use the account that ran pacman. Removing the package runs `pre_remove` and `post_remove`, which delete that file. An earlier checkout may have copied `steamos-update` into `/usr/bin/steamos-polkit-helpers/` without pacman owning it. If `pacman -Qo /usr/bin/steamos-polkit-helpers/steamos-update` does not name `omarchy-gaming-session`, remove that file before installing this package, or the transaction stops with "exists in filesystem". Core does not delete it. It does not enable a service or change PAM. The package installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, a NOPASSWD grant for `fail`, `reset` and `apply` only. That file is not in the base tree. Runtime updates remain the main package's responsibility.
+The package manifest contains `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop`, `/usr/bin/steamos-polkit-helpers/steamos-update`, `/usr/lib/omarchy-gaming-session/sddm-user.sh`, `/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard`, `/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook`, `/etc/sudoers.d/omarchy-handheld-autologin` and its MIT licence. `steamos-update` is a stub adapted from Pizzarchy (MIT, copyright (c) 2026 Diego Huyke, commit `daa9376`). It updates nothing. Exit 7 tells Steam there is nothing to apply, so first-run setup does not reboot. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker. On an Ally it writes `/etc/sddm.conf.d/omarchy-handheld-user.conf` when that file has no counted `User=`. The name is `[Autologin] User=` from `autologin.conf`, then `[Last] User=` from `/var/lib/sddm/state.conf`. It does not scan the password file and it does not use the account that ran pacman. Removing the package runs `pre_remove` and `post_remove`, which delete that file. An earlier checkout may have copied `steamos-update` into `/usr/bin/steamos-polkit-helpers/` without pacman owning it. If `pacman -Qo /usr/bin/steamos-polkit-helpers/steamos-update` does not name `omarchy-gaming-session`, remove that file before installing this package, or the transaction stops with "exists in filesystem". Core does not delete it. The package installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, a NOPASSWD grant for `fail`, `reset` and `apply` only. That file is not in the base tree. Runtime updates remain the main package's responsibility.
 
 ## The installer User= file
 

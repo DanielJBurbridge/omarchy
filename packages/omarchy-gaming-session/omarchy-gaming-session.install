@@ -25,6 +25,9 @@ post_install() {
     fi
   fi
   if command -v omarchy-inputplumber-profile >/dev/null; then
+    # Adding the companion to a stock install does not replay hardware setup.
+    # install-greeter checks the RC71L and preserves a disabled or masked unit.
+    warn_profile_step "Ally greeter pointer install" omarchy-inputplumber-profile install-greeter
     warn_profile_step "InputPlumber profile service install" omarchy-inputplumber-profile install-service
   fi
   if command -v omarchy-ally-tdp-install >/dev/null; then
