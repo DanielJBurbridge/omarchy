@@ -101,6 +101,12 @@ function localizeReading(raw, fmt) {
   })
 }
 
+// After AC changes, a completed helper read can still carry the estimate for
+// the previous direction. Only label a duration that belongs to this flow.
+function flowTime(info, discharging, idle) {
+  return !idle && info.state === (discharging ? "discharging" : "charging") ? info.time || "" : ""
+}
+
 function profileLabel(name, tr) {
   var t = typeof tr === "function" ? tr : function(key, english) { return english }
   var value = String(name || "")
@@ -121,6 +127,7 @@ if (typeof module !== "undefined") {
     chargeThresholdActive: chargeThresholdActive,
     batteryIcon: batteryIcon,
     modeLabel: modeLabel,
+    flowTime: flowTime,
     profileLabel: profileLabel,
     localizeReading: localizeReading
   }

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
 import Quickshell.Services.UPower
 import qs.Commons
 import qs.Commons as Commons
@@ -20,6 +21,45 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
+  readonly property bool handheld: !!(bar && bar.shell && bar.shell.handheldAlly)
+  readonly property string displayName: panel.screen ? panel.screen.name : ""
+  readonly property bool canAdjustOutput: handheld && opened && !!Pipewire.defaultAudioSink
+    && Pipewire.defaultAudioSink.name !== "auto_null"
+  property string brightnessDisplay: ""
+  readonly property var controlRows: {
+    var rows = ["profiles"]
+    if (handheld && opened && displayName && brightnessDisplay === displayName) rows.push("brightness")
+    if (canAdjustOutput) rows.push("volume")
+    return rows
+  }
+  property string cursorRow: "profiles"
+  property int stepIndex: 0
+  onControlRowsChanged: {
+    if (controlRows.indexOf(cursorRow) < 0) {
+      cursorRow = "profiles"
+      cursorActive = false
+    }
+  }
+
+  function moveCursor(dx, dy) {
+    if (!cursorActive) { cursorActive = true; return }
+    if (dy && controlRows.length > 1) {
+      cursorRow = controlRows[Model.clampIndex(controlRows.indexOf(cursorRow) + dy, controlRows.length)]
+    } else if (cursorRow === "profiles") {
+      selectProfileByDelta(dx || dy)
+    } else if (dx) {
+      stepIndex = Model.clampIndex(stepIndex + dx, 2)
+    }
+  }
+
+  function stepControl(row, index) {
+    if (controlProc.running || controlRows.indexOf(row) < 0) return
+    controlProc.command = row === "brightness"
+      ? ["omarchy-brightness-display", "--monitor", displayName, index ? "+5%" : "5%-"]
+      : ["omarchy-audio-output-volume", index ? "raise" : "lower"]
+    controlProc.running = true
+  }
+
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -125,7 +165,7 @@ Panel {
     if (discharging) return onBatteryPhrases
     return []
   }
-  readonly property bool rotatingPhrases: activePhrases.length > 0
+  readonly property bool rotatingPhrases: !handheld && activePhrases.length > 0
 
   // The battery script's readings in the current language's digits; the
   // time field already comes translated, so it is shown as it arrives.
@@ -135,9 +175,13 @@ Panel {
 
   readonly property string heroStatusText: {
     if (fullyCharged) return Commons.I18n.t("power.fullyCharged")
+    if (handheld && chargeThresholdActive) return Commons.I18n.t("power.holding")
     if (rotatingPhrases) return activePhrases[phraseIndex % activePhrases.length]
     return modeLabel()
   }
+
+  readonly property string timeLabel: discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull")
+  readonly property string handheldTime: Model.flowTime(batteryInfo, discharging, batteryFlowIdle)
 
   function refresh() {
     if (!batteryPresent) return
@@ -202,6 +246,8 @@ Panel {
         return
       }
 
+      cursorRow = "profiles"
+      stepIndex = 0
       refresh()
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
@@ -214,6 +260,36 @@ Panel {
   visible: batteryPresent
   implicitWidth: batteryPresent ? button.implicitWidth : 0
   implicitHeight: batteryPresent ? button.implicitHeight : 0
+
+  // Probe the panel's own output once per open. The same helper routes the
+  // adjustment to its backlight or DDC device and shows the resulting level.
+  readonly property string probeDisplay: handheld && opened ? displayName : ""
+  onProbeDisplayChanged: {
+    brightnessDisplay = ""
+    if (probeDisplay && !brightnessProbe.running) brightnessProbe.startProbe()
+  }
+
+  Process {
+    id: brightnessProbe
+    function startProbe() {
+      command = ["omarchy-brightness-display", "--monitor", root.probeDisplay]
+      running = true
+    }
+    stdout: StdioCollector { id: probeResult; waitForEnd: true }
+    onExited: function(code) {
+      if (!root.probeDisplay) return
+      if (command[2] !== root.probeDisplay) startProbe()
+      else if (code === 0 && /^\d+$/.test(probeResult.text.trim())) root.brightnessDisplay = command[2]
+    }
+  }
+
+  Process {
+    id: controlProc
+    onExited: function(code) {
+      if (code !== 0 && command[0] === "omarchy-brightness-display" && command[2] === root.probeDisplay)
+        root.brightnessDisplay = ""
+    }
+  }
 
   Process {
     id: batteryProc
@@ -305,7 +381,7 @@ Panel {
     bar: root.bar
     open: root.opened && root.batteryPresent
     focusTarget: panel.loadedContent
-    contentWidth: panel.fittedContentWidth(Style.space(380))
+    contentWidth: panel.fittedContentWidth(Style.space(root.handheld ? 440 : 380))
     contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
 
     content: PanelKeyCatcher {
@@ -313,12 +389,12 @@ Panel {
       property alias heroStatus: heroStatus
       anchors.fill: parent
       implicitHeight: column.implicitHeight
-      onMoveRequested: function(dx, dy) {
-        if (!root.cursorActive) { root.cursorActive = true; return }
-        if (dx !== 0) root.selectProfileByDelta(dx)
-        else if (dy !== 0) root.selectProfileByDelta(dy)
+      onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
+      onActivateRequested: {
+        if (!root.cursorActive) return
+        if (root.cursorRow === "profiles") root.activateSelectedProfile()
+        else root.stepControl(root.cursorRow, root.stepIndex)
       }
-      onActivateRequested: if (root.cursorActive) root.activateSelectedProfile()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
@@ -357,7 +433,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: Commons.I18n.t("power.battery")
+              text: root.handheld ? root.heroStatusText : Commons.I18n.t("power.battery")
               textFormat: Text.PlainText
               color: root.bar.foreground
               font.family: root.bar.fontFamily
@@ -370,13 +446,15 @@ Panel {
             Text {
               id: heroStatus
               textFormat: Text.PlainText
-              text: root.heroStatusText.toUpperCase()
+              visible: !root.handheld || !!root.handheldTime
+              text: root.handheld ? root.timeLabel + " · " + root.handheldTime : root.heroStatusText.toUpperCase()
               color: Qt.darker(root.bar.foreground, 1.4)
               font.family: root.bar.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-              font.letterSpacing: 1.2
-              elide: Text.ElideRight
+              font.pixelSize: root.handheld ? Style.font.body : Style.font.caption
+              font.bold: !root.handheld
+              font.letterSpacing: root.handheld ? 0 : 1.2
+              wrapMode: root.handheld ? Text.Wrap : Text.NoWrap
+              elide: root.handheld ? Text.ElideNone : Text.ElideRight
               width: parent.width
             }
           }
@@ -384,7 +462,8 @@ Panel {
           Text {
             id: heroPercent
             textFormat: Text.PlainText
-            text: root.reading(root.batteryInfo.percentage) || "—"
+            text: root.handheld ? Commons.I18n.formatNumber(Math.round(root.batteryFraction * 100)) + "%"
+              : root.reading(root.batteryInfo.percentage) || "—"
             color: root.bar.foreground
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.displayLarge
@@ -453,10 +532,12 @@ Panel {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
             InfoPair {
-              label: root.chargeThresholdActive ? Commons.I18n.t("power.chargeLimit") : (root.discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull"))
+              visible: !root.handheld || root.chargeThresholdActive
+              label: root.chargeThresholdActive ? Commons.I18n.t("power.chargeLimit") : root.timeLabel
               value: root.chargeThresholdActive ? (root.reading(root.batteryInfo.threshold) || "-") : (root.batteryFlowIdle ? "-" : (root.batteryInfo.time || "—"))
             }
             InfoPair {
+              visible: !root.handheld || !root.batteryFlowIdle
               label: root.chargeThresholdActive ? Commons.I18n.t("power.batteryState") : (root.discharging ? Commons.I18n.t("power.discharging") : Commons.I18n.t("power.charging"))
               value: root.chargeThresholdActive ? Commons.I18n.t("power.holding") : (root.batteryFull ? "-" : root.reading(root.batteryInfo.rate))
             }
@@ -503,12 +584,61 @@ Panel {
                 verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
                 bordered: true
                 active: root.activeProfile === modelData
-                hasCursor: root.cursorActive && root.profileIndex === index
+                hasCursor: root.cursorActive && root.cursorRow === "profiles" && root.profileIndex === index
                 onClicked: root.setProfile(modelData)
                 onHovered: function(h) {
                   if (h) {
                     root.cursorActive = true
+                    root.cursorRow = "profiles"
                     root.profileIndex = index
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        Repeater {
+          model: root.controlRows.slice(1)
+          Row {
+            id: controlRow
+            required property string modelData
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              id: controlLabel
+              readonly property string label: controlRow.modelData === "brightness" ? Commons.I18n.t("monitor.brightness") : Commons.I18n.t("audio.output")
+              width: parent.width - 2 * (Style.space(52) + parent.spacing)
+              fontSize: Style.font.subtitle
+              anchors.verticalCenter: parent.verticalCenter
+              text: (controlRow.modelData === "brightness" ? "󰃠  " : "󰕾  ") + label
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Repeater {
+              model: ["−", "+"]
+              Button {
+                required property string modelData
+                required property int index
+                width: Style.space(52)
+                height: Style.space(44)
+                text: modelData
+                Accessible.role: Accessible.Button
+                Accessible.name: controlLabel.label + " " + modelData
+                Accessible.onPressAction: clicked()
+                fontSize: Style.font.title
+                bordered: true
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                hasCursor: root.cursorActive && root.cursorRow === controlRow.modelData && root.stepIndex === index
+                onClicked: root.stepControl(controlRow.modelData, index)
+                onHovered: function(h) {
+                  if (h) {
+                    root.cursorActive = true
+                    root.cursorRow = controlRow.modelData
+                    root.stepIndex = index
                   }
                 }
               }
@@ -526,9 +656,13 @@ Panel {
     width: parent.width
     spacing: Style.space(8)
 
-    InfoLabel { text: label }
+    InfoLabel {
+      text: label
+      width: root.handheld ? Math.min(implicitWidth, Math.max(0, parent.width - infoValue.implicitWidth - parent.spacing * 2)) : implicitWidth
+      wrapMode: root.handheld ? Text.Wrap : Text.NoWrap
+    }
     Item { width: Math.max(0, parent.width - parent.children[0].implicitWidth - parent.children[2].implicitWidth - parent.spacing * 2); height: 1 }
-    InfoValue { text: value }
+    InfoValue { id: infoValue; text: value }
   }
 
   component InfoLabel: Text {

@@ -32,6 +32,11 @@ assertEqual(power.localizeReading('13.10W', function(v, d) { return v.toFixed(d)
 assertEqual(power.localizeReading(undefined), '', 'power reads a missing battery field as empty')
 assertEqual(power.modeLabel({ isPresent: true, percentage: 0.5, state: states.Discharging }, true, states), 'On battery', 'power labels battery mode')
 assertEqual(power.modeLabel({ isPresent: true, percentage: 0.5, state: states.Discharging }, false, states), 'Charging', 'power treats external power as newer than stale discharging state')
+const estimate = { state: 'discharging', time: '2h 31m' }
+assertEqual(power.flowTime(estimate, true, false), '2h 31m', 'power shows a current discharge estimate')
+assertEqual(power.flowTime(estimate, false, false), '', 'plugging in never labels the previous discharge estimate as time to full')
+assertEqual(power.flowTime({ state: 'charging', time: '1h' }, false, true), '', 'a held charge has no completion estimate')
+
 assert(power.batteryIcon({ isPresent: true, percentage: 0.4, state: states.Charging }, false, states).length > 0, 'power maps battery icons')
 assertEqual(
   power.batteryIcon({ isPresent: true, percentage: 0.4, state: states.Discharging }, false, states),
