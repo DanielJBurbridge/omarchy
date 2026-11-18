@@ -101,47 +101,59 @@ fi
 
 `/etc/default/limine.pre-tpm2` is the copy taken before the cmdline edit. If that file is missing, do not invent a cmdline. Stay on the snapshot entry. A damaged header is `cryptsetup luksHeaderRestore`, with this `LUKS_DEV` and this `backup`, and only when `backup` is a non-empty file on the removable drive. The ESP and any other partition of the internal disk are the wrong place for that file. The runbook's section 13 is the full restore.
 
-Repeated failed gaming starts pin relogin off using `/run/omarchy/handheld-autologin/stop` and `Relogin=false`. The supervisor returns to the existing greeter when desktop sign-in is required. With passwordless Desktop enabled it opens the recovery desktop with the on-screen keyboard. The failure handler leaves the current SDDM daemon running. A reboot clears `/run`; the user’s repeated-failure record is stored in `~/.local/state/omarchy/gaming-session/`. From SSH, you can remove the session and account drop-ins to return to the greeter. This also removes the recorded account for future boots. Use the recovery step below to restore it when you are ready.
+### Return from a stuck Gaming session
+
+Save your game and choose **Steam → Power → Switch to Desktop**. If Steam's menu won't open, SSH in as the same Linux user and send the request to the session on the Ally's screen.
 
 ```bash
-sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
-sudo rm -f /etc/sddm.conf.d/omarchy-handheld-user.conf
-sudo systemctl restart sddm
+seat_session=$(loginctl show-seat seat0 --property=ActiveSession --value)
+if [[ -n $seat_session ]]; then
+  OMARCHY_HANDHELD_SESSION="$seat_session" omarchy-launch-gaming-desktop
+else
+  echo "No active session on seat0."
+fi
 ```
 
-`systemctl restart sddm` kills the current graphical session.
+When desktop sign-in is enabled, enter your password at the greeter. Otherwise the desktop opens directly. After repeated failed starts the supervisor can already have opened the greeter or a recovery desktop. If the screen stays stuck, check `~/.local/state/omarchy/gaming-session/session.log` or use the recovery greeter below.
 
-### Restore handheld autologin
+### Open a recovery greeter
 
-If you removed the account drop-in above, sign in as the account that should own the handheld session. Restore that account record before applying the policy. The boot service writes the session preference and relies on the saved account.
+Keep your SSH connection open and have the owner's password ready. Create a temporary SDDM override to request password sign-in. Save the filename it prints.
 
 ```bash
-sudo omarchy-handheld-autologin install-user "$(id -un)"
-sudo rm -f /run/omarchy/handheld-autologin/stop
-sudo omarchy-handheld-autologin apply
-sudo systemctl restart sddm
+if recovery=$(sudo mktemp /etc/sddm.conf.d/zzz-omarchy-recovery.XXXXXXXX.conf); then
+  if printf '[Autologin]\nUser=\nSession=omarchy.desktop\nRelogin=false\n' | sudo tee "$recovery" >/dev/null; then
+    printf '%s\n' "$recovery"
+  else
+    sudo rm -- "$recovery"
+  fi
+fi
 ```
 
-That restart kills the current graphical session. Reboot instead if you want to keep this session until you are ready. On boot the unit applies the desktop sign-in policy again.
+Continue once the command prints the recovery filename. SDDM reads the files in `/etc/sddm.conf.d/` in name order and `/etc/sddm.conf` last. Check any later local file for an `[Autologin]` section. If it sets a non-empty `User=`, resolve that override before continuing. Keep backups outside the configuration directory.
+
+Once your work is saved, run `sudo systemctl restart sddm.service` from SSH. This closes the graphical session. Sign in on the Ally. When the desktop is usable, remove only the temporary file from the same SSH shell.
+
+```bash
+sudo rm -- "$recovery"
+```
+
+If you reconnected, use the saved filename. Your original policy applies on the next SDDM start. The gaming failure history is preserved.
 
 ## Rollback
 
+A one-off **Switch to Desktop** keeps Gaming Mode installed. To restore the ordinary desktop login and keep Steam, remove the optional companion.
+
+Start from the desktop with work saved and SSH available. Version `1.0.0-14` deletes `/etc/sddm.conf.d/omarchy-handheld-user.conf` even if it contains administrator settings. The cleanup below also removes `zz-omarchy-handheld.conf`. The profile and power helpers can remove or replace locally edited service and access-policy files. Back up any customisations outside those configuration directories first. On a standard Snapper installation, `omarchy-snapshot create` followed by `sudo snapper -c root list` gives you a numbered system snapshot.
+
+Use the non-recursive Pacman transaction to keep Steam, Gamescope and InputPlumber. Confirm that only `omarchy-gaming-session` is listed for removal. Running the base Omarchy helper afterwards clears the surviving handheld session setting.
+
 ```bash
-sudo systemctl disable --now omarchy-handheld-autologin.service
-sudo rm -f /etc/systemd/system/omarchy-handheld-autologin.service
-sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
-sudo rm -f /etc/sddm.conf.d/omarchy-handheld-user.conf
-sudo systemctl daemon-reload
-omarchy-setup-gaming-session reset
-systemctl --user stop omarchy-gaming-session.target || true
-rm -f ~/.config/systemd/user/omarchy-gaming-session.target \
-  ~/.config/systemd/user/omarchy-gaming-input-profile.service \
-  ~/.config/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf \
-  ~/.config/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf
-rmdir ~/.config/systemd/user/omarchy-rog-ally-input.service.d \
-  ~/.config/systemd/user/omarchy-ally-tdp-shim.service.d 2>/dev/null || true
-systemctl --user daemon-reload
-omarchy-pkg-drop omarchy-gaming-session
+sudo pacman -R omarchy-gaming-session && sudo omarchy-handheld-autologin apply
 ```
 
-Reboot. Autologin is gone, so the greeter is up. A USB keyboard's Enter submits the password. There is no session picker. That leaves Steam's games and saves. `omarchy-gaming-session` installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, the passwordless `fail` / `reset` / `apply` grant. The base tree does not ship it. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.
+If a scriptlet warns about a failed helper, rerun the named command with `sudo` and check its result. If `apply` reports a symlink at `zz-omarchy-handheld.conf`, move that link to a backup outside SDDM's configuration directory and rerun `sudo omarchy-handheld-autologin apply`. Keep any personal settings for an installed session in a separate administrator-owned file.
+
+Before signing out, review any remaining `[Autologin]` settings, including `/etc/sddm.conf.d/autologin.conf` and `/etc/sddm.conf` if present. With no configured user, SDDM shows the password greeter. A separate configuration can still sign the owner into an installed desktop automatically. The base Omarchy session is `omarchy.desktop`. Keep SSH open through the first sign-in.
+
+Pacman removes the companion's three session entries, packaged user units and sudoers grant. The base boot helper, greeter pointer service, user's gaming preferences, Steam library and saves stay in place. The stored desktop-lock choice and any separate power-button package also survive removal.

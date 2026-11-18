@@ -132,7 +132,7 @@ Uninstall deletes the User= file in both `pre_remove` and `post_remove`. Desktop
 
 ## Rollback and physical acceptance
 
-Return to desktop, run `omarchy-setup-gaming-session reset`, then sign out and choose the unchanged Omarchy (Hyprland uwsm) entry. Remove registration with `omarchy-pkg-drop omarchy-gaming-session`. Restore the previous main runtime package through the established package/snapshot recovery route if necessary. This leaves Steam libraries, saves, prefixes and system login configuration untouched. Retain optional input/power packages only according to those owners' rollback instructions.
+The alpha guide covers [returning from a stuck Gaming session](handheld/ALPHA.md#return-from-a-stuck-gaming-session) and [removing the optional companion](handheld/ALPHA.md#rollback). Removing version `1.0.0-14` with the documented transaction retains Steam and the owner’s preferences. The base helper clears the remaining handheld session setting. Other SDDM configuration determines whether the next login shows the greeter or starts the desktop automatically.
 
 The rollout owner must record the exact runtime and companion packages, installed file manifest, source SHA and logs, then exercise:
 
