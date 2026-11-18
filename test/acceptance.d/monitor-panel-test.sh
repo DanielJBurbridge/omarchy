@@ -77,7 +77,9 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   wtype j
   sleep 0.15
 done
-wait_until "the layout map shows its keys" 15 screen_contains "to arrange"
+# The temporary output makes the combined capture much wider, which obscures
+# the small caption in OCR. Check the output that owns the panel.
+wait_until "the layout map shows its keys" 15 screen_contains "to arrange" "$primary"
 screenshot "success-monitor-panel-01-layout-hint"
 pass "the layout map shows its keys when the keyboard reaches it"
 
@@ -97,7 +99,7 @@ screenshot "success-monitor-panel-03b-right"
 pass "ctrl+l places the shown display right of the other"
 
 wtype r
-wait_until "r opens the rotate menu" 15 screen_contains "Normal"
+wait_until "r opens the rotate menu" 15 screen_contains "Normal" "$primary"
 screenshot "success-monitor-panel-04-rotate-menu"
 wtype j
 sleep 0.3
