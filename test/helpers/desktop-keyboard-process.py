@@ -38,7 +38,7 @@ static void handle(int sig) {
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "--help")) {
     if (getenv("OLD_OPTIONS")) puts("old build");
-    else puts("--non-exclusive --wayland-layer --text-press-sp");
+    else puts("--non-exclusive --wayland-layer --text-press-sp --hidden");
     if (getenv("OUTPUT_OPTION")) puts("--output CONNECTOR");
     return 0;
   }
@@ -364,7 +364,8 @@ esac
             pinned = edge | {'OUTPUT_OPTION': '1'}
             run('show', extra=edge)
             pid = int(record.read_text().split()[0])
-            assert b'--output' not in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')
+            assert b'--output' not in argv and b'--hidden' in argv, argv
             (root / 'monitors').write_text(json.dumps(docked))
             run('check-output', extra=edge)
             assert not record.exists()
@@ -392,6 +393,30 @@ esac
             assert (state / 'visibility').read_text().strip() == 'menu'
             run('stop')
             print('PASS stock and pinned display selection, dock teardown and menu ownership')
+
+            (root / 'monitors').write_text(json.dumps([monitor]))
+            gate = root / 'dock-start-release'
+            receipt = root / 'dock-start-signals'
+            receipt.touch()
+            starting = subprocess.Popen(
+                ['/bin/bash', str(HELPER), 'show'],
+                env=env | edge | {'START_GATE': str(gate), 'SIGNALS': str(receipt)},
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                wait_for(lambda: receipt.read_text() == 'W')
+                assert not record.exists()
+                (root / 'monitors').write_text(json.dumps(docked))
+                hotplug = subprocess.Popen(
+                    ['/bin/bash', str(HELPER), 'check-output'], env=env | edge,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                assert_pending(hotplug)
+            finally:
+                gate.touch()
+                finish(starting, ok=False)
+                track_keyboard()
+            finish(hotplug)
+            assert not record.exists() and 'S' not in receipt.read_text()
+            print('PASS dock hotplug waits for a stock startup, which exits without showing')
 
             failed = start_with_gate('failed', fail=True)
             assert not record.exists() and failed.read_text() == 'W'

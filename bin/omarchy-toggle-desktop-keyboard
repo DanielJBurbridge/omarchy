@@ -62,7 +62,9 @@ fi
 session=${WAYLAND_DISPLAY##*/}
 [[ $session =~ ^[[:alnum:]_.-]+$ ]] || fail 'invalid Wayland display name.'
 state="$XDG_RUNTIME_DIR/omarchy-desktop-keyboard-$session"
-[[ $action != "check-output" || -f $state/process ]] || exit 0
+# A keyboard launch creates this directory before inspecting the outputs.
+# Wait for its lock even when the startup handshake has not published a PID.
+[[ $action != "check-output" || -d $state ]] || exit 0
 umask 077
 mkdir -p "$state"
 [[ -d $state && ! -L $state && -O $state ]] || fail 'unsafe state directory.'
@@ -264,6 +266,12 @@ elif [[ $action == hide || $action == stop ]]; then
   rm -f "$state/visibility"
   exit 0
 else
+  stock_handheld=false
+  if $handheld && (( ${#output_args[@]} == 0 )); then
+    [[ $flags == *--hidden* ]] || fail 'stock wvkbd requires the --hidden option.'
+    stock_handheld=true
+    output_args=(--hidden)
+  fi
   style=()
   if [[ -r $HOME/.local/state/omarchy/current/theme/colors.toml && $flags == *--text-press-sp* ]]; then
     # Use the shell palette and its monospace alias. Mix two levels of key
@@ -338,6 +346,16 @@ else
     read -r uptime _ </proc/uptime
   done
   $ready || fail "startup failed; see $state/output.log"
+  if $stock_handheld; then
+    # Stock wvkbd lets the compositor choose on map. Wait for its Wayland
+    # handshake, then recheck the sole internal display before showing it.
+    edge_output=''
+    if ! handheld_output_available; then
+      [[ $requested_action != "show-for-edge" && $requested_action != "show-for-menu" ]] || exit 0
+      fail 'the display layout changed while the keyboard was starting.'
+    fi
+    send_control USR2
+  fi
   printf '%s %s %s\n' "$pid" "$started" "$binary" > "$state/process"
   trap - EXIT HUP INT TERM
   if [[ $action == "toggle" ]]; then visibility=manual; fi
