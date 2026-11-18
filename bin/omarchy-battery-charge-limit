@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# omarchy:summary=Read or change the ROG Ally battery charge limit
+# omarchy:args=[status|on|off]
+
+set -euo pipefail
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+action=${1-status}
+case "$action" in
+  -h | --help)
+    printf '%s\n' 'Usage: omarchy-battery-charge-limit [status|on|off]' \
+      'Enable or disable the charge limit configured by UPower on the original ROG Ally.'
+    exit 0
+    ;;
+esac
+if (( $# > 1 )) || [[ $action != "status" && $action != "on" && $action != "off" ]]; then
+  echo 'Usage: omarchy-battery-charge-limit [status|on|off]' >&2
+  exit 2
+fi
+
+omarchy-hw-rog-ally || fail 'This charge limit control supports the original ROG Ally RC71L.'
+
+service=org.freedesktop.UPower
+interface=$service.Device
+root_path=/org/freedesktop/UPower
+bus=(busctl --system --auto-start=no)
+listing=$("${bus[@]}" --json=short call "$service" "$root_path" "$service" EnumerateDevices)
+paths=$(jq -er 'select(.type == "ao") | .data[0] | join("\n")' <<<"$listing")
+
+battery=
+properties=
+while IFS= read -r path; do
+  [[ $path == "$root_path/devices/"* && $path != "$root_path/devices/DisplayDevice" ]] || continue
+  candidate=$("${bus[@]}" --json=short call "$service" "$path" \
+    org.freedesktop.DBus.Properties GetAll s "$interface")
+  # UPower Type 2 is a battery. PowerSupply distinguishes the system battery
+  # from controller and other peripheral batteries.
+  if jq -e '.data[0] | .Type.data == 2 and .PowerSupply.data == true and .IsPresent.data == true' \
+    <<<"$candidate" >/dev/null; then
+    [[ -z $battery ]] || fail 'UPower reports more than one present system battery.'
+    battery=$path
+    properties=$candidate
+  fi
+done <<<"$paths"
+[[ -n $battery ]] || fail 'UPower reports no present system battery.'
+
+# The end-threshold bit is 2. This command only offers a percentage ceiling.
+if ! limit=$(jq -er '.data[0]
+  | select(.ChargeThresholdSupported.data == true)
+  | select((((.ChargeThresholdSettingsSupported.data // 0) / 2 | floor) % 2) == 1)
+  | .ChargeEndThreshold.data | select(type == "number" and . > 0 and . < 100)' <<<"$properties"); then
+  fail 'UPower has no supported charge ceiling configured for this battery.'
+fi
+enabled=$(jq -er '.data[0].ChargeThresholdEnabled.data | select(type == "boolean") | tostring' <<<"$properties") ||
+  fail 'UPower could not read the charge limit state.'
+
+if [[ $action != "status" ]]; then
+  if systemctl --system is-active --quiet asusd.service; then
+    fail 'asusd is running and can overwrite the charge limit on wake. Use one charge limit backend.'
+  fi
+  requested=false
+  [[ $action != "on" ]] || requested=true
+  # UPower checks desktop authorisation and owns the firmware write and its
+  # persistent state. Keep the configured percentage under UPower's control.
+  "${bus[@]}" call "$service" "$battery" "$interface" EnableChargeThreshold b "$requested"
+  [[ $("${bus[@]}" get-property "$service" "$battery" "$interface" ChargeThresholdEnabled) == "b $requested" ]] ||
+    fail 'UPower did not confirm the requested charge limit state.'
+  enabled=$requested
+fi
+
+if [[ $enabled == "true" ]]; then
+  printf 'UPower charge limit is on (%s%%).\n' "$limit"
+else
+  printf 'UPower charge limit is off (%s%% configured).\n' "$limit"
+fi

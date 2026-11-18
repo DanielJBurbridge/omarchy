@@ -228,3 +228,112 @@ printf '9000000\n' >"$hold_dir/power/BAT0/power_now"
 sparse_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status")
 [[ $sparse_output == "Battery 60%  ·  "$' '"9W" ]] || fail "missing readings drop out of the status line" "$sparse_output"
 pass "battery status leaves out readings it doesn't have"
+
+# A charge limit request belongs to the present system battery. The fixture
+# lists a controller, the aggregate display device and an absent battery first.
+charge_limit=$ROOT/bin/omarchy-battery-charge-limit
+export OMARCHY_TEST_CHARGE_STATE="$tmp_dir/charge-state"
+export OMARCHY_TEST_CHARGE_WRITES="$tmp_dir/charge-writes"
+printf 'false\n' >"$OMARCHY_TEST_CHARGE_STATE"
+: >"$OMARCHY_TEST_CHARGE_WRITES"
+
+cat >"$tmp_dir/bin/omarchy-hw-rog-ally" <<'STUB'
+#!/bin/bash
+[[ ${OMARCHY_TEST_HARDWARE:-ally} == "ally" ]]
+STUB
+cat >"$tmp_dir/bin/systemctl" <<'STUB'
+#!/bin/bash
+[[ $* == "--system is-active --quiet asusd.service" && ${OMARCHY_TEST_ASUSD_ACTIVE:-no} == "yes" ]]
+STUB
+cat >"$tmp_dir/bin/busctl" <<'STUB'
+#!/bin/bash
+[[ $1 == "--system" && $2 == "--auto-start=no" ]] || exit 2
+shift 2
+if [[ $1 == "--json=short" ]]; then
+  shift
+fi
+[[ $2 == "org.freedesktop.UPower" ]] || exit 2
+
+case "$1:$5" in
+  call:EnumerateDevices)
+    cat <<'JSON'
+{"type":"ao","data":[[
+  "/org/freedesktop/UPower/devices/battery_gamepad",
+  "/org/freedesktop/UPower/devices/DisplayDevice",
+  "/org/freedesktop/UPower/devices/battery_BAT1",
+  "/org/freedesktop/UPower/devices/battery_BAT0"
+]]}
+JSON
+    ;;
+  call:GetAll)
+    [[ $4 == "org.freedesktop.DBus.Properties" && $6 == "s" && $7 == "org.freedesktop.UPower.Device" ]] || exit 2
+    supply=true
+    present=true
+    settings=2
+    case "${3##*/}" in
+      battery_gamepad) supply=false ;;
+      battery_BAT1) present=${OMARCHY_TEST_SECOND_BATTERY:-false} ;;
+      battery_BAT0) settings=${OMARCHY_TEST_THRESHOLD_SETTINGS:-2} ;;
+    esac
+    cat <<JSON
+{"type":"a{sv}","data":[{
+  "Type":{"type":"u","data":2},
+  "PowerSupply":{"type":"b","data":$supply},
+  "IsPresent":{"type":"b","data":$present},
+  "ChargeThresholdSupported":{"type":"b","data":true},
+  "ChargeThresholdSettingsSupported":{"type":"u","data":$settings},
+  "ChargeEndThreshold":{"type":"u","data":80},
+  "ChargeThresholdEnabled":{"type":"b","data":$(<"$OMARCHY_TEST_CHARGE_STATE")}
+}]}
+JSON
+    ;;
+  call:EnableChargeThreshold)
+    printf '%s %s\n' "$3" "$7" >>"$OMARCHY_TEST_CHARGE_WRITES"
+    [[ $4 == "org.freedesktop.UPower.Device" && $6 == "b" ]] || exit 2
+    printf '%s\n' "$7" >"$OMARCHY_TEST_CHARGE_STATE"
+    ;;
+  get-property:ChargeThresholdEnabled)
+    [[ $4 == "org.freedesktop.UPower.Device" ]] || exit 2
+    printf 'b %s\n' "$(<"$OMARCHY_TEST_CHARGE_STATE")"
+    ;;
+  *) exit 2 ;;
+esac
+STUB
+chmod +x "$tmp_dir/bin/"{busctl,omarchy-hw-rog-ally,systemctl}
+
+run_charge_limit() {
+  PATH="$tmp_dir/bin:$PATH" "$charge_limit" "$@"
+}
+
+charge_status=$(run_charge_limit status)
+[[ $charge_status == "UPower charge limit is off (80% configured)." && ! -s $OMARCHY_TEST_CHARGE_WRITES ]] ||
+  fail "charge limit status distinguishes disabled from the configured ceiling and changes nothing" "$charge_status"
+
+charge_on=$(run_charge_limit on)
+charge_off=$(run_charge_limit off)
+[[ $charge_on == "UPower charge limit is on (80%)." && $charge_off == "$charge_status" ]] ||
+  fail "charge limit commands report the confirmed state"
+mapfile -t charge_writes <"$OMARCHY_TEST_CHARGE_WRITES"
+[[ ${#charge_writes[@]} == 2 &&
+  ${charge_writes[0]} == "/org/freedesktop/UPower/devices/battery_BAT0 true" &&
+  ${charge_writes[1]} == "/org/freedesktop/UPower/devices/battery_BAT0 false" ]] ||
+  fail "charge limit changes only the present system battery"
+pass "charge limit status, on and off act on the real system battery"
+
+: >"$OMARCHY_TEST_CHARGE_WRITES"
+if OMARCHY_TEST_HARDWARE=laptop run_charge_limit on ||
+  OMARCHY_TEST_SECOND_BATTERY=true run_charge_limit on ||
+  OMARCHY_TEST_THRESHOLD_SETTINGS=4 run_charge_limit on; then
+  fail "charge limit requires an RC71L and one present system battery with a supported ceiling"
+fi
+[[ ! -s $OMARCHY_TEST_CHARGE_WRITES ]] || fail "refused charge limit requests never call UPower's setter"
+pass "charge limit refuses other hardware, ambiguous batteries and unsupported ceilings"
+
+active_status=$(OMARCHY_TEST_ASUSD_ACTIVE=yes run_charge_limit status)
+if OMARCHY_TEST_ASUSD_ACTIVE=yes run_charge_limit on >"$tmp_dir/charge-error" 2>&1; then
+  fail "charge limit refuses to write while asusd owns the setting"
+fi
+[[ $active_status == "$charge_status" && ! -s $OMARCHY_TEST_CHARGE_WRITES ]] ||
+  fail "asusd does not block read-only status and no UPower setter runs"
+grep -Fq asusd "$tmp_dir/charge-error" || fail "the refusal identifies the competing daemon"
+pass "charge limit status remains available while asusd manages the ceiling"
