@@ -27,11 +27,13 @@ The stable command contract is:
 ```bash
 omarchy-toggle-desktop-keyboard         # toggle
 omarchy-toggle-desktop-keyboard show    # idempotent
-omarchy-toggle-desktop-keyboard hide    # idempotent, releases active keys
+omarchy-toggle-desktop-keyboard hide    # idempotent, removes the keyboard from view
 omarchy-toggle-desktop-keyboard stop    # hide, then terminate this session's process
 ```
 
 State and output logs live in `$XDG_RUNTIME_DIR/omarchy-desktop-keyboard-<WAYLAND_DISPLAY>/`. The helper serialises requests and validates PID, process birth time and executable before signalling it. Repeated shows reuse the owned process; hide/stop while inactive start nothing. A killed or failed keyboard is relaunched by the next show. No daemon, polling or automatic startup is added.
+
+With stock wvkbd 0.21, use a tapped Shift or Ctrl before hiding the keyboard. An unused modifier can carry over to the next keystroke, including one from a connected keyboard. Hiding the keyboard keeps its process alive.
 
 The existing Big Picture launcher hides the desktop keyboard. SESSION must call `stop` from the departing desktop environment before entering `omarchy-gamescope.desktop`; wvkbd also exits when its Wayland connection disappears. New show/toggle requests require a Hyprland session and reject a Gamescope desktop. Hide/stop remain usable for teardown without the Hyprland signature. Returning to Hyprland starts no keyboard automatically; summon it again when needed. On RC71L with `wvkbd-mobintl` installed, Hyprland is set to `input:virtualkeyboard:release_pressed_on_close` so a crashed keyboard does not leave a key or a latched Shift or Ctrl down.
 
