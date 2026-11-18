@@ -35,11 +35,7 @@ esac
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/ally-tdp/profiles.sh"
 ally_tdp=0
-if ally_tdp_profiles_enabled; then
-  if $ppd_only; then
-    echo "Power profiles are unavailable while power-profiles-daemon is masked." >&2
-    exit 1
-  fi
+if ! $ppd_only && ally_tdp_profiles_enabled; then
   # Wake and AC changes reapply the shared request from the root services.
   # Only an explicit preset should replace a request made in Gaming Mode.
   [[ -n $requested_profile ]] || exit 0
@@ -56,6 +52,10 @@ if ally_tdp_profiles_enabled; then
   fi
 else
   mapfile -t profiles < <(omarchy-powerprofiles-list --ppd-only)
+  if $ppd_only && (( ${#profiles[@]} == 0 )); then
+    echo "Power profiles are unavailable." >&2
+    exit 1
+  fi
 fi
 
 profile_available() {

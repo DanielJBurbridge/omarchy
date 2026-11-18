@@ -16,16 +16,21 @@ fi
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/ally-tdp/profiles.sh"
 if ally_tdp_profiles_enabled; then
-  # The managed handheld masks PPD. A regular desktop panel has no PPD rows.
-  if $ppd_only; then exit 0; fi
-  while IFS=$'\t' read -r profile _ active; do
-    if [[ $1 == "--active-state" ]]; then
-      printf '%s\t%s\n' "$profile" "$active"
-    else
-      printf '%s\n' "$profile"
-    fi
-  done < <(ally_tdp_profiles)
-  exit 0
+  if ! $ppd_only; then
+    while IFS=$'\t' read -r profile _ active; do
+      if [[ $1 == "--active-state" ]]; then
+        printf '%s\t%s\n' "$profile" "$active"
+      else
+        printf '%s\n' "$profile"
+      fi
+    done < <(ally_tdp_profiles)
+    exit 0
+  fi
+
+  # A masked unit can still have a running PPD-compatible provider. Ask
+  # the bus itself so opening the ordinary panel cannot activate a daemon.
+  owners=$(busctl --system call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ListNames 2>/dev/null) || exit 0
+  [[ $owners == *'"org.freedesktop.UPower.PowerProfiles"'* || $owners == *'"net.hadess.PowerProfiles"'* ]] || exit 0
 fi
 
 set -o pipefail

@@ -103,6 +103,9 @@ cat >"$work/bin/busctl" <<'EOF'
 if [[ ${1:-} == --user ]]; then
   exec /usr/bin/busctl "$@"
 fi
+if [[ ${!#} == "ListNames" ]]; then
+  printf 'as 2 "org.freedesktop.DBus" "%s"\n' "${PPD_OWNER:-:1.0}"
+fi
 exit 0
 EOF
 cat >"$work/bin/sudo" <<'EOF'
@@ -119,7 +122,7 @@ exit 0
 EOF
 cat >"$work/bin/powerprofilesctl" <<'EOF'
 #!/bin/bash
-if [[ ${PPD_MASKED:-0} == "1" ]]; then
+if [[ ${PPD_MASKED:-0} == "1" && -z ${PPD_OWNER:-} ]]; then
   printf 'masked daemon: %s\n' "$*" >>"${POWERPROFILES_LOG:?}"
   exit 1
 fi
@@ -635,6 +638,16 @@ set_profile ac
 rm "$armoury/ppt_pl3_fppt/current_value"
 [[ -z $(list_profiles) ]] || fail "missing firmware attributes leave no Omarchy presets available"
 pass "masked profile queries and writes share the live TDP backend and report honest active state"
+
+for owner in org.freedesktop.UPower.PowerProfiles net.hadess.PowerProfiles; do
+  regular=$(env "${profile_env[@]}" PPD_OWNER="$owner" "$ROOT/bin/omarchy-powerprofiles-list" --ppd-only --active-state)
+  [[ $regular == *$'balanced\t1'* ]] || fail "the regular panel omits the running $owner provider"
+  PPD_OWNER="$owner" set_profile --ppd-only ac power-saver
+  [[ $(tail -n 1 "$POWERPROFILES_LOG") == "power-saver" && $(stored) == 30 ]] ||
+    fail "the regular panel fails to select the live provider independently of the TDP request"
+done
+: >"$POWERPROFILES_LOG"
+pass "a running PPD-compatible provider survives a masked service on external displays"
 
 env "${profile_env[@]}" PPD_MASKED=0 "$ROOT/bin/omarchy-powerprofiles-set" ac balanced
 [[ $(<"$POWERPROFILES_LOG") == balanced && $(stored) == 30 ]] ||
