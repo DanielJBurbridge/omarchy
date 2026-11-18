@@ -31,6 +31,13 @@ SH
 cat >"$work/bin/pactl" <<'SH'
 #!/bin/bash
 printf '%s pactl %s\n' "${LC_ALL:-unset}" "$*" >>"$CALLS"
+if [[ ${VOLUME_FAILURE:-} == "$1" ]]; then
+  # The first read lets the adjustment start. Losing the sink after the
+  # write leaves the second read without a value.
+  if [[ $1 != "get-sink-volume" ]] || grep -q ' pactl set-sink-volume ' "$CALLS"; then
+    exit 1
+  fi
+fi
 case "$*" in
   "list sink-inputs")
     cat <<'OUT'
@@ -135,6 +142,17 @@ grep -q ' pactl set-sink-volume alsa_output.headphones 55%$' "$CALLS" &&
   ! grep -q ' pactl get-default-sink$' "$CALLS" ||
   fail 'a named volume step targets its original output even when another sink is the default' "$(calls)"
 pass 'a named volume step stays on its original output'
+
+for failure in set-sink-mute set-sink-volume get-sink-volume get-sink-mute; do
+  : >"$CALLS"
+  if VOLUME_FAILURE=$failure omarchy-audio-output-volume raise alsa_output.headphones 2>"$work/volume-error"; then
+    fail "volume adjustment fails when $failure loses the output" "$(calls)"
+  fi
+  if grep -q '^omarchy-osd ' "$CALLS"; then
+    fail "volume adjustment shows no OSD when $failure loses the output" "$(calls)"
+  fi
+done
+pass 'a disconnected sink fails the volume adjustment without showing zero'
 
 : >"$CALLS"
 (

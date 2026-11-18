@@ -24,15 +24,13 @@ fi
 # over PA_VOLUME_NORM), so the OSD reads identically either way.
 # pactl translates its labels and yes/no; parse them in the C locale.
 volume_percent() {
-  LC_ALL=C pactl get-sink-volume "$sink" 2>/dev/null |
-    awk 'NR == 1 {
-      for (i = 1; i <= NF; i++)
-        if ($i ~ /%$/) {sub("%", "", $i); print $i; exit}
-    }'
-}
-
-volume_muted() {
-  [[ $(LC_ALL=C pactl get-sink-mute "$sink" 2>/dev/null) == *yes ]]
+  local report
+  report=$(LC_ALL=C pactl get-sink-volume "$sink" 2>/dev/null) || return 1
+  awk 'NR == 1 {
+    for (i = 1; i <= NF; i++)
+      if ($i ~ /^[0-9]+%$/) { sub("%", "", $i); print $i; found = 1; exit }
+  }
+  END { if (!found) exit 1 }' <<<"$report"
 }
 
 case "$action" in
@@ -51,13 +49,12 @@ if [[ $action == "mute-toggle" ]]; then
   fi
   printf '%s\n' "$now" >"$debounce_file"
 
-  pactl set-sink-mute "$sink" toggle
+  pactl set-sink-mute "$sink" toggle || exit 1
 elif [[ $action =~ ^([+-])([0-9]+)$ ]]; then
   direction="${BASH_REMATCH[1]}"
   step="${BASH_REMATCH[2]}"
 
-  current="$(volume_percent)"
-  if [[ -z $current ]]; then
+  if ! current=$(volume_percent); then
     echo "Could not read volume for $sink." >&2
     exit 1
   fi
@@ -70,18 +67,23 @@ elif [[ $action =~ ^([+-])([0-9]+)$ ]]; then
     ((next >= 0)) || next=0
   fi
 
-  pactl set-sink-mute "$sink" 0
-  pactl set-sink-volume "$sink" "${next}%"
+  pactl set-sink-mute "$sink" 0 || exit 1
+  pactl set-sink-volume "$sink" "${next}%" || exit 1
 else
   echo "Unknown volume action: $action"
   exit 1
 fi
 
-percent=$(volume_percent)
-if volume_muted || ((${percent:-0} == 0)); then
+if ! percent=$(volume_percent) ||
+    ! mute=$(LC_ALL=C pactl get-sink-mute "$sink" 2>/dev/null) ||
+    [[ $mute != "Mute: yes" && $mute != "Mute: no" ]]; then
+  echo "Could not read volume or mute state for $sink." >&2
+  exit 1
+fi
+if [[ $mute == "Mute: yes" ]] || (( percent == 0 )); then
   icon="volume-muted"
 else
   icon="volume-high"
 fi
 
-omarchy-osd -i "$icon" -p "${percent:-0}"
+omarchy-osd -i "$icon" -p "$percent"
