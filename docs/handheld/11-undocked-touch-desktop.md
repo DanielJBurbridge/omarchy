@@ -66,12 +66,12 @@ iPadOS shows the keyboard because the field is focused, and a secure field draws
 
 ## 4. Gestures
 
-Hyprland only, touch profile on. An edge swipe starts in the outer 24 px and travels at least 80 px. One gesture, one action. Each one has a tap or a menu route (D1, D5).
+The first gesture to trial is an opt-in swipe up from a small bottom-centre handle on the undocked Ally desktop. It shows the themed keyboard while keeping the caret in the active app. The bar button still toggles the keyboard, and Apps stays under Menu → Apps. The other gestures below are proposals. [HHD touch recogniser](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/controllers.py#L375-L456) · [HHD shortcut defaults](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/shortcuts.yml#L60-L94)
 
 | Gesture | Action | Also reached by | Borrowed |
 |---|---|---|---|
 | Top edge | Omarchy menu (`omarchy.menu`) | AC tap. Bar `omarchy.menu` | iPad: an edge always reaches a system surface. The action is the Omarchy menu, which is what AC tap already does |
-| Bottom edge | Apps (`omarchy-shell omarchy.dock apps`) | Menu → Apps | Same idea. The launcher is the undocked home for apps |
+| Swipe up from the bottom-centre handle | Show the desktop keyboard. Repeating the gesture keeps it open | Desktop Keyboard bar button or menu entry | HHD’s bottom-up keyboard shortcut |
 | Left edge | Previous workspace | Menu. M1+RB once OQ-17 (spec 01) | hyprgrass workspace swipe |
 | Right edge | Next workspace | Menu. M1+LB once OQ-17 | hyprgrass workspace swipe |
 | Two-finger swipe up | Fullscreen | Menu (spec 01 OQ-13) | hyprgrass multi-finger swipe, bound to `Super+F`'s action |
@@ -86,7 +86,7 @@ Conflict with Steam and with games:
 | Gamescope | Gestures do not run. `--default-touch-mode 4` stays passthrough. Steam owns the finger |
 | Fullscreen focused window on the desktop | Edge swipes and the two-finger close / fullscreen gestures do not fire. Touch goes to the client. A Steam game and Big Picture in this session included |
 | Swipe that starts inside the window | The app's. A browser's back swipe stays the browser's |
-| wvkbd visible | The bottom edge belongs to the keyboard. Apps is the menu row until it hides |
+| wvkbd visible | The handle yields the bottom edge so every key can receive a tap |
 | Session locked | No gesture fires. Each `hl.plugin.hyprgrass.bind` omits `locked`, so Hyprland does not run it while the session lock is up. The gesture config gates itself. No edit to `shell/plugins/lock` or `LockView.qml` |
 | Plugin absent or dead | The table's "also reached by" column is the product |
 
@@ -210,7 +210,7 @@ Read on this tip. "Shipped" means the file or the command is in the tree. It doe
 | Shell menu and bar | `shell/plugins/menu`, `shell/plugins/bar`, `omarchy.menu` on the default bar | 44 px floor to build |
 | Notifications | `shell/plugins/notifications` | Dismiss and actions grow to 44 px. To build |
 | Monitor scale | `monitors.lua` `scale = "auto"` | 1.5 on the internal panel under D3. To build (L43 for the other branch's helper) |
-| Gestures | No hyprgrass config | Section 4. To build |
+| Gestures | The keyboard handle is the first trial. The other gestures are proposals for hyprgrass | Check the handle in a focused text field and ordinary app scrolling immediately beside it. Repeat in fullscreen, while locked and after docking |
 | Shell-field auto-show | Spec 07 names it. No show-on-focus in the shell fields | To build |
 | Other-client auto-show | Blocked by fcitx5 | L89 |
 | Gamescope touch passthrough | `omarchy-session-start` mode 4 | Keep |
