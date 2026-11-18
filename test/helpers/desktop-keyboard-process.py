@@ -36,7 +36,7 @@ static void handle(int sig) {
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "--help")) {
     if (getenv("OLD_OPTIONS")) puts("old build");
-    else puts("--non-exclusive --wayland-layer");
+    else puts("--non-exclusive --wayland-layer --text-press-sp");
     return 0;
   }
   if (getenv("FAIL_START")) return 42;
@@ -133,18 +133,20 @@ def main():
         # Only the fixture keyboard and the helper's real system dependencies
         # are visible. Appending the host PATH lets a genuinely installed
         # wvkbd escape the missing-dependency case when ours is renamed.
-        for name in ('cat', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm', 'jq'):
+        for name in ('awk', 'cat', 'dirname', 'readlink', 'mkdir', 'flock', 'nohup', 'sleep', 'rm', 'jq', 'sort'):
             tool = shutil.which(name)
             assert tool, f'Required system tool missing: {name}'
             (root / name).symlink_to(tool)
         repo = Path(__file__).resolve().parents[2]
         (root / 'omarchy-cmd-present').symlink_to(repo / 'bin/omarchy-cmd-present')
         (root / 'omarchy-i18n').symlink_to(repo / 'bin/omarchy-i18n')
+        (root / 'omarchy-theme-color').symlink_to(repo / 'bin/omarchy-theme-color')
         notify = root / 'notify'
         notifier = root / 'omarchy-notification-send'
         notifier.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >"$NOTIFY_LOG"\n')
         notifier.chmod(0o755)
         env = os.environ | {'PATH': str(root), 'NOTIFY_LOG': str(notify),
+                            'HOME': str(root / 'home'),
                             'OMARCHY_PATH': str(repo),
                             'XDG_RUNTIME_DIR': str(root), 'WAYLAND_DISPLAY': 'wayland-test',
                             'HYPRLAND_INSTANCE_SIGNATURE': 'hyprland-test',
@@ -212,6 +214,27 @@ def main():
                 wait_for(lambda: events().endswith('E' + suffix + 'HX'))
                 assert not record.exists()
             print('[Haki] PASS three cycles: real argv, repeated show/hide, toggle signals, hide-before-TERM stop')
+
+            theme = root / 'home/.local/state/omarchy/current/theme'
+            theme.mkdir(parents=True)
+            colors = theme / 'colors.toml'
+            colors.write_text('background = "#05182e"\nforeground = "#f6dcac"\naccent = "#faa968"\n')
+            run('show')
+            pid = int(record.read_text().split()[0])
+            argv = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[1:-1]
+            assert argv[argv.index(b'--bg') + 1] == b'05182e', argv
+            assert argv[argv.index(b'--fg') + 1] != argv[argv.index(b'--fg-sp') + 1], argv
+            assert argv[argv.index(b'--text') + 1] == b'f6dcac', argv
+            assert argv[argv.index(b'--press') + 1] == b'faa968', argv
+            assert argv[argv.index(b'--text-press') + 1] == b'05182e', argv
+            run('stop')
+            colors.write_text('background = "05182e"\nforeground = "#f6dcac"\n')
+            run('show')
+            pid = int(record.read_text().split()[0])
+            assert b'--bg' not in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0'), argv
+            run('stop')
+            colors.unlink()
+            print('[Haki] PASS active theme styles the keyboard and an invalid palette keeps stock defaults')
 
             # A package upgrade unlinks the running executable inode. Keep ownership.
             run('show')

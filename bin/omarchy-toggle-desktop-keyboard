@@ -101,12 +101,40 @@ else
   # Refuse older builds rather than starting an unexpectedly exclusive surface.
   flags=$("$binary" --help 2>&1) || fail 'cannot read wvkbd options.'
   [[ $flags == *--non-exclusive* && $flags == *--wayland-layer* ]] || fail 'wvkbd 0.21 or newer is required.'
+  style=()
+  if [[ -r $HOME/.local/state/omarchy/current/theme/colors.toml && $flags == *--text-press-sp* ]]; then
+    # Use the shell palette and its monospace alias. Mix two levels of key
+    # surfaces from the foreground, so both light and dark palettes work.
+    mapfile -t style < <(omarchy-theme-color --all | awk -F '\t' '
+      function channel(hex, i) { return strtonum("0x" substr(hex, i, 2)) }
+      function mix(a, b, t,    i, rgb) {
+        for (i = 1; i <= 5; i += 2)
+          rgb = rgb sprintf("%02x", (1 - t) * channel(a, i) + t * channel(b, i) + .5)
+        return rgb
+      }
+      function linear(c) { c /= 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055)^2.4 }
+      function luminance(hex) {
+        return .2126 * linear(channel(hex, 1)) + .7152 * linear(channel(hex, 3)) + .0722 * linear(channel(hex, 5))
+      }
+      $2 ~ /^#[[:xdigit:]]{6}$/ { palette[$1] = substr($2, 2) }
+      END {
+        bg = palette["background"]; text = palette["foreground"]; press = palette["accent"]
+        if (!bg || !text) exit
+        if (!press) press = mix(bg, text, .44)
+        luma = luminance(press)
+        ratio = (luma + .05) / (luminance(bg) + .05)
+        pressed_text = ratio >= 4.5 || ratio <= 1/4.5 ? bg : (luma >= .179 ? "000000" : "ffffff")
+        printf "--bg\n%s\n--fg\n%s\n--fg-sp\n%s\n--text\n%s\n--text-sp\n%s\n", bg, mix(bg, text, .14), mix(bg, text, .23), text, text
+        printf "--press\n%s\n--press-sp\n%s\n--text-press\n%s\n--text-press-sp\n%s\n", press, press, pressed_text, pressed_text
+        print "--fn\nmonospace 18\n-R\n6"
+      }')
+  fi
   # Six rows in full: 44 logical units per row, before upstream key borders.
   # At scale 2, 264 becomes 528px; no global display or physical keymap change.
   # Both orientations are explicit. No auto input-method or focus stealing.
   nohup "$binary" -H 264 -L 264 --non-exclusive --wayland-layer overlay \
     -l full,special --landscape-layers full,special \
-    --no-popup >"$state/output.log" 2>&1 < /dev/null 9>&- &
+    --no-popup "${style[@]}" >"$state/output.log" 2>&1 < /dev/null 9>&- &
   pid=$!
   # Poll until the child is the keyboard we just started. A fixed sleep
   # returns before exec under load, and then the identity check fails closed.
