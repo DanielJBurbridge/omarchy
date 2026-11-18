@@ -398,10 +398,13 @@ request_gaming_shutdown() {
     if [[ ${finished:-} != "$deadline_pid" ]]; then
       kill "$deadline_pid" 2>/dev/null || true
       wait "$deadline_pid" 2>/dev/null || true
-    elif [[ -f $gaming_runtime/steam-exit ]]; then
-      printf '%s\n' 'Gamescope stayed up after Steam exited. Stopping its scope.' >> "$gaming_state/fallback.log"
+    elif [[ -f $gaming_runtime/steam-exit && $(< "$gaming_runtime/steam-exit") == "0" ]]; then
+      # Steam finished normally. After resume, Gamescope can still get stuck
+      # and restart Xwayland on TERM. Retire only this session's scope.
+      printf '%s\n' 'Gamescope stayed up after Steam exited. Killing its remaining scope processes.' >> "$gaming_state/fallback.log"
+      systemctl --user kill --kill-whom=all --signal=KILL "$scope" 2>/dev/null || true
     else
-      printf '%s\n' 'Steam did not exit after the shutdown request. Stopping the Gamescope scope.' >> "$gaming_state/fallback.log"
+      printf '%s\n' 'Steam did not exit cleanly after the shutdown request. Stopping the Gamescope scope.' >> "$gaming_state/fallback.log"
     fi
   fi
 }

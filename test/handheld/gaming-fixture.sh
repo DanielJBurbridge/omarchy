@@ -95,7 +95,8 @@ done
 (( $# )) || exit 1
 shift
 DISPLAY=:77 "$@"
-printf 'gamescope-exit:%s\n' "$?" >> "$HANDHELD_ACTIONS"
+printf 'gamescope-child-exit:%s\n' "$?" >> "$HANDHELD_ACTIONS"
+if [[ ${GAMESCOPE_STAYS_AFTER_STEAM:-0} == 1 ]]; then sleep 30; fi
 exit 0
 EOF
   cat > "$HANDHELD_STUB/uwsm" <<'EOF'
@@ -118,7 +119,10 @@ EOF
   cat > "$HANDHELD_STUB/systemctl" <<'EOF'
 #!/bin/bash
 printf 'systemctl:%s\n' "$*" >> "$HANDHELD_ACTIONS"
-if [[ $* == *stop* && -f ${HANDHELD_SCOPE_PID:-} ]]; then
+if [[ $* == '--user kill --kill-whom=all --signal=KILL '* && -f ${HANDHELD_SCOPE_PID:-} ]]; then
+  scope_pid=$(cat "$HANDHELD_SCOPE_PID")
+  kill -KILL -- "-$scope_pid" 2>/dev/null || true
+elif [[ $* == *stop* && -f ${HANDHELD_SCOPE_PID:-} ]]; then
   scope_pid=$(cat "$HANDHELD_SCOPE_PID")
   kill -- -"$scope_pid" 2>/dev/null || kill "$scope_pid" 2>/dev/null || true
 fi

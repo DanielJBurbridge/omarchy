@@ -128,9 +128,9 @@ if [[ -z $stop_line || -z $desktop_line ]] || (( stop_line <= gamescope_line || 
 fi
 pass "gamescope start pulls in the target and the desktop switch stops it"
 
-mapfile -t shutdown_actions < <(grep -E '^(steam:shutdown:|steam:clean-exit$|gamescope-exit:|systemctl:--user stop omarchy-gamescope-)' "$HANDHELD_LOG")
+mapfile -t shutdown_actions < <(grep -E '^(steam:shutdown:|steam:clean-exit$|gamescope-child-exit:|systemctl:--user stop omarchy-gamescope-)' "$HANDHELD_LOG")
 [[ ${shutdown_actions[0]:-} == steam:shutdown::77 && ${shutdown_actions[1]:-} == steam:clean-exit &&
-  ${shutdown_actions[2]:-} == gamescope-exit:0 && ${shutdown_actions[3]:-} == 'systemctl:--user stop omarchy-gamescope-redteam.scope' ]] ||
+  ${shutdown_actions[2]:-} == gamescope-child-exit:0 && ${shutdown_actions[3]:-} == 'systemctl:--user stop omarchy-gamescope-redteam.scope' ]] ||
   fail "Switch to Desktop lets Steam exit through its own display before the scope receives TERM" "$detail"
 pass "the explicit desktop return lets Steam and Gamescope exit in order"
 
@@ -155,9 +155,19 @@ rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
 WAIT_FOR_STEAM_SHUTDOWN=1 STEAM_IGNORES_SHUTDOWN=1 run_session gaming
 grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
   grep -Fxq 'systemctl:--user stop omarchy-gamescope-redteam.scope' "$HANDHELD_LOG" &&
+  ! grep -q '^systemctl:--user kill ' "$HANDHELD_LOG" &&
   grep -q '^uwsm:' "$HANDHELD_LOG" && ! grep -Fxq 'steam:clean-exit' "$HANDHELD_LOG" ||
   fail "an unresponsive Steam client still falls back to bounded scope teardown" "$(cat "$HANDHELD_LOG")"
 pass "a stuck Steam shutdown does not prevent the desktop return"
+
+rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+WAIT_FOR_STEAM_SHUTDOWN=1 GAMESCOPE_STAYS_AFTER_STEAM=1 run_session gaming
+mapfile -t stuck_actions < <(grep -E '^(gamescope-child-exit:|systemctl:--user (kill|stop omarchy-gamescope-)|uwsm:)' "$HANDHELD_LOG")
+[[ ${stuck_actions[0]:-} == gamescope-child-exit:0 &&
+  ${stuck_actions[1]:-} == 'systemctl:--user kill --kill-whom=all --signal=KILL omarchy-gamescope-redteam.scope' &&
+  ${stuck_actions[2]:-} == 'systemctl:--user stop omarchy-gamescope-redteam.scope' && ${stuck_actions[3]:-} == uwsm:* ]] ||
+  fail "a compositor that stays up after a clean Steam exit is killed by exact scope before desktop starts" "$(cat "$HANDHELD_LOG")"
+pass "confirmed Steam exit lets recovery bypass the compositor's stop timeout"
 
 # The fixture systemctl answers every cat. This one reports #33's unit absent.
 cat > "$HANDHELD_STUB/systemctl" <<'EOF'
