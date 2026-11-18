@@ -33,7 +33,7 @@ printf '%s\\tfixture subtext\\n' "$line"
         ('translated-launch', 1, ['Open Big Picture'], 0, 'bigpicture\n'),
         ('missing-steam', 0, ['Install Steam…'], 0, 'summon install.gaming\n'),
         ('cancel', 1, ['CANCEL'], 0, ''),
-        ('desktop-return', 1, ['Desktop Mode'], 0, 'desktop\n'),
+        ('desktop-return', 1, ['Exit Steam Big Picture'], 0, 'desktop\n'),
         ('shell-failure', 1, ['ERROR'], 2, ''),
         ('guidance-return', 1, ['Help and first sign-in', 'First sign-in', 'Back', 'Help and first sign-in', 'Controller and typing', 'Back', 'Help and first sign-in', 'Return to desktop', 'Back', 'Close'], 0, ''),
         ('guidance-cancel', 1, ['Help and first sign-in', 'First sign-in', 'CANCEL'], 0, ''),
@@ -52,6 +52,7 @@ printf '%s\\tfixture subtext\\n' "$line"
         assert (root / 'actions').read_text() == actions, name
         menus = (root / 'menus').read_text()
         assert ('Open Big Picture' in menus) == bool(present), name
+        assert ('Exit Steam Big Picture' in menus) == bool(present), name
         assert ('Install Steam…' in menus) != bool(present), name
         print('PASS', name)
     result = subprocess.run([str(script), '--help'], env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True)

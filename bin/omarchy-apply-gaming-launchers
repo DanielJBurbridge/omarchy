@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# omarchy:summary=Maintain optional gaming shortcuts for the current user
+# omarchy:args=[--remove-steam]
+# omarchy:hidden=true
+
+set -euo pipefail
+
+if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != "--remove-steam" ]]; }; then exit 2; fi
+apps="$HOME/.local/share/applications"
+[[ ! -L $apps ]] || exit 0
+templates="$OMARCHY_PATH/default/applications"
+steam_launchers=("Steam Big Picture.desktop" "Desktop Mode.desktop")
+changed=false
+
+if (( $# == 0 )); then
+  launchers=()
+  if omarchy-cmd-present steam; then launchers+=("${steam_launchers[@]}"); fi
+  if omarchy-hw-rog-ally; then launchers+=("Gaming Setup.desktop"); fi
+  for name in "${launchers[@]}"; do
+    entry="$apps/$name"
+    if [[ ! -e $entry && ! -L $entry ]]; then
+      mkdir -p "$apps"
+      cp --update=none -T -- "$templates/$name" "$entry"
+      changed=true
+    fi
+  done
+else
+  for name in "${steam_launchers[@]}"; do
+    entry="$apps/$name"
+    [[ -f $entry && ! -L $entry && -O $entry ]] || continue
+    [[ $(stat -c '%a:%h' -- "$entry") == "644:1" ]] || continue
+    attributes=$(getfattr --absolute-names -m - -- "$entry") || continue
+    if [[ -z $attributes ]] && cmp -s -- "$templates/$name" "$entry"; then
+      rm -- "$entry"
+      changed=true
+    fi
+  done
+fi
+
+if $changed; then update-desktop-database "$apps"; fi

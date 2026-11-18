@@ -1,6 +1,6 @@
 [Desktop Entry]
 Version=1.0
-Name=Desktop Mode
+Name=Exit Steam Big Picture
 Comment=Leave Steam Big Picture; keep Steam, downloads and games running
 Exec=omarchy-launch-steam-desktop
 Icon=computer

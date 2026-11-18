@@ -45,7 +45,7 @@ omarchy-cmd-present steam ||
   fail "Steam is not installed. Use Omarchy's Install > Gaming > Steam menu first."
 
 [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] ||
-  fail "Run Desktop Mode inside the active Hyprland desktop session."
+  fail "Run Exit Steam Big Picture inside the active Hyprland desktop session."
 
 # Match the Big Picture launcher's UWSM convention. Never stop Steam, hide game
 # windows, change workspace rules or infer game completion from Big Picture.
