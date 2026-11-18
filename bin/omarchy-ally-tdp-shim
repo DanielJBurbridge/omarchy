@@ -24,6 +24,7 @@ GPU = BUS + ".GpuPerformanceLevel1"
 MANAGER = BUS + ".Manager2"
 PROPS = "org.freedesktop.DBus.Properties"
 NOT_SUPPORTED = "org.freedesktop.DBus.Error.NotSupported"
+TDP_PROPERTIES = {"TdpLimit": "limit", "TdpLimitMin": "min", "TdpLimitMax": "max"}
 
 # Property names match the public SteamOS Manager API. The text is ours.
 OTHER_XML = """<node>
@@ -122,11 +123,15 @@ def main():
         connection = state["session"]
         if connection is None or info is None:
             return
+        previous = state["last"]
+        state["last"] = info
         changed = {
-            "TdpLimit": GLib.Variant("u", int(info["limit"])),
-            "TdpLimitMin": GLib.Variant("u", int(info["min"])),
-            "TdpLimitMax": GLib.Variant("u", int(info["max"])),
+            name: GLib.Variant("u", int(info[key]))
+            for name, key in TDP_PROPERTIES.items()
+            if previous is None or info[key] != previous[key]
         }
+        if not changed:
+            return
         connection.emit_signal(
             None,
             OBJECT,
@@ -138,27 +143,15 @@ def main():
                 GLib.Variant("as", []),
             ),
         )
-        state["last"] = info
-
-    def current():
-        info = show()
-        state["last"] = info
-        return info
 
     def on_method(_connection, _sender, _path, _interface, method, _params, invocation):
         invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
     def on_get(_connection, _sender, _path, interface, name):
-        info = state["last"] if state["last"] is not None else current()
         if interface == TDP:
-            if info is None:
-                return None
-            if name == "TdpLimit":
-                return GLib.Variant("u", int(info["limit"]))
-            if name == "TdpLimitMin":
-                return GLib.Variant("u", int(info["min"]))
-            if name == "TdpLimitMax":
-                return GLib.Variant("u", int(info["max"]))
+            info = state["last"]
+            if info is not None and name in TDP_PROPERTIES:
+                return GLib.Variant("u", int(info[TDP_PROPERTIES[name]]))
         if interface == PROFILE:
             if name == "AvailablePerformanceProfiles":
                 return GLib.Variant("as", ["performance"])
@@ -198,7 +191,8 @@ def main():
 
     def on_bus(connection, _name):
         state["session"] = connection
-        info = current()
+        info = show()
+        state["last"] = info
         nodes = [Gio.DBusNodeInfo.new_for_xml(OTHER_XML)]
         if info is not None:
             nodes.append(Gio.DBusNodeInfo.new_for_xml(tdp_xml))
@@ -210,6 +204,20 @@ def main():
         if not state["stopping"]:
             state["failed"] = True
             loop.quit()
+
+    def on_update(_monitor, _file, _other_file, event):
+        if event == Gio.FileMonitorEvent.CHANGES_DONE_HINT and state["last"] is not None:
+            emit_tdp(show())
+
+    lock = "/run/omarchy-ally-tdp.lock"
+    if os.environ.get("OMARCHY_ALLY_TDP_FIXTURE") == "1" and not use_pkexec():
+        lock = os.environ["OMARCHY_ALLY_TDP_LOCK"]
+    try:
+        marker = Gio.Vfs.get_local().get_file_for_path(lock + ".updated")
+        updates = marker.monitor_file(Gio.FileMonitorFlags.NONE, None)
+        updates.connect("changed", on_update)
+    except GLib.Error as exc:
+        print(f"omarchy-ally-tdp-shim: could not watch for power updates: {exc}", file=sys.stderr)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)

@@ -521,6 +521,7 @@ export OMARCHY_ALLY_TDP_BOOT_ID=boot
 export PATH=$work/bin:\$PATH
 "\$ROOT/bin/omarchy-ally-tdp-shim" &
 pid=\$!
+trap 'kill "\$pid" 2>/dev/null || true; wait "\$pid" 2>/dev/null || true' EXIT
 ready=0
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   if busctl --user status com.steampowered.SteamOSManager1 >/dev/null 2>&1; then
@@ -532,16 +533,49 @@ done
 [[ \$ready == 1 ]]
 model=\$(busctl --user get-property com.steampowered.SteamOSManager1 /com/steampowered/SteamOSManager1 com.steampowered.SteamOSManager1.Manager2 DeviceModel)
 [[ \$model == *rog_ally* && \$model == *RC71L* ]]
-busctl --user set-property com.steampowered.SteamOSManager1 /com/steampowered/SteamOSManager1 com.steampowered.SteamOSManager1.TdpLimit1 TdpLimit u 25
-kill "\$pid"
-wait "\$pid" 2>/dev/null || true
+bus=com.steampowered.SteamOSManager1
+object=/com/steampowered/SteamOSManager1
+interface=\$bus.TdpLimit1
+busctl --user set-property "\$bus" "\$object" "\$interface" TdpLimit u 30
+[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
+expect_tdp_update() {
+  local limit=\$1
+  for _ in {1..50}; do
+    if grep -q "PropertiesChanged.*TdpLimitMax.*uint32 \$limit" "$work/tdp-signals"; then return 0; fi
+    sleep 0.1
+  done
+  printf 'No TDP update to %s: %s\\n' "\$limit" "\$(cat "$work/tdp-signals")" >&2
+  return 1
+}
+stdbuf -oL gdbus monitor --session --dest "\$bus" --object-path "\$object" > "$work/tdp-signals" &
+monitor=\$!
+trap 'kill "\$monitor" "\$pid" 2>/dev/null || true; wait "\$monitor" "\$pid" 2>/dev/null || true' EXIT
+for _ in {1..50}; do
+  if grep -q 'is owned by' "$work/tdp-signals"; then break; fi
+  sleep 0.1
+done
+grep -q 'is owned by' "$work/tdp-signals"
+printf '0\\n' > "\$OMARCHY_ALLY_TDP_POWER/ADP1/online"
+"\$OMARCHY_ALLY_TDP_APPLY" --reassert >/dev/null
+expect_tdp_update 20
+[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimit) == "u 20" ]]
+[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 20" ]]
+[[ \$(<"\$OMARCHY_ALLY_TDP_STATE/request") == 30 ]]
+
+# With no saved setting, a power change still updates the slider bounds.
+rm "\$OMARCHY_ALLY_TDP_STATE/request"
+printf '1\\n' > "\$OMARCHY_ALLY_TDP_POWER/ADP1/online"
+"\$OMARCHY_ALLY_TDP_APPLY" --reassert >/dev/null
+expect_tdp_update 30
+[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
 EOF
 chmod +x "$work/shim-session.sh"
-battery_table
+ac_table
+reset_state
 if dbus-run-session -- bash "$work/shim-session.sh"; then
-  [[ $(tuple) == 20/20/25 ]] || fail "the shim set does not apply 20/20/25" "$(tuple)"
-  [[ $(stored) == 25 ]] || fail "the shim set does not store 25" "$(stored)"
-  pass "the shim owns TdpLimit1 and applies through the writer"
+  [[ $(tuple) == 20/20/25 ]] || fail "a reassert without a request writes to firmware" "$(tuple)"
+  [[ -z $(stored) ]] || fail "a reassert without a request persists a setting" "$(stored)"
+  pass "external reasserts update the shim and signal its clients"
 else
-  fail "the shim did not claim the session name"
+  fail "the shim did not announce external TDP changes"
 fi

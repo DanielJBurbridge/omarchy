@@ -435,6 +435,13 @@ if [[ $verb == set ]] && ! canonical_watts "$watts"; then
 fi
 
 acquire_lock
+# Tell a running Steam shim when the write or reapply is complete, including
+# a power change that only changes the slider bounds. /run is present before
+# the first request, so the shim can watch the marker even before it exists.
+if [[ $verb != "snapshot" ]]; then
+  trap ': > "$lock_file.updated" || log "cannot notify the TDP shim"' EXIT
+fi
+
 # Power can change while another request holds the lock.
 source=$(power_source)
 ensure_snapshot "$source" || {
