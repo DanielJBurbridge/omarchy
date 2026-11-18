@@ -16,6 +16,7 @@ handheld_gaming_tree() {
   cp "$ROOT/bin/omarchy-session-start" "$tree/bin/omarchy-session-start"
   sed -i 's|^source /usr/share/omarchy/default/bash/env-bootstrap$|:|' "$tree/bin/omarchy-session-start"
   cp "$ROOT/bin/omarchy-gaming-steam" "$tree/bin/omarchy-gaming-steam"
+  cp "$ROOT/bin/omarchy-gaming-output" "$tree/bin/omarchy-gaming-output"
   cp "$ROOT/bin/omarchy-launch-gaming-desktop" "$tree/bin/omarchy-launch-gaming-desktop"
   cp "$ROOT/default/gaming/session.sh" "$tree/default/gaming/session.sh"
   cp "$ROOT/default/gaming/steam-ready.sh" "$tree/default/gaming/steam-ready.sh"
@@ -90,6 +91,9 @@ EOF
 #!/bin/bash
 printf 'gamescope\n' >> "$HANDHELD_ACTIONS"
 while (( $# )) && [[ $1 != -- ]]; do
+  if [[ $1 == "--prefer-output" ]]; then
+    printf 'gamescope-output:%s\n' "${2:-}" >> "$HANDHELD_ACTIONS"
+  fi
   shift
 done
 (( $# )) || exit 1

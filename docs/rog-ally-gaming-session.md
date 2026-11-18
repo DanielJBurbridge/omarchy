@@ -54,7 +54,7 @@ omarchy-setup-gaming-session overlay off
 
 These select game rendering dimensions, Gamescope's `--framerate-limit` and its `-F` upscaling filter. FPS choices are 0 (disabled), 30, 40, 45, 60, 90 and 120. Filter choices are linear, nearest, fsr and nis. Native leaves dimensions to Gamescope. They do not force a physical output mode, refresh rate, HDR, orientation or VRR. Gamescope's simple frame limiter rounds to refresh-rate divisors; the requested number is not proof of measured game performance. FSR/NIS here are compositor spatial filters, not game-native frame generation or temporal upscaling.
 
-When DISPLAY's `omarchy-display-rog-ally` is installed, `gamescope-args` supplies only `--prefer-output` and its connected connector, one argument per line. Empty output means automatic output choice; an error aborts gaming entry and returns desktop. SESSION supplies no hard-coded connector or resolution for the RC71L SDR panel.
+On the original ROG Ally, `omarchy games output DP-1` prefers a connected native output for the next Gaming session. Use the connector name shown by the display settings. `omarchy games output internal` prefers the built-in panel and `omarchy games output auto` restores automatic selection. Omarchy saves an external preference by EDID on the card that owns the built-in panel. It follows the display if its connector name changes between sessions, and prioritises the built-in panel if the saved display is absent or ambiguous.
 
 Overlay selection adds `--mangoapp` only when enabled and `mangoapp` is installed. Install the GAMES owner's optional overlay tools first. Ordinary MangoHud injection and its `fps_limit` are not used for this compositor session.
 

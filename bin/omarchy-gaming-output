@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# omarchy:group=games
+# omarchy:summary=Choose the display for the original ROG Ally's next gaming session
+# omarchy:args=<auto|internal|OUTPUT>
+# omarchy:examples=omarchy games output DP-1 | omarchy games output auto
+
+set -euo pipefail
+
+fail() {
+  echo "Omarchy Gaming: $*" >&2
+  exit 1
+}
+
+if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
+  echo 'Usage: omarchy games output <auto|internal|OUTPUT>'
+  echo 'Use a connected external connector name such as DP-1 to prefer that display.'
+  exit 0
+fi
+
+(( $# == 1 )) || fail 'choose auto, internal or a connected external output.'
+omarchy-hw-rog-ally || fail 'gaming output selection supports the original ROG Ally RC71L.'
+
+drm_path=${OMARCHY_DRM_PATH:-/sys/class/drm}
+# Read preferences saved by the earlier Ally display companion as well.
+state=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/rog-ally-display
+setting=$state/gamescope-output
+
+find_panel() {
+  local status connector
+  local -a panels=()
+  for status in "$drm_path"/card*-eDP-*/status; do
+    [[ -r $status ]] || continue
+    connector=${status%/status}
+    connector=${connector##*/}
+    [[ $connector =~ ^card[0-9]+-eDP-[0-9]+$ ]] || continue
+    panels+=("$connector")
+  done
+  (( ${#panels[@]} == 1 )) || return 1
+  card=${panels[0]%%-*}
+  panel=${panels[0]#*-}
+}
+
+edid_key() {
+  local size digest
+  [[ -r $1/status && $(<"$1/status") == "connected" && -r $1/edid ]] || return 1
+  size=$(wc -c <"$1/edid") || return 1
+  (( size >= 128 )) || return 1
+  digest=$(sha256sum <"$1/edid") || return 1
+  printf 'edid:%s\n' "${digest%% *}"
+}
+
+find_external() {
+  local connector name key
+  local -a matches=()
+  # Gamescope selects a connector on its KMS device. The Ally's native outputs
+  # are on the panel's card, while USB graphics adapters have their own card.
+  for connector in "$drm_path/$card-"*; do
+    name=${connector##*/}
+    name=${name#"$card-"}
+    [[ $name =~ ^[A-Za-z0-9._-]+$ && ! $name =~ ^(eDP|LVDS|DSI)- ]] || continue
+    key=$(edid_key "$connector") || continue
+    [[ $key == "$1" ]] && matches+=("$name")
+  done
+  (( ${#matches[@]} == 1 )) || return 1
+  printf '%s\n' "${matches[0]}"
+}
+
+if [[ $1 == "gamescope-args" ]]; then
+  [[ -f $setting && -r $setting ]] || exit 0
+  preference=$(<"$setting")
+  [[ $preference != "auto" ]] || exit 0
+  find_panel || exit 0
+  priority=$panel
+  if [[ $preference =~ ^edid:[a-f0-9]{64}$ ]] && external=$(find_external "$preference"); then
+    priority=$external,$panel
+  fi
+  printf '%s\n' --prefer-output "$priority"
+else
+  preference=$1
+  if [[ $preference != "auto" && $preference != "internal" ]]; then
+    [[ $preference =~ ^[A-Za-z0-9._-]+$ && ! $preference =~ ^(eDP|LVDS|DSI)- ]] ||
+      fail 'choose a valid external connector name or use internal.'
+    find_panel || fail 'could not identify the DRM card for the internal panel.'
+    preference=$(edid_key "$drm_path/$card-$preference") ||
+      fail 'choose a connected output with a readable EDID on the same DRM card as the internal panel.'
+    find_external "$preference" >/dev/null || fail 'the selected display identity is ambiguous.'
+  fi
+  umask 077
+  mkdir -p "$state"
+  temporary=$(mktemp "$state/.gamescope-output.XXXXXX")
+  trap 'rm -f -- "$temporary"' EXIT
+  printf '%s\n' "$preference" >"$temporary"
+  mv -fT -- "$temporary" "$setting"
+fi

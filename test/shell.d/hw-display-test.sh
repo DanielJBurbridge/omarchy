@@ -195,3 +195,44 @@ pass "physical monitor detection ignores disconnected external displays"
 write_connectors DP-1 connected
 has_external_monitor || fail "external-only systems still report a connected display"
 pass "physical monitor detection still supports external-only systems"
+
+printf '%s\n' 'ASUSTeK COMPUTER INC.' >"$tmp_dir/sys_vendor"
+printf '%s\n' 'ROG Ally RC71L' >"$tmp_dir/product_name"
+printf '%s\n' RC71L >"$tmp_dir/board_name"
+
+gaming_output() {
+  PATH="$ROOT/bin:$PATH" OMARCHY_DRM_PATH="$drm_path" XDG_STATE_HOME="$tmp_dir/state" \
+    OMARCHY_DMI_SYS_VENDOR_PATH="$tmp_dir/sys_vendor" OMARCHY_DMI_PRODUCT_NAME_PATH="$tmp_dir/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$tmp_dir/board_name" "$ROOT/bin/omarchy-gaming-output" "$@"
+}
+
+write_connectors eDP-1 connected DP-1 connected HDMI-A-1 connected
+head -c 128 /dev/zero >"$drm_path/card0-DP-1/edid"
+mkdir -p "$drm_path/card1-DP-2"
+cp "$drm_path/card0-DP-1/"{status,edid} "$drm_path/card1-DP-2/"
+if gaming_output DP-2 2>/dev/null; then fail "a USB graphics connector on another card cannot be preferred"; fi
+if gaming_output HDMI-A-1 2>/dev/null; then fail "a connector without an EDID cannot be preferred"; fi
+[[ -z $(gaming_output gamescope-args) ]] || fail "without a preference Gamescope selects its own connector"
+gaming_output DP-1
+mv "$drm_path/card0-DP-1" "$drm_path/card0-DP-3"
+[[ $(gaming_output gamescope-args) == $'--prefer-output\nDP-3,eDP-1' ]] ||
+  fail "an Ally native display follows its EDID after a connector rename, with the panel as fallback"
+
+mkdir -p "$drm_path/card0-DP-4"
+cp "$drm_path/card0-DP-3/"{status,edid} "$drm_path/card0-DP-4/"
+if gaming_output DP-4 2>/dev/null; then fail "a duplicate EDID cannot replace the chosen display"; fi
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] ||
+  fail "an ambiguous EDID safely falls back to the internal panel"
+printf '%s\n' disconnected >"$drm_path/card0-DP-3/status"
+printf '%s\n' disconnected >"$drm_path/card0-DP-4/status"
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] ||
+  fail "unplugging a preferred display favours the panel over other connected outputs"
+
+gaming_output internal
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] || fail "the internal panel can be preferred explicitly"
+gaming_output auto
+[[ -z $(gaming_output gamescope-args) ]] || fail "returning to auto removes connector priorities"
+printf '%s\n' 'ROG Ally X RC72LA' >"$tmp_dir/product_name"
+printf '%s\n' RC72LA >"$tmp_dir/board_name"
+if gaming_output internal 2>/dev/null; then fail "the Ally X cannot change this original Ally preference"; fi
+pass "Ally gaming output tracks EDID only on the native card, with a safe internal fallback"

@@ -481,10 +481,8 @@ run_gaming() {
     omarchy-hw-rog-ally-input gamepad || return 1
   fi
   local display_args=() display_output
-  if omarchy-cmd-present omarchy-display-rog-ally; then
-    display_output=$(omarchy-display-rog-ally gamescope-args) || return 1
-    if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
-  fi
+  display_output=$(omarchy-gaming-output gamescope-args) || return 1
+  if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
   if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
     omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
     gamescope_args+=(--mangoapp)

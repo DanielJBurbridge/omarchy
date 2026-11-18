@@ -27,7 +27,14 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     selector = command('selector', (repo / 'bin/omarchy-session-start').read_text()
                        .replace('source /usr/share/omarchy/default/bash/env-bootstrap', ':'))
     command('omarchy-hw-rog-ally', '#!/bin/bash\n[[ ${HARDWARE:-ally} == ally ]]\n')
-    command('omarchy-pkg-present', '#!/bin/bash\n[[ ${INPUT:-absent} != absent ]]\n')
+    command('omarchy-pkg-present', '''#!/bin/bash
+        case $1 in
+          omarchy-gaming-session) exit 0 ;;
+          omarchy-rog-ally-input) [[ ${INPUT:-absent} != absent ]] ;;
+          *) exit 1 ;;
+        esac
+    ''')
+    command('omarchy-handheld-autologin', '#!/bin/bash\nexit 0\n')
     command('omarchy-hw-rog-ally-input', '#!/bin/bash\necho "input:$*" >> "$TEST_ROOT/actions"\n[[ $INPUT == good ]]\n')
     command('omarchy-cmd-present', '''#!/bin/bash
         if [[ $1 == wvkbd-mobintl && ${WVKBD:-present} == missing ]]; then exit 1; fi
@@ -269,15 +276,21 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     print('PASS private Steam bridge rejects login policy changes')
 
     command('mangoapp', '#!/bin/bash\nexit 0\n')
-    command('omarchy-display-rog-ally', '#!/bin/bash\nprintf "%s\\n" --prefer-output DP-2\n')
     directory, env = case('optional-integrations', INPUT='good', ACTIVE_UNITS='steamos-manager.service')
     run(env, setup, 'overlay', 'on')
+    drm = directory / 'drm'
+    env['OMARCHY_DRM_PATH'] = str(drm)
+    for connector in ('card0-eDP-1', 'card0-DP-2'):
+        (drm / connector).mkdir(parents=True)
+        (drm / connector / 'status').write_text('connected\n')
+    (drm / 'card0-DP-2' / 'edid').write_bytes(b'\0' * 128)
+    run(env, repo / 'bin/omarchy-gaming-output', 'DP-2')
     marker = directory / 'state/omarchy/ally-power/enabled'
     marker.parent.mkdir(parents=True)
     marker.touch()
     run(env, selector, 'gaming')
     actions = (directory / 'actions').read_text()
-    assert 'input:gamepad' in actions and '--prefer-output DP-2' in actions and '--mangoapp' in actions, actions
+    assert 'input:gamepad' in actions and '--prefer-output DP-2,eDP-1' in actions and '--mangoapp' in actions, actions
     assert 'ally-power' not in actions and 'steamos-manager' not in actions, actions
     assert 'gamescope:' in actions, actions
     print('PASS optional input, display and overlay, with no ally-power units')

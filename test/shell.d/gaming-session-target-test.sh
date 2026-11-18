@@ -105,7 +105,15 @@ run_session() {
   wait "$session_pid" || true
   session_pid=
 }
+export OMARCHY_DRM_PATH=$work/drm
+mkdir -p "$OMARCHY_DRM_PATH/"{card0-eDP-1,card0-DP-1}
+printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-eDP-1/status"
+printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-DP-1/status"
+head -c 128 /dev/zero >"$OMARCHY_DRM_PATH/card0-DP-1/edid"
+omarchy-gaming-output DP-1 || fail "a connected external output can be preferred"
 WAIT_FOR_STEAM_SHUTDOWN=1 run_session gaming
+grep -Fxq 'gamescope-output:DP-1,eDP-1' "$HANDHELD_LOG" ||
+  fail "the launcher passes the paired output priority to Gamescope" "$(cat "$HANDHELD_LOG")"
 user_units=$XDG_CONFIG_HOME/systemd/user
 cmp -s "$unit" "$user_units/$name" ||
   fail "the runtime still supplies the target for an older gaming-session package"
