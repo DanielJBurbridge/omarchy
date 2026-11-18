@@ -60,7 +60,7 @@ Auto-show and hide, touch profile on, unlocked session only. This revises spec 0
 | Lock password (`shell/plugins/lock/LockView.qml`), `omarchy.polkit` (`PolkitAgent.qml`), the greeter | Never | Showing the lock hides wvkbd (`omarchy-toggle-desktop-keyboard hide`), called from the keyboard helper. Unlock does not show it again |
 | GTK, Qt, Chromium, a game | Manual toggle until L89. `wvkbd --auto` and squeekboard both ask for the one input-method slot, and fcitx5 holds it (spec 07 D2). fcitx5 stays | A keyboard opened by hand stays until the toggle, and hides when the session locks |
 
-While wvkbd is up the session loads `osk` (`default/inputplumber/profiles/osk.yaml`): the desktop map, with B as Backspace and X as Space (spec 01 Δ6). Hide, stop, or the process exiting restores the profile from before `osk`. Nothing calls `load osk` today. Gaming keeps Steam's keyboard. The helper already refuses to show wvkbd under Gamescope.
+Opening wvkbd currently keeps the desktop controller profile. A proposed `osk` profile gives B Backspace and X Space. Automatic switching needs a clean release when a button is held through the change. The stock daemon can leave B’s original output held. Gaming uses Steam’s keyboard. [Profile transition checks](07-on-screen-keyboard.md)
 
 iPadOS shows the keyboard because the field is focused, and a secure field draws its own keypad. The behaviour is what we copy, for the named shell fields now and for other clients once L89 has a path that leaves fcitx5 alone. Apple's keyboard is not reusable (spec 09). Plasma's lock keyboard is the same idea and stays with K07.
 
@@ -71,7 +71,7 @@ The implemented gesture uses a Quickshell handle. Enable `desktopKeyboard.edgeSw
 | Gesture | Action | Also reached by | Borrowed |
 |---|---|---|---|
 | Top edge | Omarchy menu (`omarchy.menu`) | AC tap. Bar `omarchy.menu` | iPad: an edge always reaches a system surface. The action is the Omarchy menu, which is what AC tap already does |
-| Swipe up from the bottom-centre handle | Show the desktop keyboard. Repeating the gesture keeps it open | Desktop Keyboard bar button or menu entry | HHD’s bottom-up keyboard shortcut |
+| Swipe up or tap the bottom-centre handle | Show the desktop keyboard in the focused app | Tap **Keyboard** in the bar to show or hide it | HHD’s bottom-up keyboard shortcut |
 | Left edge | Previous workspace | Menu. M1+RB once OQ-17 (spec 01) | hyprgrass workspace swipe |
 | Right edge | Next workspace | Menu. M1+LB once OQ-17 | hyprgrass workspace swipe |
 | Two-finger swipe up | Fullscreen | Menu (spec 01 OQ-13) | hyprgrass multi-finger swipe, bound to `Super+F`'s action |
@@ -102,10 +102,10 @@ This branch has no Waybar config and no Walker. The bar is `shell/plugins/bar`. 
 
 Spec 01 §5.2 and §9. The shipped file matches that map. The speeds and the button targets below are `desktop.yaml`, listed so a device test can use this page. Spec 01 states a fixed 0.20 deadzone on the pointer. The file sets 0.25 on the triggers and does not repeat a deadzone on the right-stick motion.
 
-| Control | Desktop | OSK (wvkbd up) | Gaming |
+| Control | Desktop | Optional OSK profile | Gaming |
 |---|---|---|---|
 | Right stick | Pointer, 900 px/s | Pointer, 900 px/s | Game axis |
-| Left stick | Notched wheel, four directions. No pointer motion | Same | Game axis |
+| Left stick | Stock InputPlumber 0.84.0 produces no wheel events. A private driver and profile pair scroll in four directions in a guest | Same | Game axis |
 | RT / A / R3 | Left click. Hold A or RT drags | Left click, including a key under the pointer | Game |
 | LT / B | Right click | B is Backspace | Game |
 | X | Middle click | Space | Game |
