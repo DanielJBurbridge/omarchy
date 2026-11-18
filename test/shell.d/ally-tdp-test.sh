@@ -25,15 +25,6 @@ if grep -q 'PrepareForSleep\|--reassert' "$ROOT/bin/omarchy-ally-tdp-shim"; then
 fi
 pass "resume reasserts after wake and the shim does not"
 
-rules=$ROOT/default/udev/99-omarchy-ally-tdp.rules
-grep -q 'ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="0"' "$rules" || fail "udev matches mains going offline"
-grep -q 'ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="1"' "$rules" || fail "udev matches mains coming online"
-grep -q 'POWER_SUPPLY_TYPE}=="USB"' "$rules" && fail "udev matches a USB supply"
-grep -q 'Battery' "$rules" && fail "udev matches a battery event"
-grep -q 'PROGRAM=="/usr/bin/omarchy-hw-rog-ally"' "$rules" || fail "udev asks omarchy-hw-rog-ally"
-grep -q 'ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"' "$rules" || fail "udev starts the source oneshot"
-pass "udev fires only on Mains online changes"
-
 grep -q 'flock -w' "$apply" || fail "the writer waits with flock -w"
 if grep -nE '(^|[[:space:]])flock([[:space:]]|$)' "$apply" | grep -v -- '-w'; then
   fail "the writer has a blocking flock"
@@ -210,6 +201,21 @@ run_apply --reassert >/dev/null
 pass "unplug clamps a stored 30 and replug restores it"
 
 reset_state
+ac_table
+printf 'USB\n' >"$work/supply/ADP1/type"
+printf 'Device\n' >"$work/supply/ADP1/scope"
+run_apply --set 30 >/dev/null
+[[ $(tuple) == 20/20/25 ]] || fail "an online USB peripheral does not raise the power limit" "$(tuple)"
+printf 'System\n' >"$work/supply/ADP1/scope"
+run_apply --reassert >/dev/null
+[[ $(tuple) == 30/43/53 ]] || fail "an online system USB supply uses the AC limit" "$(tuple)"
+printf '0\n' >"$work/supply/ADP1/online"
+run_apply --reassert >/dev/null
+[[ $(tuple) == 20/20/25 ]] || fail "an offline USB supply uses the battery limit" "$(tuple)"
+rm "$work/supply/ADP1/scope"
+pass "USB raises the limit only while it supplies system power"
+
+reset_state
 battery_table
 run_apply --set 5 >/dev/null
 [[ $(tuple) == 7/15/15 ]] || fail "--set 5 writes the SPL floor" "$(tuple)"
@@ -353,6 +359,16 @@ grep -q 'return polkit.Result.NO;' <<<"$hardware_rule" || fail "a desktop-only A
 grep -q 'polkit.Result.YES' <<<"$hardware_rule" && fail "a desktop-only Ally authorizes a user" "$hardware_rule"
 grep -q 'subject.user == "ally"' <<<"$hardware_rule" && fail "hardware install grants the handheld user"
 pass "hardware install leaves the gaming session alone and denies TDP"
+
+printf '// existing policy\n' >"$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules"
+: >"$SYSTEMCTL_LOG"
+HW=ally OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
+  PATH="$work/bin:$PATH" "$install" power-source
+grep -q 'enable omarchy-ally-tdp-source.path$' "$SYSTEMCTL_LOG" ||
+  fail "refreshing the source units enables the watcher"
+[[ $(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules") == "// existing policy" ]] ||
+  fail "refreshing the source units preserves the installed policy"
+pass "a power-source refresh enables the watcher without changing permissions"
 
 rm -rf "$dest"
 mkdir -p "$dest/etc/sddm.conf.d"

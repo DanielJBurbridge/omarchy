@@ -5,11 +5,11 @@ StopWhenUnneeded=yes
 Before=sleep.target
 # systemd.special(7): this unit starts before sleep and stays active while
 # the machine is asleep. ExecStart writes nothing. ExecStop runs after wake.
-ExecCondition=/usr/bin/omarchy-hw-rog-ally
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
 ExecStart=/bin/true
 ExecStop=/usr/bin/omarchy-ally-tdp-apply --reassert
 

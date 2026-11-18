@@ -1,8 +1,9 @@
 [Unit]
-Description=Reapply the ROG Ally TDP limit after mains power changes
-DefaultDependencies=no
-ExecCondition=/usr/bin/omarchy-hw-rog-ally
+Description=Reapply the ROG Ally TDP limit after power source changes
 
 [Service]
 Type=oneshot
+# Consume the event before sampling the power source. If another event arrives
+# during the write, the path unit sees the file again when this service exits.
+ExecStartPre=/usr/bin/rm -f /run/omarchy-ally-tdp-source.pending
 ExecStart=/usr/bin/omarchy-ally-tdp-apply --reassert

@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch for ROG Ally power source changes
+
+[Path]
+PathExists=/run/omarchy-ally-tdp-source.pending
+
+[Install]
+WantedBy=multi-user.target

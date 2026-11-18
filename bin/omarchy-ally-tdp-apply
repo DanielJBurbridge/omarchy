@@ -173,7 +173,7 @@ read_text() {
 }
 
 power_source() {
-  local dir type online found=0
+  local dir type online scope found=0
   [[ -d $power_root ]] || {
     printf '%s\n' battery
     return
@@ -181,6 +181,8 @@ power_source() {
   for dir in "$power_root"/*; do
     [[ -d $dir ]] || continue
     type=$(read_text "$dir/type" 2>/dev/null || true)
+    scope=$(read_text "$dir/scope" 2>/dev/null || true)
+    [[ $scope != "Device" ]] || continue
     online=0
     if [[ -f $dir/online ]]; then
       online=$(read_int "$dir/online" 2>/dev/null || true)

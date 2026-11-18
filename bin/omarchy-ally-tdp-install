@@ -2,7 +2,7 @@
 
 # omarchy:hidden=true
 # omarchy:summary=Install or remove the ROG Ally TDP units
-# omarchy:args=hardware | session | remove-session | remove
+# omarchy:args=hardware | power-source | session | remove-session | remove
 
 # hardware is every Ally, including a deny-all polkit rule beside the policy.
 # session is the gaming-session package: the shim, the handheld user's YES
@@ -19,7 +19,7 @@ log() {
 }
 
 usage() {
-  echo "Usage: omarchy-ally-tdp-install hardware | session | remove-session | remove" >&2
+  echo "Usage: omarchy-ally-tdp-install hardware | power-source | session | remove-session | remove" >&2
   exit 1
 }
 
@@ -217,25 +217,42 @@ restore_ppd() {
   rm -f -- "$record"
 }
 
-install_hardware() {
-  omarchy-hw-rog-ally || return 0
-  copy_file "$OMARCHY_PATH/default/systemd/system/omarchy-ally-tdp-resume.service" \
-    /etc/systemd/system/omarchy-ally-tdp-resume.service
+install_power_source() {
+  local watcher=omarchy-ally-tdp-source.path state
+  state=$(unit_state "$watcher")
+  if [[ $state != masked* ]]; then
+    copy_file "$OMARCHY_PATH/default/systemd/system/$watcher" "/etc/systemd/system/$watcher"
+  fi
   copy_file "$OMARCHY_PATH/default/systemd/system/omarchy-ally-tdp-source.service" \
     /etc/systemd/system/omarchy-ally-tdp-source.service
   copy_file "$OMARCHY_PATH/default/udev/99-omarchy-ally-tdp.rules" \
     /etc/udev/rules.d/99-omarchy-ally-tdp.rules
+  reload_systemd
+  if [[ $state == masked* ]]; then
+    log "leaving masked unit $watcher in place"
+  else
+    sc enable "$watcher"
+  fi
+  if [[ -z $prefix ]]; then
+    udevadm control --reload
+    if [[ $state != masked* ]]; then
+      sc start "$watcher"
+    fi
+  fi
+}
+
+install_hardware() {
+  omarchy-hw-rog-ally || return 0
+  copy_file "$OMARCHY_PATH/default/systemd/system/omarchy-ally-tdp-resume.service" \
+    /etc/systemd/system/omarchy-ally-tdp-resume.service
   # The deny rule lands before the policy. A desktop-only Ally, and the
   # moment before the session install, stay NO. Session replaces this with
   # the handheld user's YES.
   write_deny_rule
   copy_file "$OMARCHY_PATH/default/polkit/org.omarchy.ally.set-tdp.policy" \
     /usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy
-  reload_systemd
+  install_power_source
   enable_unit omarchy-ally-tdp-resume.service
-  if [[ -z $prefix ]]; then
-    udevadm control --reload
-  fi
 }
 
 install_session() {
@@ -290,12 +307,15 @@ remove_session() {
 }
 
 remove_all() {
+  sc disable --now omarchy-ally-tdp-source.path >/dev/null 2>&1 || true
   sc disable --now omarchy-ally-tdp-resume.service >/dev/null 2>&1 || true
   sc disable --now omarchy-ally-tdp-source.service >/dev/null 2>&1 || true
   remove_session
   rm -f -- \
     "$prefix/etc/systemd/system/omarchy-ally-tdp-resume.service" \
     "$prefix/etc/systemd/system/omarchy-ally-tdp-source.service" \
+    "$prefix/etc/systemd/system/omarchy-ally-tdp-source.path" \
+    "$prefix/run/omarchy-ally-tdp-source.pending" \
     "$prefix/etc/udev/rules.d/99-omarchy-ally-tdp.rules" \
     "$prefix/usr/share/polkit-1/actions/org.omarchy.ally.set-tdp.policy" \
     "$prefix/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules"
@@ -311,6 +331,11 @@ action=${1:-}
 case $action in
   hardware)
     install_hardware
+    ;;
+  power-source)
+    if omarchy-hw-rog-ally; then
+      install_power_source
+    fi
     ;;
   session)
     install_session

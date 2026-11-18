@@ -1,4 +1,17 @@
-# Mains online only. A battery capacity event does not match. The Ally
-# check runs after the supply matches, then the source oneshot reasserts.
-ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="0", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", TAG+="systemd", ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"
-ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_TYPE}=="Mains", ENV{POWER_SUPPLY_ONLINE}=="1", PROGRAM=="/usr/bin/omarchy-hw-rog-ally", TAG+="systemd", ENV{SYSTEMD_WANTS}="omarchy-ally-tdp-source.service"
+# Queue the reapply outside the udev worker. Cache the last online state both
+# to ignore duplicate notifications and because remove events lack online/type.
+SUBSYSTEM!="power_supply", GOTO="omarchy_ally_tdp_end"
+IMPORT{db}="OMARCHY_ALLY_TDP_ONLINE"
+ACTION=="remove", ENV{OMARCHY_ALLY_TDP_ONLINE}=="1", GOTO="omarchy_ally_tdp_queue"
+ACTION!="add|change", GOTO="omarchy_ally_tdp_end"
+ENV{POWER_SUPPLY_TYPE}!="Mains|USB", GOTO="omarchy_ally_tdp_end"
+ENV{POWER_SUPPLY_SCOPE}=="Device", GOTO="omarchy_ally_tdp_end"
+ENV{POWER_SUPPLY_ONLINE}!="0|1", GOTO="omarchy_ally_tdp_end"
+ENV{POWER_SUPPLY_ONLINE}=="0", ENV{OMARCHY_ALLY_TDP_ONLINE}=="0", GOTO="omarchy_ally_tdp_end"
+ENV{POWER_SUPPLY_ONLINE}=="1", ENV{OMARCHY_ALLY_TDP_ONLINE}=="1", GOTO="omarchy_ally_tdp_end"
+PROGRAM=="/usr/bin/omarchy-hw-rog-ally", ENV{OMARCHY_ALLY_TDP_ONLINE}="$env{POWER_SUPPLY_ONLINE}", GOTO="omarchy_ally_tdp_queue"
+GOTO="omarchy_ally_tdp_end"
+
+LABEL="omarchy_ally_tdp_queue"
+RUN+="/usr/bin/touch /run/omarchy-ally-tdp-source.pending"
+LABEL="omarchy_ally_tdp_end"
