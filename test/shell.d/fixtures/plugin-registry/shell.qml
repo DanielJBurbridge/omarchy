@@ -405,6 +405,29 @@ ShellRoot {
     registry.setEnabled("local.first-widget", false)
     root.assertDeepEqual(root.config.bar.layout.center, [{ id: "omarchy.first-widget" }], "clone restoration normalizes string entries")
 
+    var keyboardId = "omarchy.desktop-keyboard"
+    var keyboard = manifest(keyboardId, ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "right" })
+    keyboard.__isFirstParty = true
+    registry.installedPlugins[keyboardId] = keyboard
+    root.config = {
+      version: 1,
+      bar: { layout: { right: [{ id: keyboardId }, { id: "third.widget", size: 5 }] } },
+      disabledPlugins: ["omarchy.grouped-panel"]
+    }
+    registry.setEnabled(keyboardId, false)
+    root.assertDeepEqual(root.config.bar.layout, { right: [{ id: "third.widget", size: 5 }] },
+                         "turning off the keyboard removes only its layout entry")
+    root.assertDeepEqual(root.config.disabledPlugins, ["omarchy.grouped-panel", keyboardId],
+                         "turning off the keyboard records an opt-out from its automatic pin")
+    root.assertTrue(!registry.isEnabled(keyboardId), "the keyboard stays disabled outside its saved layout")
+    registry.setEnabled(keyboardId, false)
+    root.assertDeepEqual(root.config.disabledPlugins, ["omarchy.grouped-panel", keyboardId],
+                         "turning off an already absent keyboard only records it once")
+    registry.setEnabled(keyboardId, true)
+    root.assertDeepEqual(root.config.disabledPlugins, ["omarchy.grouped-panel"],
+                         "explicit enable clears only the keyboard opt-out")
+    root.assertTrue(registry.inBar(keyboardId), "explicit enable places the keyboard again")
+
     root.config = {
       version: 1,
       bar: { layout: { left: [{ id: "omarchy.hybrid" }], center: [], right: [] } },

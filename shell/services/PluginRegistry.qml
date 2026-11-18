@@ -506,14 +506,16 @@ QtObject {
       console.warn("PluginRegistry.setEnabled: unknown plugin " + key)
       return false
     }
+    var isFirstParty = manifest && manifest.__isFirstParty
     var isBarOption = manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("bar") !== -1
     var isBarWidget = manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("bar-widget") !== -1
     var hasNonWidgetKind = manifest && Array.isArray(manifest.kinds)
       && manifest.kinds.some(function(kind) { return kind !== "bar-widget" })
     var metadata = manifest && Util.isPlainObject(manifest.omarchy) ? manifest.omarchy : null
     var clonedFrom = metadata ? Util.canonicalWidgetId(String(metadata.clonedFrom || "")) : ""
+    var keepKeyboardOptOut = isFirstParty && isBarWidget && key === "omarchy.desktop-keyboard"
     shellConfigMutator(function(config) {
-      ensureConfigShape(config)
+      if (value || !keepKeyboardOptOut) ensureConfigShape(config)
 
       // A placement that cannot be honoured is refused before anything
       // changes: a missing neighbour, or the tray asked into its own drawer.
@@ -543,7 +545,6 @@ QtObject {
         return
       }
 
-      var isFirstParty = manifest && manifest.__isFirstParty
       var location = findEntryLocation(config, key)
       // A widget that also carries a non-bar kind (panel, service, menu) can
       // hold both a bar.layout entry and a plugins[] record. findEntryLocation
@@ -588,9 +589,9 @@ QtObject {
       else if (location.kind === "bar") config.bar.layout[location.section].splice(location.index, 1)
       else if (location.kind === "plugin") config.plugins.splice(location.index, 1)
 
-      // Dropping the layout entry is the whole story for a widget. Anything
-      // else built-in loads by default, so switching it off has to be stated.
-      if (isFirstParty && !isBarWidget) addDisabled(config, key)
+      // The built-in Ally bar can pin the keyboard even without a layout
+      // entry. Keep the explicit opt-out like other default-enabled plugins.
+      if (isFirstParty && (!isBarWidget || keepKeyboardOptOut)) addDisabled(config, key)
     })
     if (lastEnableError) return false
     registryRevision++
