@@ -57,6 +57,13 @@ for path in paths:
     sock.bind(path)
     sock.listen(1)
 PY
+if [[ ${HANDHELD_EXPLICIT_RETRY:-0} == 1 ]]; then
+  retry_runtime=$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID
+  if flock -n "$retry_runtime/lock" true; then
+    printf '%s\n' 'Recovery desktop has no supervisor lock' >> "$HANDHELD_ACTIONS"
+  fi
+  "$ROOT/default/gaming/switch.sh" "$retry_runtime" || true
+fi
 exit 0
 EOF
 cat > "$HANDHELD_STUB/omarchy-toggle-desktop-keyboard" <<'EOF'
@@ -166,6 +173,29 @@ fi
 [[ $(cat "$state/recovery" 2>/dev/null) == "$latch" ]] ||
   fail "a later fallback drops the recovery latch" "$(detail "$work/again-err")"
 pass "three early exits open the desktop with the on-screen keyboard and do not loop"
+
+mkdir -p "$work/retry-stop"
+printf 'stop\n' > "$work/retry-stop/stop"
+cat > "$HANDHELD_STUB/omarchy-system" <<'EOF'
+#!/bin/bash
+printf 'system:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+[[ $* == 'logout --execute' ]]
+EOF
+chmod +x "$HANDHELD_STUB/omarchy-system"
+: > "$HANDHELD_LOG"
+HANDHELD_EXPLICIT_RETRY=1 OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/retry-stop run_session "$work/retry-err" relogin
+[[ $(grep -c '^system:logout --execute$' "$HANDHELD_LOG") == 1 &&
+   $(grep -c '^gamescope$' "$HANDHELD_LOG") == 1 &&
+   $(grep -c '^uwsm:' "$HANDHELD_LOG") == 2 ]] ||
+  fail "one explicit Switch to Gaming from recovery launches once and falls back on failure" "$(detail "$work/retry-err")"
+if grep -q '^Recovery desktop has no supervisor lock$' "$HANDHELD_LOG"; then
+  fail "the recovery desktop must hold the supervisor lock" "$(detail "$work/retry-err")"
+fi
+[[ $(cat "$work/retry-stop/stop") == stop && $(cat "$state/recovery") == "$latch" &&
+   ! -e $HANDHELD_RUNTIME/omarchy-gaming-$XDG_SESSION_ID/active &&
+   ! -e $HANDHELD_RUNTIME/omarchy-gaming-$XDG_SESSION_ID/switch ]] ||
+  fail "a failed retry preserves both stops without leaving an active switch request" "$(detail "$work/retry-err")"
+pass "recovery desktop accepts one explicit retry while the autologin stop stays in effect"
 
 reset_case
 mkdir -p "$state"
