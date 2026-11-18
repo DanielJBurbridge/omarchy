@@ -20,7 +20,11 @@ ShellRoot {
   // rather than re-importing them as singletons — relative-path imports do
   // not share singleton state, which silently leaves consumers with their
   // own empty copies.
-  property PluginRegistry pluginRegistry: PluginRegistry { }
+  property PluginRegistry pluginRegistry: PluginRegistry {
+    handheldBarPins: shell.handheldAlly && shell.activeBarId === shell.defaultBarId
+      ? BarModel.handheldTouchPins.map(pin => pin.id) : []
+    handheldBarVisible: Quickshell.screens.some(screen => shell.isHandheldScreen(screen))
+  }
   property BarWidgetRegistry barWidgetRegistry: BarWidgetRegistry { }
   property AppLibrary appLibrary: AppLibrary { }
   property BrightnessKeys brightnessKeys: BrightnessKeys { host: shell }
@@ -2016,7 +2020,7 @@ ShellRoot {
           // What `omarchy plugin enable/disable` toggles: for a widget that is
           // its place in the bar, not whether its component is loadable.
           enabled: isBarOption ? active
-            : (isBarWidget ? shell.pluginRegistry.inBar(id) : shell.pluginRegistry.isEnabled(id)),
+            : (isBarWidget ? shell.pluginRegistry.barWidgetEnabled(id) : shell.pluginRegistry.isEnabled(id)),
           active: active,
           // A bar has no off, only a successor: you leave one by enabling
           // another, so there is nothing for disable to do to it. Said here so

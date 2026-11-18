@@ -1399,7 +1399,8 @@ Item {
   // was let go, its slot closing at once (ModuleSlot.removalPending), and
   // its entry leaves the layout once the poof has played.
   function removeBarDrag(sourceSlot) {
-    barRemoval = { key: sourceSlot.widgetKey, region: sourceSlot.region, id: entryId(sourceSlot.entry) }
+    barRemoval = { key: sourceSlot.widgetKey, region: sourceSlot.region, id: entryId(sourceSlot.entry),
+                   handheld: root.shell?.isHandheldScreen?.(barDragScreen) === true }
     // Up before the drag clears, so the ghost's surface never unmaps
     // between the ghost and the poof.
     playPoof()
@@ -1420,6 +1421,7 @@ Item {
     list.splice(index, 1)
     writeLayout(expected, function(config) {
       BarModel.removeEntry(config, { region: removal.region, index: index, id: removal.id }, function(entry) { return Util.normalizeLayoutEntry(entry) })
+      if (removal.handheld) root.shell.pluginRegistry.rememberHandheldBarOptOut(config, removal.id)
     })
   }
 

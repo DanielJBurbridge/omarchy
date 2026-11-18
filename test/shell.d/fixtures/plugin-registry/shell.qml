@@ -428,6 +428,47 @@ ShellRoot {
                          "explicit enable clears only the keyboard opt-out")
     root.assertTrue(registry.inBar(keyboardId), "explicit enable places the keyboard again")
 
+    var handheldPins = [keyboardId, "omarchy.network", "omarchy.bluetooth"]
+    registry.handheldBarPins = handheldPins
+    registry.handheldBarVisible = true
+    for (var pin of handheldPins) {
+      var widget = manifest(pin, ["bar-widget"], { barWidget: "Widget.qml" })
+      widget.__isFirstParty = true
+      registry.installedPlugins[pin] = widget
+      root.config = { version: 1, bar: { layout: { right: [] } }, disabledPlugins: ["omarchy.grouped-panel"] }
+      root.assertTrue(registry.barWidgetEnabled(pin), pin + " is listed as enabled while automatically projected")
+      registry.setEnabled(pin, false)
+      registry.setEnabled(pin, false)
+      root.config = JSON.parse(JSON.stringify(root.config))
+      root.assertDeepEqual(root.config.disabledPlugins, ["omarchy.grouped-panel", pin], pin + " keeps one opt-out after reload")
+      root.assertTrue(!registry.barWidgetEnabled(pin), pin + " no longer appears enabled")
+      registry.setEnabled(pin, true)
+      root.assertDeepEqual(root.config.disabledPlugins, ["omarchy.grouped-panel"], pin + " clears only its opt-out")
+      root.assertTrue(registry.barWidgetEnabled(pin) && !registry.inBar(pin), pin + " returns only as an automatic placement")
+      registry.handheldBarVisible = false
+      root.assertTrue(!registry.barWidgetEnabled(pin), pin + " is not shown as enabled when its internal bar is absent")
+      registry.handheldBarVisible = true
+
+      registry.setEnabled(pin, true, { section: "left" })
+      root.config.bar.layout.left[0].size = 5
+      registry.setEnabled(pin, false)
+      root.assertTrue(!registry.barWidgetEnabled(pin) && !registry.isEnabled(pin), pin + " is disabled globally even with a saved row")
+      registry.setEnabled(pin, true)
+      root.assertDeepEqual(root.config.bar.layout.left, [{ id: pin, size: 5 }], pin + " restores its saved placement and settings")
+      root.config.bar.layout.left = []
+      registry.rememberHandheldBarOptOut(root.config, pin)
+      root.assertTrue(!registry.barWidgetEnabled(pin), pin + " can be opted out after its saved row is removed by drag")
+    }
+
+    registry.handheldBarPins = []
+    registry.handheldBarVisible = false
+    root.config = { version: 1, bar: { layout: { left: [{ id: "omarchy.network" }] } }, plugins: [] }
+    registry.setEnabled("omarchy.network", false)
+    root.assertDeepEqual(root.config.bar.layout.left, [], "a laptop still removes Network from the saved layout")
+    root.assertTrue(root.config.disabledPlugins === undefined, "a laptop does not record a handheld opt-out")
+    registry.setEnabled("omarchy.network", true, { section: "left" })
+    root.assertTrue(registry.barWidgetEnabled("omarchy.network"), "a laptop can re-enable an explicit widget")
+
     root.config = {
       version: 1,
       bar: { layout: { left: [{ id: "omarchy.hybrid" }], center: [], right: [] } },

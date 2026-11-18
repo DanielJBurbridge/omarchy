@@ -19,6 +19,8 @@ QtObject {
   // a deep-cloned config it can mutate in place and persists the result.
   property var shellConfigProvider: null
   property var shellConfigMutator: null
+  property var handheldBarPins: []
+  property bool handheldBarVisible: false
 
   // { pluginId: manifest } — manifests have source/trust metadata stamped in.
   property var installedPlugins: ({})
@@ -189,6 +191,21 @@ QtObject {
   function inBar(id) {
     var config = shellConfigProvider ? shellConfigProvider() : null
     return findEntryLocation(config, id).kind === "bar"
+  }
+
+  function isHandheldBarPin(id) {
+    var manifest = installedPlugins[id]
+    return manifest && manifest.__isFirstParty && manifest.kinds.indexOf("bar-widget") !== -1
+      && handheldBarPins.indexOf(id) !== -1
+  }
+
+  function barWidgetEnabled(id) {
+    var config = shellConfigProvider ? shellConfigProvider() : null
+    return !isDisabled(config, id) && (inBar(id) || (handheldBarVisible && isHandheldBarPin(id)))
+  }
+
+  function rememberHandheldBarOptOut(config, id) {
+    if (isHandheldBarPin(id)) addDisabled(config, id)
   }
 
   // A manifest's "center" means beside the clock, so it lands in centerEnd, as
@@ -513,9 +530,10 @@ QtObject {
       && manifest.kinds.some(function(kind) { return kind !== "bar-widget" })
     var metadata = manifest && Util.isPlainObject(manifest.omarchy) ? manifest.omarchy : null
     var clonedFrom = metadata ? Util.canonicalWidgetId(String(metadata.clonedFrom || "")) : ""
-    var keepKeyboardOptOut = isFirstParty && isBarWidget && key === "omarchy.desktop-keyboard"
+    var handheldPin = isHandheldBarPin(key)
+    var keepBarOptOut = handheldPin || (isFirstParty && isBarWidget && key === "omarchy.desktop-keyboard")
     shellConfigMutator(function(config) {
-      if (value || !keepKeyboardOptOut) ensureConfigShape(config)
+      if (value || !keepBarOptOut) ensureConfigShape(config)
 
       // A placement that cannot be honoured is refused before anything
       // changes: a missing neighbour, or the tray asked into its own drawer.
@@ -556,6 +574,9 @@ QtObject {
 
       if (value) {
         removeDisabled(config, key)
+        // A normal enable restores the automatic internal placement. A
+        // requested section or position still writes an explicit bar entry.
+        if (handheldPin && !onBar && (!placement || !Object.keys(placement).length)) return
         var entry = { id: key }
         var insertedWithPlacement = false
         if (!onBar && isBarWidget) {
@@ -586,12 +607,12 @@ QtObject {
       }
 
       if (clonedFrom) restoreCloneSource(config, key, clonedFrom)
-      else if (location.kind === "bar") config.bar.layout[location.section].splice(location.index, 1)
+      // An explicit global disable makes saved placements dormant, so an
+      // enable restores the previous section and settings on both outputs.
+      else if (location.kind === "bar" && !handheldPin) config.bar.layout[location.section].splice(location.index, 1)
       else if (location.kind === "plugin") config.plugins.splice(location.index, 1)
 
-      // The built-in Ally bar can pin the keyboard even without a layout
-      // entry. Keep the explicit opt-out like other default-enabled plugins.
-      if (isFirstParty && (!isBarWidget || keepKeyboardOptOut)) addDisabled(config, key)
+      if (isFirstParty && (!isBarWidget || keepBarOptOut)) addDisabled(config, key)
     })
     if (lastEnableError) return false
     registryRevision++
