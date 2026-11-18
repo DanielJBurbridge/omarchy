@@ -1,6 +1,6 @@
 # Omarchy Handheld UX specs
 
-Current status: [HANDOFF-20261116.md](HANDOFF-20261116.md). What this tip does, and how to install and roll it back: [ALPHA.md](ALPHA.md). The 12 Nov handover is a pointer only: [HANDOVER.md](HANDOVER.md).
+Current feature and acceptance checklist: [ROG Ally feature parity](feature-parity.md). Earlier deployment record: [HANDOFF-20261116.md](HANDOFF-20261116.md). Installation and rollback: [ALPHA.md](ALPHA.md).
 
 Status: draft, 16 Nov 2026. Owner: dev-ux. Hand-off: dev-lead. Target branch for PRs: `feat/ally-parity-integration-20261111`. Spec 01 is at revision 4 (key-ups when the composite device disappears, and a 2 s uinput fallback). Spec 02 is at revision 12. Notes that are not in the spec are in [alpha-followups.md](alpha-followups.md). The mode round trip is [08](08-mode-round-trip.md). Keyboard-free boot is [09](09-keyboard-free-boot.md). Switch to Desktop with no dock and no keyboard is [11](11-undocked-touch-desktop.md). The handheld install recommendation for the disk is TPM2 auto-unlock bound to PCR 7, with the recovery passphrase kept: [10](tpm-unlock-installer-spec.md), and [tpm-unlock.md](tpm-unlock.md) for a machine that is already installed. What this tip actually does on an RC71L, and how to install and roll it back, is in [ALPHA.md](ALPHA.md).
 
