@@ -213,14 +213,22 @@ cp "$drm_path/card0-DP-1/"{status,edid} "$drm_path/card1-DP-2/"
 if gaming_output DP-2 2>/dev/null; then fail "a USB graphics connector on another card cannot be preferred"; fi
 if gaming_output HDMI-A-1 2>/dev/null; then fail "a connector without an EDID cannot be preferred"; fi
 [[ -z $(gaming_output gamescope-args) ]] || fail "without a preference Gamescope selects its own connector"
+available=$(gaming_output)
+[[ $available == *"Automatic"* && $available == *"DP-1"* && $available != *"DP-2"* &&
+  $available != *"HDMI-A-1"* && ! -e $tmp_dir/state/omarchy/rog-ally-display/gamescope-output ]] ||
+  fail "inspecting outputs lists selectable native displays without saving a preference" "$available"
 gaming_output DP-1
 mv "$drm_path/card0-DP-1" "$drm_path/card0-DP-3"
 [[ $(gaming_output gamescope-args) == $'--prefer-output\nDP-3,eDP-1' ]] ||
   fail "an Ally native display follows its EDID after a connector rename, with the panel as fallback"
+[[ $(gaming_output) == *"Next Gaming session: DP-3"* ]] || fail "the reported preference follows the renamed connector"
 
 mkdir -p "$drm_path/card0-DP-4"
 cp "$drm_path/card0-DP-3/"{status,edid} "$drm_path/card0-DP-4/"
 if gaming_output DP-4 2>/dev/null; then fail "a duplicate EDID cannot replace the chosen display"; fi
+available=$(gaming_output)
+[[ $available == *"Next Gaming session: eDP-1"* && $available != *"DP-3"* && $available != *"DP-4"* ]] ||
+  fail "duplicate display identities explain the internal fallback and cannot be selected" "$available"
 [[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] ||
   fail "an ambiguous EDID safely falls back to the internal panel"
 printf '%s\n' disconnected >"$drm_path/card0-DP-3/status"

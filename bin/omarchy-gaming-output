@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # omarchy:group=games
-# omarchy:summary=Choose the display for the original ROG Ally's next gaming session
-# omarchy:args=<auto|internal|OUTPUT>
+# omarchy:summary=Show or choose the display for the ROG Ally's next gaming session
+# omarchy:args=[auto|internal|OUTPUT]
 # omarchy:examples=omarchy games output DP-1 | omarchy games output auto
 
 set -euo pipefail
@@ -13,12 +13,12 @@ fail() {
 }
 
 if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
-  echo 'Usage: omarchy games output <auto|internal|OUTPUT>'
-  echo 'Use a connected external connector name such as DP-1 to prefer that display.'
+  echo 'Usage: omarchy games output [auto|internal|OUTPUT]'
+  echo 'Run without arguments to see the next session preference and available native displays.'
   exit 0
 fi
 
-(( $# == 1 )) || fail 'choose auto, internal or a connected external output.'
+(( $# <= 1 )) || fail 'choose auto, internal or a connected external output.'
 omarchy-hw-rog-ally || fail 'gaming output selection supports the original ROG Ally RC71L.'
 
 drm_path=${OMARCHY_DRM_PATH:-/sys/class/drm}
@@ -50,9 +50,9 @@ edid_key() {
   printf 'edid:%s\n' "${digest%% *}"
 }
 
-find_external() {
+declare -A external_by_edid=()
+read_external_outputs() {
   local connector name key
-  local -a matches=()
   # Gamescope selects a connector on its KMS device. The Ally's native outputs
   # are on the panel's card, while USB graphics adapters have their own card.
   for connector in "$drm_path/$card-"*; do
@@ -60,22 +60,40 @@ find_external() {
     name=${name#"$card-"}
     [[ $name =~ ^[A-Za-z0-9._-]+$ && ! $name =~ ^(eDP|LVDS|DSI)- ]] || continue
     key=$(edid_key "$connector") || continue
-    [[ $key == "$1" ]] && matches+=("$name")
+    if [[ -v external_by_edid[$key] ]]; then
+      external_by_edid[$key]=''
+    else
+      external_by_edid[$key]=$name
+    fi
   done
-  (( ${#matches[@]} == 1 )) || return 1
-  printf '%s\n' "${matches[0]}"
 }
 
-if [[ $1 == "gamescope-args" ]]; then
-  [[ -f $setting && -r $setting ]] || exit 0
-  preference=$(<"$setting")
-  [[ $preference != "auto" ]] || exit 0
-  find_panel || exit 0
-  priority=$panel
-  if [[ $preference =~ ^edid:[a-f0-9]{64}$ ]] && external=$(find_external "$preference"); then
-    priority=$external,$panel
+if (( $# == 0 )) || [[ $1 == "gamescope-args" ]]; then
+  preference=auto
+  if [[ -f $setting && -r $setting ]]; then preference=$(<"$setting"); fi
+  if (( $# )) && [[ $preference == "auto" ]]; then exit 0; fi
+  if ! find_panel; then
+    if (( $# == 0 )); then echo 'Next Gaming session: Automatic (internal panel could not be identified)'; fi
+    exit 0
   fi
-  printf '%s\n' --prefer-output "$priority"
+  external=''
+  if (( $# == 0 )) || [[ $preference =~ ^edid:[a-f0-9]{64}$ ]]; then
+    read_external_outputs
+    if [[ $preference =~ ^edid:[a-f0-9]{64}$ ]]; then external=${external_by_edid[$preference]:-}; fi
+  fi
+  if (( $# )); then
+    printf '%s\n' --prefer-output "${external:+$external,}$panel"
+  else
+    case $preference in
+      auto) echo 'Next Gaming session: Automatic (Gamescope chooses)' ;;
+      internal) printf 'Next Gaming session: %s (built-in panel)\n' "$panel" ;;
+      *) printf 'Next Gaming session: %s\n' "${external:-$panel (saved display unavailable or ambiguous)}" ;;
+    esac
+    printf 'Available choices:\n  auto\n  internal (%s)\n' "$panel"
+    for external in "${external_by_edid[@]}"; do
+      if [[ -n $external ]]; then printf '  %s\n' "$external"; fi
+    done | LC_ALL=C sort
+  fi
 else
   preference=$1
   if [[ $preference != "auto" && $preference != "internal" ]]; then
@@ -84,7 +102,8 @@ else
     find_panel || fail 'could not identify the DRM card for the internal panel.'
     preference=$(edid_key "$drm_path/$card-$preference") ||
       fail 'choose a connected output with a readable EDID on the same DRM card as the internal panel.'
-    find_external "$preference" >/dev/null || fail 'the selected display identity is ambiguous.'
+    read_external_outputs
+    [[ ${external_by_edid[$preference]:-} == "$1" ]] || fail 'the selected display identity is ambiguous or disconnected.'
   fi
   umask 077
   mkdir -p "$state"
