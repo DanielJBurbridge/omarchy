@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HELPER = (Path(sys.argv[1]) if len(sys.argv) > 1 else
@@ -284,10 +285,17 @@ esac
             run('show', extra={'START_GATE': str(gate)})
             wait_for(lambda: events().endswith('W'))
             run('show')
-            gate.touch()
-            wait_for(lambda: events().endswith('ES'))
+            # Linux can deliver USR1 (hide) before an older, pending USR2
+            # (show). Hold the handshake across both requests.
+            release = threading.Timer(.4, gate.touch)
+            release.start()
+            try:
+                run('hide')
+            finally:
+                release.join()
+            wait_for(lambda: events().endswith('ESH'))
             run('stop')
-            print('PASS a second show during startup reaches the original keyboard')
+            print('PASS show then hide during startup reach the original keyboard in order')
 
             for _ in range(3):
                 run('show')

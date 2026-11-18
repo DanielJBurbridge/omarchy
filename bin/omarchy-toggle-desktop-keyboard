@@ -135,17 +135,42 @@ case "$action" in
     ;;
 esac
 
+# Linux delivers different pending signals by number. Let wvkbd read the
+# previous control before sending another, so a quick hide wins over a show.
+control_pending() {
+  local field bits
+  while read -r field bits _; do
+    [[ $field == "ShdPnd:" ]] || continue
+    (( 16#$bits )) || return 1
+    if (( control_mask == 0 )); then
+      control_mask=$((1 << ($(kill -l USR1) - 1) | 1 << ($(kill -l USR2) - 1) | 1 << ($(kill -l RTMIN) - 1)))
+    fi
+    (( 16#$bits & control_mask ))
+    return
+  done < "/proc/$pid/status"
+  return 1
+}
+
+send_control() {
+  local -i remaining=100 control_mask=0
+  while control_pending; do
+    (( remaining-- > 0 )) || fail 'keyboard did not receive the previous control.'
+    sleep 0.02
+  done
+  identity && kill -s "$1" "$pid"
+}
+
 if $alive; then
   case "$action" in
     toggle)
-      kill -RTMIN "$pid"
+      send_control RTMIN
       case "$visibility" in
         "manual" | "menu") visibility=hidden ;;
         "hidden") visibility=manual ;;
       esac
       ;;
-    show | show-for-menu) kill -USR2 "$pid" ;;
-    hide) kill -USR1 "$pid" ;;
+    show | show-for-menu) send_control USR2 ;;
+    hide) send_control USR1 ;;
     stop)
       # hide() releases held keys before removing the surface in wvkbd 0.21.
       kill -USR1 "$pid"
