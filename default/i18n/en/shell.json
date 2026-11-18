@@ -372,6 +372,7 @@
   "media.previous": "Previous",
   "media.source": "Source",
   "menu.inputPrompt": "Input",
+  "menu.minimized": "Minimized",
   "menu.nothingHere": "Nothing here yet",
   "menu.powerProfileBalanced": "balanced",
   "menu.powerProfilePerformance": "performance",
@@ -381,6 +382,7 @@
     "one": "%1 selected",
     "other": "%1 selected"
   },
+  "menu.windowWorkspace": "Workspace %1",
   "monitor.brightness": "BRIGHTNESS",
   "monitor.builtInDisplay": "Built-in Display",
   "monitor.display": "Display",

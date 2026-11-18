@@ -118,6 +118,7 @@ can point a submenu at an existing provider but cannot declare a new one:
   the launcher. App rows are searchable by their desktop Keywords but never
   routable, so an installed app cannot capture a menu route (htop ships
   `Keywords=system;...`, and SUPER+ESCAPE must still open the system menu).
+- `windows` opens the native picker with one row per running window and its workspace. The RC71L exposes it as **Switch Window** beside **Apps**. Selecting a row closes the picker and focuses that window.
 - `fonts`, `power-profiles`, `kernels`, and `languages` are bash one-liners in the `providers` map in
   `Menu.qml`. The contract is one tab-delimited line per row:
   `label\tvalue\tcurrent`, with an optional fourth field that becomes a search-only

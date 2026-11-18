@@ -44,6 +44,10 @@ Item {
     return out
   }
 
+  function isMinimizedWorkspace(name) {
+    return DockModel.isMinimizedWorkspace(name)
+  }
+
   function entryForAppId(appId) {
     var entry = DesktopEntries.heuristicLookup(appId)
     if (entry) return entry
@@ -70,7 +74,7 @@ Item {
         key: entry ? entry.id : toplevel.appId,
         hasEntry: !!entry && !entry.noDisplay,
         workspaceId: workspace ? workspace.id : -1,
-        minimized: !!workspace && DockModel.isMinimizedWorkspace(workspace.name),
+        minimized: !!workspace && root.isMinimizedWorkspace(workspace.name),
         address: toplevels[i].address,
         toplevel: toplevel
       })

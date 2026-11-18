@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
@@ -75,6 +76,8 @@ Item {
   readonly property bool dmenuActive: mode === "select" || mode === "input"
   property string dmenuPrompt: ""
   property var dmenuOptions: []
+  property var windowChoices: null
+  readonly property var dock: root.shell?.serviceFor("omarchy.dock")
   property bool dmenuMultiple: false
   property var dmenuSelected: []
   // What the last confirmed change applied; a failed change returns the checks here.
@@ -107,7 +110,7 @@ Item {
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
-  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null }
+  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null; windowChoices = null }
 
   readonly property bool canShowSearchKeyboard: root.shell?.shellConfig?.menu?.onScreenKeyboard === true
     && root.opened && root.mode === "menu" && !root.deleteConfirmOpen && filterInput.activeFocus
@@ -527,6 +530,11 @@ Item {
 
   function loadProviderForMenu(id) {
     var entry = root.item(id)
+    if (entry?.provider === "windows") {
+      // Window titles belong only in the open picker, never in global search.
+      if (root.activeMenu === id && !root.dmenuActive) root.openWindowPicker(entry)
+      return
+    }
     if (!entry || !entry.provider || root.providersLoaded[id]) return
 
     // Native providers don't touch providerProc, so they never need to queue.
@@ -872,6 +880,10 @@ Item {
   }
 
   function goBack() {
+    if (root.windowChoices) {
+      root.openExistingMenu("root")
+      return true
+    }
     if (root.activeMenu === "root") return false
 
     if (root.navStack.length > 0) {
@@ -895,7 +907,16 @@ Item {
       }
       if (index < 0 || index >= displayModel.count) return
       var picked = displayModel.get(index)
-      if (root.dmenuMultiple) {
+      if (root.windowChoices) {
+        var client = root.windowChoices[Number(picked.itemId.substring(6))]
+        root.cancel()
+        if (!client || Hyprland.toplevels.values.indexOf(client) < 0 || !client.wayland || !client.workspace) return
+        var minimized = root.dock?.isMinimizedWorkspace(client.workspace.name) === true
+        if (root.dock && (minimized || client.workspace.id >= 1))
+          root.dock.bringForward({ address: client.address, toplevel: client.wayland, minimized: minimized })
+        else if (client.workspace.id >= 1)
+          client.wayland.activate()
+      } else if (root.dmenuMultiple) {
         if (picked.itemId === "dmenu.apply") {
           root.applyDmenuSelection(JSON.stringify(MenuModel.dmenuSelections(root.dmenuOptions, root.dmenuSelected)))
         } else {
@@ -982,6 +1003,7 @@ Item {
   function openExistingMenu(initialMenu) {
     requestSerial += 1
     mode = "menu"
+    windowChoices = null
     requestActive = false
     selectionFile = ""
     doneFile = ""
@@ -1003,7 +1025,27 @@ Item {
     Qt.callLater(function() { filterInput.forceActiveFocus() })
   }
 
-  function openDmenu(payload) {
+  function openWindowPicker(entry) {
+    // Keep the original toplevels and row order until dismissal. If a
+    // window closes under the pointer its row cannot activate its neighbour.
+    var windows = []
+    var options = []
+    for (var client of Hyprland.toplevels.values) {
+      var win = client.wayland
+      var workspace = client.workspace
+      if (!win || win.parent || !workspace) continue
+      var minimized = root.dock?.isMinimizedWorkspace(workspace.name) === true
+      if (workspace.id < 1 && !minimized) continue
+      var title = String(win.title || win.appId).replace(/[\t\r\n]/g, " ")
+      var detail = minimized ? Commons.I18n.t("menu.minimized") : Commons.I18n.t("menu.windowWorkspace").arg(workspace.name)
+      windows.push(client)
+      options.push("󰖲\t" + title + "\t" + detail)
+    }
+    root.openDmenu({ mode: "select", prompt: entry.label, width: 480, options: options }, windows)
+  }
+
+  function openDmenu(payload, windows) {
+    root.windowChoices = windows || null
     requestSerial += 1
     mode = payload.mode === "input" ? "input" : "select"
     dmenuPrompt = String(payload.prompt || (mode === "input" ? Commons.I18n.t("menu.inputPrompt") : Commons.I18n.t("menu.selectPrompt")))
