@@ -540,10 +540,14 @@ run_gaming() {
   # Opening the FIFO read/write includes the wait for the first writer.
   (read -r -t "$ready_timeout" event <> "$gaming_runtime/ready" && [[ $event == "started" ]]) &
   ready_pid=$!
+  local library_args=()
+  if [[ -s $gaming_state/library ]] && omarchy-pkg-present omarchy-gaming-session; then
+    library_args+=("$(<"$gaming_state/library")")
+  fi
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
     gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
-    "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" \
+    "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" "${library_args[@]}" \
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
   local finished='' status=0 started=false steam_ready_at=0 returned=false

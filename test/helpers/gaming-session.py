@@ -177,11 +177,18 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in actions, (actions, (state(directory) / 'session.log').read_text())
     assert '--xwayland-count 2' in actions, actions
     run(env, setup, 'display', '720p', '40', 'fsr')
+    # A remembered card and an unavailable UDisks on the private bus must still allow play.
+    library = state(directory) / 'library'
+    library.write_text('AF04-DC18\n')
+    (directory / 'actions').write_text('')
     run(env, selector, 'gaming')
-    assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in (directory / 'actions').read_text()
+    actions = (directory / 'actions').read_text()
+    assert 'omarchy-gaming-steam AF04-DC18' in actions and 'steam:-steamos3' in actions
+    assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in actions
     run(env, setup, 'display', 'bad', status=2)
     assert (state(directory) / 'display').read_text() == '720p 40 fsr\n'
     run(env, setup, 'reset')
+    assert not library.exists(), 'reset must also revoke the removable-library opt-in'
     print('PASS persistent, consumed one-shot, display parser and reset')
 
     for mode in ('crash', 'early', 'timeout', 'steam-fail', 'return', 'return-up', 'switch'):

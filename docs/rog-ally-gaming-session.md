@@ -42,13 +42,21 @@ omarchy-setup-gaming-session status
 omarchy-setup-gaming-session reset
 ```
 
-The absent preference is desktop. `next` overrides the persistent choice once and is consumed **before** starting it, including when startup fails. It survives a reboot until the next managed sign-in. `last` remembers the most recently entered desktop or gaming mode. Returning from gaming enters desktop, making desktop the last mode. `reset` removes preferences, render settings, overlay selection and recovery state; it preserves logs and all Steam data.
+The absent preference is desktop. `next` overrides the persistent choice once and is consumed **before** starting it, including when startup fails. It survives a reboot until the next managed sign-in. `last` remembers the most recently entered desktop or gaming mode. Returning from gaming enters desktop, making desktop the last mode. `reset` removes preferences, render settings, overlay selection, remembered library and recovery state; it preserves logs and all Steam data.
 
 From the managed Hyprland session, save work and fully exit Steam, then choose the **Omarchy Gaming** application or run `omarchy-launch-gaming-session`. This closes desktop applications using Omarchy's existing logout action. A transient user worker owns the switch request and removes it if logout fails, so submitting a logout job cannot accidentally change a later ordinary logout. The launcher stops wvkbd while the departing Wayland display is still available. It refuses an unmanaged desktop, missing dependencies or a surviving Steam client rather than forwarding a gaming request to that client's old display. After installing the increment, sign out and choose the preference session once to enable this action.
 
 In gaming, use Steam's Power → Switch to Desktop, exit Steam, or run `omarchy-launch-gaming-desktop` within that login. Steam's session-selector hook is supplied through a **private gaming PATH**, accepting only its `plasma` return argument and routing to Hyprland. `omarchy-gaming-steam` probes Steam's environ against `PATH=/usr/bin:/bin`. If that parent PATH still contains the private directory, or the environ cannot be read, the private directory stays. No global `steamos-session-select` binary or login policy is replaced. The return action ends running games/downloads in this session; save first. Downloads can resume when Steam next starts. If Steam's client build does not honour the PATH hook, Exit Steam is the fallback; that hook must be checked on the installed client.
 
 Steam owns Guide+West (Xbox X) for its keyboard and Guide+South for quick access. INPUT owns translation of hardware buttons and calls `omarchy-hw-rog-ally-input gamepad` on entry when `omarchy-rog-ally-input` is installed. Its desktop bridge restores mouse mode at Hyprland start. Session code creates no second input mapper. Hardware button navigation, focus interception and the Steam quick-menu power controls still require physical acceptance.
+
+## Removable library
+
+On the original Ally with the optional Gaming Session installed, insert the card or drive in Desktop Mode. Open **Setup → Gaming → Removable Library** and tap the filesystem that holds your existing games. The second line shows its UUID so you can distinguish identical labels. To stop remembering it, open the same picker and tap **Forget remembered library**, even with the drive disconnected. This applies from the next Gaming login.
+
+At Gaming login and on reinsertion, the session asks UDisks to mount that UUID using the signed-in user's permissions. It reuses an existing desktop mount and leaves a safely unmounted card alone until reinsertion or the next Gaming login. The session skips the mounted root filesystem, drives UDisks marks as system or excluded from automount, filesystems configured in fstab and duplicate UUIDs visible at the same time. After a duplicate, disconnect both copies and insert only the intended one. A single attached clone with the same UUID is indistinguishable from the original.
+
+UDisks chooses the mount point. Two drives with the same label can receive different paths depending on insertion order. If Steam needs the existing library folder selected again, use its **Settings → Storage** controls. Mount errors and read-only results are recorded in the user's Gaming Session log. The companion keeps the filesystem's existing ownership and permissions.
 
 ## Render settings and optional integrations
 

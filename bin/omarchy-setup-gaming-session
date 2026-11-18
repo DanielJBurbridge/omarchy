@@ -17,7 +17,7 @@ case ${1:-status} in
     (( $# <= 1 )) || exit 2
     if [[ -e $gaming_state || -L $gaming_state ]]; then
       [[ -d $gaming_state && ! -L $gaming_state && -O $gaming_state ]] || exit 1
-      for setting in preference next last display overlay recovery; do
+      for setting in preference next last display overlay library recovery; do
         if [[ -f $gaming_state/$setting ]]; then
           printf '%s: %s\n' "$setting" "$(cat "$gaming_state/$setting")"
         fi
@@ -95,7 +95,7 @@ case ${1:-status} in
     (( $# == 1 )) || exit 2
     gaming_state_init
     # shellcheck disable=SC2031
-    rm -f "$gaming_state/"{preference,next,last,display,overlay,recovery}
+    rm -f "$gaming_state/"{preference,next,last,display,overlay,library,recovery}
     ;;
   *) gaming_fail 'unknown option; use --help.'; exit 2 ;;
 esac

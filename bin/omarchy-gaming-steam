@@ -15,11 +15,12 @@ export STEAM_ENABLE_VOLUME_HANDLER=1
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
 
+library_pid=''
 power_pid=''
 shutdown_pid=''
 cleanup() {
   local pid
-  for pid in "$shutdown_pid" "$power_pid"; do
+  for pid in "$library_pid" "$shutdown_pid" "$power_pid"; do
     if [[ -n $pid ]]; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -31,6 +32,14 @@ trap 'exit 0' HUP INT TERM
 if omarchy-cmd-present omarchy-launch-gaming-powerbutton && omarchy-pkg-present omarchy-rog-ally-powerbutton && [[ -x /usr/bin/steamos-powerbuttond ]]; then
   omarchy-launch-gaming-powerbutton &
   power_pid=$!
+fi
+if [[ -n ${1:-} ]]; then
+  # Give an attached library time to mount before Steam scans storage. A slow
+  # or failing device must still allow Steam to start.
+  exec {library_ready}< <(exec python "$OMARCHY_PATH/default/gaming/removable-library.py" watch "$1")
+  library_pid=$!
+  read -r -t 5 -u "$library_ready" _ || true
+  exec {library_ready}<&-
 fi
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
