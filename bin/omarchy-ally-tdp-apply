@@ -495,6 +495,10 @@ if [[ $verb == show ]]; then
 fi
 
 if (( writable == 0 )); then
+  if [[ $verb == reassert ]]; then
+    log "skipping reapply while $owner is active"
+    exit 0
+  fi
   log "refusing while $owner is active"
   exit 1
 fi

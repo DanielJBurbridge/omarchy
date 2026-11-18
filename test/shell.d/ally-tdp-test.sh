@@ -343,12 +343,20 @@ fi
 pass "a laptop and a missing attribute write nothing"
 
 reset_state
+ac_table
+run_apply --set 30 >/dev/null
 battery_table
-if OMARCHY_ALLY_TDP_CONFLICT=asusd.service run_apply --set 15 >/dev/null 2>"$work/err"; then
+if OMARCHY_ALLY_TDP_CONFLICT=asusd.service run_apply --set 18 >/dev/null 2>"$work/err"; then
   fail "asusd does not block --set"
 fi
-[[ $(tuple) == 15/20/25 ]] || fail "a conflict still writes" "$(tuple)"
-pass "an active asusd writes nothing"
+if OMARCHY_ALLY_TDP_CONFLICT=asusd.service run_apply --snapshot >/dev/null 2>"$work/err"; then
+  fail "asusd does not block --snapshot"
+fi
+OMARCHY_ALLY_TDP_CONFLICT=asusd.service run_apply --reassert >/dev/null 2>"$work/err" ||
+  fail "background reapply must defer to the active owner without failing" "$(cat "$work/err")"
+[[ $(tuple) == 15/20/25 && $(stored) == 30 ]] ||
+  fail "a conflict changes firmware limits or the stored request" "$(tuple), $(stored)"
+pass "an active asusd blocks explicit requests and background reapply defers without writing"
 
 reset_state
 battery_table
