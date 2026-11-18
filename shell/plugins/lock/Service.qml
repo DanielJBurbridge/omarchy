@@ -46,6 +46,7 @@ Item {
   property int fingerprintRetryBackoffMs: 0
   // Outputs the lock last saw, so only a display arriving counts as a wake.
   property int knownScreenCount: 0
+  property string focusedLockOutput: ""
   property bool previewVisible: false
   property string enteredPassword: ""
   property string pendingPassword: ""
@@ -490,6 +491,7 @@ Item {
     onLockStateChanged: {
       lockStateSocket.stateChanged()
       root.logEvent("session-locked=" + locked)
+      if (!locked) root.focusedLockOutput = ""
 
       if (locked) {
         root.pendingSessionLock = false
@@ -517,6 +519,8 @@ Item {
 
       LockView {
         id: lockView
+        readonly property string activeOutput: Window.active ? (lockSurface.screen?.name ?? "") : ""
+        onActiveOutputChanged: if (activeOutput) root.focusedLockOutput = activeOutput
         anchors.fill: parent
         backgroundPath: root.backgroundPath
         videoPosterPath: root.videoPosterPath
@@ -839,6 +843,13 @@ Item {
       if (screens > root.knownScreenCount) {
         root.resumeFingerprint()
         if (root.lockRequested) root.armBlankTimer()
+      }
+      // Hyprland can leave the keyboard unfocused when its lock surface goes
+      // away. Re-evaluate the pointer at its current position on the survivor.
+      if (root.shell?.handheldAlly && sessionLock.secure && screens > 0 && root.focusedLockOutput
+          && !Quickshell.screens.some(screen => screen.name === root.focusedLockOutput)) {
+        root.focusedLockOutput = ""
+        Quickshell.execDetached(["/usr/bin/hyprctl", "eval", "local p = hl.get_cursor_pos(); if p then hl.dispatch(hl.dsp.cursor.move({x=p.x, y=p.y})) end"])
       }
       root.knownScreenCount = screens
       root.requestSessionLock()
