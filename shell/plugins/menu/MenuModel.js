@@ -281,9 +281,19 @@ function childCount(items, itemOrder, id) {
   return count
 }
 
+function whenResult(entry, whenResults) {
+  return entry.when ? (whenResults || {})[entry.id] : true
+}
+
+// A link may have its own eligibility condition in addition to its destination's.
+function screenRouteAllowed(requested, destination, whenResults) {
+  return whenResult(requested, whenResults) && whenResult(destination, whenResults)
+}
+
 function isVisible(items, itemOrder, whenResults, entry, handheldScreen, depth) {
   if (!entry || (entry.handheldScreen && !handheldScreen)) return false
-  if (entry.when && whenResults && whenResults[entry.id] === false) return false
+  var allowed = whenResult(entry, whenResults)
+  if (allowed === false || (entry.handheldScreen && allowed !== true)) return false
   if (entry.kind !== "menu" && entry.kind !== "link") return true
   if (entry.provider) return true
 
@@ -709,6 +719,7 @@ if (typeof module !== "undefined") {
     isDescendantOf: isDescendantOf,
     childCount: childCount,
     isVisible: isVisible,
+    screenRouteAllowed: screenRouteAllowed,
     isDisabled: isDisabled,
     labelFor: labelFor,
     searchableToken: searchableToken,

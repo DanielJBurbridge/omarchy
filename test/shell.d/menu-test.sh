@@ -113,6 +113,14 @@ const handheld = menu.normalizeItem('hardware.window-list', { provider: 'windows
 const screens = { hardware: visibilityItems.hardware, switcher: handheld }
 assert(!menu.isVisible(screens, Object.keys(screens), {}, screens.hardware, false), 'an external display hides a submenu containing only handheld rows')
 assert(menu.isVisible(screens, Object.keys(screens), {}, screens.hardware, true), 'the handheld display exposes its window picker')
+const leaf = menu.normalizeItem('power', { handheldScreen: true, when: 'installed', action: 'setup' })
+const link = menu.normalizeItem('shortcut', { handheldScreen: true, when: 'managed', target: 'power' })
+assert(!menu.isVisible({ power: leaf }, ['power'], {}, leaf, true), 'the first handheld frame waits for eligibility')
+assert(menu.isVisible(visibilityItems, visibilityOrder, {}, visibilityItems.laptop), 'ordinary desktop rows keep their initial visibility')
+assert(menu.screenRouteAllowed(link, leaf, { power: true }) === undefined, 'a direct link waits for its own result')
+assert(menu.screenRouteAllowed(link, leaf, { shortcut: true }) === undefined, 'a direct link waits for the target result')
+assert(!menu.screenRouteAllowed(link, leaf, { shortcut: false, power: true }), 'an ineligible link cannot run an available action')
+assert(menu.screenRouteAllowed(link, leaf, { shortcut: true, power: true }), 'an eligible direct link may open once both results arrive')
 
 // `disabled:` is the softer guard: the row stays listed and only loses the
 // cursor, which is how an already-installed app keeps its place in Install.

@@ -883,6 +883,7 @@ Item {
   function select(delta) {
     if (displayModel.count === 0) return
 
+    root.pendingScreenRoute = ""
     root.disarmPointer()
     var from = cursorActive ? selectedIndex + delta : (delta < 0 ? displayModel.count - 1 : 0)
     var target = root.nextSelectable(from, delta)
@@ -894,6 +895,7 @@ Item {
   }
 
   function setFilter(nextFilter) {
+    root.pendingScreenRoute = ""
     panel.freezeCardTop()
     root.filterText = nextFilter
     root.selectedIndex = 0
@@ -904,6 +906,7 @@ Item {
   }
 
   function setActiveMenu(id, pushHistory, fromPointer) {
+    root.pendingScreenRoute = ""
     panel.freezeCardTop()
     if (!root.item(id)) id = "root"
     if (pushHistory && id !== root.activeMenu) root.navStack = root.navStack.concat([root.activeMenu])
@@ -1085,6 +1088,7 @@ Item {
   }
 
   function openDmenu(payload, windows) {
+    root.pendingScreenRoute = ""
     root.windowChoices = windows || null
     requestSerial += 1
     mode = payload.mode === "input" ? "input" : "select"
@@ -1136,7 +1140,7 @@ Item {
       // The compositor picks the actual output when the overlay maps. Resolve
       // direct handheld routes there, including the warm, already-open case.
       root.openExistingMenu("root")
-      root.pendingScreenRoute = destination.id
+      root.pendingScreenRoute = entry.id
       root.finishScreenRoute()
       return "ok"
     }
@@ -1157,9 +1161,13 @@ Item {
 
   function finishScreenRoute() {
     if (!root.pendingScreenRoute || !root.screenConfirmed || !panel.contentRevealed) return
-    const entry = root.item(root.pendingScreenRoute)
+    const requested = root.item(root.pendingScreenRoute)
+    const entry = requested?.kind === "link" ? root.item(requested.target) : requested
+    const allowed = root.handheldScreen && !!entry && MenuModel.screenRouteAllowed(requested, entry, root.whenResults)
+    // The initial result arrives when the menu's existing guard batch finishes.
+    if (allowed === undefined) return
     root.pendingScreenRoute = ""
-    if (!root.handheldScreen || !root.isVisible(entry)) return
+    if (!allowed || !root.isVisible(entry)) return
     if (entry.kind === "action") root.applySelected(entry.id, entry.action)
     else if (entry.provider === "windows") root.openWindowPicker(entry)
     else root.setActiveMenu(entry.id, false)
@@ -1406,6 +1414,7 @@ Item {
       root.checkedResults = nextChecked
       root.disabledResults = nextDisabled
       if (root.opened) root.rebuildDisplay()
+      root.finishScreenRoute()
       // Run the evaluation that had to stand aside. Deferred by a turn so the
       // process is settled before its command is set again.
       if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards() })
