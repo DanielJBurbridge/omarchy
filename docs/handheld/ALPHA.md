@@ -1,19 +1,8 @@
 # Handheld alpha (ROG Ally RC71L)
 
-The alpha is the gaming session, autologin (the apply step below), the RC71L desktop power button, and this page. Tip `d3747faff` on `feat/ally-parity-integration-20261111`. Review notes are in [alpha-followups.md](alpha-followups.md).
+The original RC71L can switch between Steam Gaming Mode and the managed Hyprland desktop. On the tested desktop, the right stick moves the pointer, RT left-clicks, LT right-clicks, Armoury Crate opens the Omarchy menu and Command Centre opens the power panel. Touch and RT can type on the optional themed keyboard.
 
-What's missing:
-
-- Controller map, and the desktop and gaming bridges (spec 01). `default/inputplumber/profiles/gaming.yaml` is in the tree (profile name `Omarchy Ally gaming`). `omarchy-gaming-input-profile` loads the name `gaming` when `omarchy-hw-rog-ally` succeeds and `omarchy-inputplumber-profile.service` is active, and exits 0 otherwise. The same directory also has `desktop.yaml`, `osk.yaml` and `omarchy-ally-pointer.yaml`. The profile allowlist names `gamepad.yaml` and `dualsense.yaml`, and those two files are not in this tree.
-- The F17 escape and the overlay watchdog (spec 04, spec 07). No InputPlumber intercept ships, so there is nothing to escape yet.
-- Quick-access overlay, fan, RGB, and TDP. `omarchy-ally-tdp-shim.service` is not in this tree.
-- Dock switching. `omarchy-display-rog-ally` is not in this tree.
-- A menu row and `Super + Ctrl + G` for Switch to Gaming (spec 02).
-- The suspend broker, the idle return to gaming, and the power-off backstop (spec 02 §7.7).
-- The first-boot wizard and buffyboard (spec 03).
-- Gaming notifications (spec 05) and the accessibility pack (spec 06).
-- The `osk` profile, a themed wvkbd, and a Command Centre keyboard chord (spec 07).
-- A migration that enables autologin on an Ally that is already installed.
+The [feature-parity checklist](feature-parity.md) records the package versions, hardware results and open issues for the current build. Independent rear paddles, stick-ring lighting and output through the DisplayLink hub still need hardware work. The [gaming session reference](../rog-ally-gaming-session.md) covers the optional packages and session settings.
 
 ## Before you install the alpha
 
@@ -47,13 +36,13 @@ sudo systemctl enable omarchy-handheld-autologin.service
 sudo omarchy-handheld-autologin apply
 ```
 
-Check: `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` succeed, `systemctl is-enabled omarchy-handheld-autologin.service` prints `enabled`, and the drop-in says `Relogin=true`. `omarchy-handheld-user.conf` has `User=` and nothing else. Reboot. The greeter stays down and Steam's gaming UI comes up. `systemctl is-active omarchy-handheld-autologin.service` is `active`. `Relogin=false` means `/run/omarchy/handheld-autologin/stop` exists and SDDM is on the greeter.
+Check: `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` succeed, `systemctl is-enabled omarchy-handheld-autologin.service` prints `enabled`, and the drop-in names `Session=omarchy-handheld.desktop`. `omarchy-handheld-user.conf` has `User=` and nothing else. Reboot. The greeter stays down and Steam's gaming UI comes up. `systemctl is-active omarchy-handheld-autologin.service` is `active`. `Relogin=false` is expected when desktop sign-in is required or the failure limit has set `/run/omarchy/handheld-autologin/stop`.
 
 ## What you get
 
-Autologin starts Gamescope (`--backend drm -e --xwayland-count 2 --default-touch-mode 4`) and Steam in `omarchy-gamescope-$XDG_SESSION_ID.scope`, and starts `omarchy-gaming-session.target`. One retry, then the desktop. A Relogin always returns to gaming. The log is `~/.local/state/omarchy/gaming-session/session.log`.
+Autologin starts Gamescope (`--backend drm -e --xwayland-count 2 --default-touch-mode 4`) and Steam in `omarchy-gamescope-$XDG_SESSION_ID.scope`, and starts `omarchy-gaming-session.target`. One retry, then the desktop. Steam’s explicit desktop request takes precedence on the next login. The log is `~/.local/state/omarchy/gaming-session/session.log`.
 
-From the desktop, exit Steam and run `omarchy-launch-gaming-session`. From gaming, Steam's Power → Switch to Desktop (the private `steamos-session-select` accepts only `plasma`) or `omarchy-launch-gaming-desktop`.
+From the desktop, save your work, exit Steam and choose **Omarchy → System → Switch to Gaming**. To return, choose **Steam → Power → Switch to Desktop**.
 
 With `desktop-lock on`, **Switch to Desktop** takes you to sign-in. Sign in by touch or USB keyboard. With the matched runtime, settings and `omarchy-gaming-session` package, the resulting desktop loads the handheld controller profile and offers **Switch to Gaming**. The next return to Desktop asks you to sign in again.
 
@@ -104,7 +93,7 @@ fi
 
 `/etc/default/limine.pre-tpm2` is the copy taken before the cmdline edit. If that file is missing, do not invent a cmdline. Stay on the snapshot entry. A damaged header is `cryptsetup luksHeaderRestore`, with this `LUKS_DEV` and this `backup`, and only when `backup` is a non-empty file on the removable drive. The ESP and any other partition of the internal disk are the wrong place for that file. The runbook's section 13 is the full restore.
 
-Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot writes `Relogin=true` again. From SSH, drop autologin for this boot with:
+Three gaming starts in 60 seconds that never read `started` write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and restart SDDM onto the greeter. The session command exits there and does not open the desktop. A reboot clears `/run` and the next boot applies the stored sign-in policy. From SSH, you can remove the session and account drop-ins to return to the greeter. This also removes the recorded account for future boots. Use the recovery step below to restore it when you are ready.
 
 ```bash
 sudo rm -f /etc/sddm.conf.d/zz-omarchy-handheld.conf
@@ -114,17 +103,18 @@ sudo systemctl restart sddm
 
 `systemctl restart sddm` kills the current graphical session.
 
-### Turn autologin back on without a reboot
+### Restore handheld autologin
 
-`apply` rewrites the drop-in and does not restart SDDM. After the stop file is gone, restart SDDM or reboot.
+If you removed the account drop-in above, sign in as the account that should own the handheld session. Restore that account record before applying the policy. The boot service writes the session preference and relies on the saved account.
 
 ```bash
+sudo omarchy-handheld-autologin install-user "$(id -un)"
 sudo rm -f /run/omarchy/handheld-autologin/stop
 sudo omarchy-handheld-autologin apply
 sudo systemctl restart sddm
 ```
 
-That restart kills the current graphical session. Reboot instead if you want to keep this session until you are ready. The boot unit writes `Relogin=true` on its own once `/run` is empty.
+That restart kills the current graphical session. Reboot instead if you want to keep this session until you are ready. On boot the unit applies the desktop sign-in policy again.
 
 ## Rollback
 

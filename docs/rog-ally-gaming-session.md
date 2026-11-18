@@ -54,7 +54,11 @@ omarchy-setup-gaming-session overlay off
 
 These select game rendering dimensions, Gamescope's `--framerate-limit` and its `-F` upscaling filter. FPS choices are 0 (disabled), 30, 40, 45, 60, 90 and 120. Filter choices are linear, nearest, fsr and nis. Native leaves dimensions to Gamescope. They do not force a physical output mode, refresh rate, HDR, orientation or VRR. Gamescope's simple frame limiter rounds to refresh-rate divisors; the requested number is not proof of measured game performance. FSR/NIS here are compositor spatial filters, not game-native frame generation or temporal upscaling.
 
+For a fixed 120 Hz panel, 30, 40 and 60 fps each allow an even number of refreshes per frame. At a fixed 60 Hz, try 30 or 60 fps. Apply the render preference before starting Gaming Mode. The timing overlay can show whether the game sustains it. [Gamescope frame limiter](https://github.com/ValveSoftware/gamescope/blob/3.17.0/src/steamcompmgr.cpp#L6845-L6875)
+
 On the original ROG Ally, run `omarchy games output` after connecting a dock to see the next session’s preference and the native outputs you can select. For example, `omarchy games output DP-1` saves a listed external display, `omarchy games output internal` chooses the built-in panel and `omarchy games output auto` lets Gamescope choose. Omarchy follows the external display’s EDID across connector renames on the internal panel’s graphics card. If that display is unplugged or two connected screens report the same identity, the command shows the built-in fallback and keeps the saved preference for when the display returns.
+
+If sound moves to the hub when you connect it, open **Audio** on the desktop with `Super + Ctrl + A` and select the built-in speakers. You can also cycle outputs with `Shift + Mute`. Selecting the speakers moves playing apps and saves the output preference. Display selection is independent, so you can use the speakers while playing on an external screen.
 
 Overlay selection adds `--mangoapp` only when enabled and `mangoapp` is installed. Install the GAMES owner's optional overlay tools first. Ordinary MangoHud injection and its `fps_limit` are not used for this compositor session.
 
