@@ -114,6 +114,10 @@ ShellRoot {
 
   property bool handheldAlly: false
 
+  function isHandheldScreen(screen) {
+    return handheldAlly && /^eDP-[0-9]+$/.test(screen?.name || "")
+  }
+
   function refreshHandheld() {
     var ally = BarModel.isRogAllyDmi(dmiVendor.text(), dmiProduct.text(), dmiBoard.text())
     if (ally === handheldAlly) return
