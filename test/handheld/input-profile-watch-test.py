@@ -54,24 +54,29 @@ case $command in
     [[ $state != unknown ]] || exit 2
     exit 1
     ;;
-  omarchy-menu|omarchy-shell)
+  omarchy-shell)
     if [[ $* == 'lock isLocked' ]]; then
       [[ $state != locked ]] || { echo true; exit 0; }
       echo false
       exit 0
     fi
-    printf '%s %s via %s %s\n' "$command" "$*" "$HYPRLAND_INSTANCE_SIGNATURE" "$WAYLAND_DISPLAY" >> "$DESKTOP_TEST_ROOT/actions"
-    if [[ $command == "omarchy-menu" && $1 == "close" ]]; then
+    [[ $1 == shell && $2 == handheldAction && $5 == "$HYPRLAND_INSTANCE_SIGNATURE" ]] || exit 2
+    printf '%s %s via %s %s\n' "$3" "$4" "$HYPRLAND_INSTANCE_SIGNATURE" "$WAYLAND_DISPLAY" >> "$DESKTOP_TEST_ROOT/actions"
+    if [[ $3 == power-prepare ]]; then
       case $state in
         slow-close) sleep 1.2 ;;
         locked-on-close|inactive-on-close) printf '%s\n' "${state%-on-close}" > "$DESKTOP_TEST_ROOT/state" ;;
+        rejected) exit 0 ;;
+        shell-failed) echo eDP-1; exit 1 ;;
+        invalid-output) echo DP-2; exit 0 ;;
       esac
     fi
+    echo eDP-1
     ;;
 esac
 """)
   tools.chmod(0o755)
-  for name in ("loginctl", "systemctl", "omarchy-hyprland-session-locked", "omarchy-menu", "omarchy-shell"):
+  for name in ("loginctl", "systemctl", "omarchy-hyprland-session-locked", "omarchy-shell"):
     (fake_bin / name).symlink_to(tools)
   env = os.environ | {"PATH": f"{fake_bin}:{os.environ['PATH']}", "XDG_RUNTIME_DIR": str(root),
                       "XDG_SESSION_ID": "test", "DESKTOP_TEST_ROOT": str(root)}
@@ -119,9 +124,9 @@ def main(root):
   active, state, actions, env = make_desktop_fixture(root)
   env["DBUS_SYSTEM_BUS_ADDRESS"] = address
   target = f"{INPUTPLUMBER_PATH}/devices/target/dbus0"
-  expected = ("omarchy-menu toggle root via test-hypr wayland-5\n"
-              "omarchy-menu close via test-hypr wayland-5\n"
-              "omarchy-shell shell toggle omarchy.power via test-hypr wayland-5\n")
+  expected = ("menu-toggle current via test-hypr wayland-5\n"
+              "power-prepare current via test-hypr wayland-5\n"
+              "power-toggle eDP-1 via test-hypr wayland-5\n")
 
   def emit(backend, action, value=1.0, target_path=target):
     backend.emit_signal(None, target_path, INPUT_EVENTS, "InputEvent", GLib.Variant("(sd)", (action, value)))
@@ -150,11 +155,11 @@ def main(root):
           sync_events(backend, observer_name)
           assert actions.read_text() == expected, actions.read_text()
 
-          for transition in ("locked-on-close", "inactive-on-close"):
+          for transition in ("locked-on-close", "inactive-on-close", "rejected", "shell-failed", "invalid-output"):
             state.write_text(f"{transition}\n")
             emit(backend, "omarchy_power")
             sync_events(backend, observer_name)
-            expected += "omarchy-menu close via test-hypr wayland-5\n"
+            expected += "power-prepare current via test-hypr wayland-5\n"
             assert actions.read_text() == expected, transition
 
           for blocked in ("inactive", "stale", "stranded", "unknown", "locked"):

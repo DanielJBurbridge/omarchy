@@ -232,6 +232,12 @@ Panel {
     if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, root.settings)
   }
 
+  function toggleHandheld(screen) {
+    if (!handheld || panel.screen !== screen || !batteryPresent) return false
+    root.toggle()
+    return true
+  }
+
   ShellIpc {
     target: "omarchy.power"
 

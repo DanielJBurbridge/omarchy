@@ -23,8 +23,8 @@ DBUS = "org.freedesktop.DBus"
 PROPERTIES = "org.freedesktop.DBus.Properties"
 
 DESKTOP_ACTIONS = {
-  "omarchy_menu": (("omarchy-menu", "toggle", "root"),),
-  "omarchy_power": (("omarchy-menu", "close"), ("omarchy-shell", "shell", "toggle", "omarchy.power")),
+  "omarchy_menu": ("menu-toggle",),
+  "omarchy_power": ("power-prepare", "power-toggle"),
 }
 
 
@@ -73,15 +73,21 @@ def unlocked_desktop_env():
     return env
 
 
-def desktop_action(commands):
+def desktop_action(steps):
   try:
-    for command in commands:
+    output = "current"
+    for step in steps:
       # Closing the menu can take long enough for the desktop to lock or yield the seat.
       env = unlocked_desktop_env()
       if env is None:
         return
-      # Allow the shell's two-second IPC deadline to run before the caller gives up.
-      run(command, env, timeout=3)
+      # The shell verifies focus and owns both the menu and the anchored bar
+      # widget. Pass its confirmed output back to fence the next step.
+      result = run(["omarchy-shell", "shell", "handheldAction", step, output,
+                    env["HYPRLAND_INSTANCE_SIGNATURE"]], env, timeout=3)
+      output = result.stdout.strip()
+      if result.returncode or not re.fullmatch(r"eDP-[0-9]+", output):
+        return
   except (OSError, ValueError, subprocess.TimeoutExpired):
     # Login, display and lock state are required even when a probe fails.
     return

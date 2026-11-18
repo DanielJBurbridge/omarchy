@@ -935,7 +935,7 @@ Item {
   // (clock, workspaces, tray) return null. Used by shell.summon/toggle so
   // panel hotkeys route through the bar instead of a per-target IPC handler
   // that only reaches whichever per-monitor instance claimed the target.
-  function findPanelWidget(pluginId) {
+  function findPanelWidget(pluginId, output) {
     var id = String(pluginId || "")
     if (!id) return null
     var candidates = []
@@ -945,7 +945,9 @@ Item {
       if (slot.moduleName !== id) continue
       var item = slot.activeItem
       if (typeof item.open !== "function" || typeof item.close !== "function" || item.opened === undefined) continue
-      candidates.push({ slot: slot, screenName: slotScreenName(slot), opened: item.opened === true })
+      var screenName = slotScreenName(slot)
+      if (output && screenName !== output) continue
+      candidates.push({ slot: slot, screenName: screenName, opened: item.opened === true })
     }
     // One copy per monitor, some of which may not be drawn. See
     // BarModel.pickPanelSlot for which one a hotkey acts on.
@@ -954,6 +956,17 @@ Item {
     })
     var chosen = BarModel.pickPanelSlot(candidates, focusedScreenName(), handheldOnly)
     return chosen ? chosen.activeItem : null
+  }
+
+  function permitsHandheldPopout(screen) {
+    // Opening a keyboard panel replaces the active bar popout. Avoid doing
+    // even that indirectly when the current owner is on the dock.
+    return !activePopout || targetWindow(activePopout)?.screen === screen
+  }
+
+  function toggleHandheldPower(screen) {
+    var item = findPanelWidget("omarchy.power", screen.name)
+    return item?.toggleHandheld?.(screen) === true
   }
 
   function summonBarWidget(pluginId) {

@@ -1301,6 +1301,38 @@ ShellRoot {
     return isPluginOpen(id) ? hide(id) : summon(id, payloadJson)
   }
 
+  function handheldAction(action, expectedOutput, signature) {
+    if (!signature || signature !== Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")) return ""
+    if (IpcRegistry.call("lock", "isLocked", []).output !== "false") return ""
+    var screens = Quickshell.screens.filter(function(screen) { return shell.isHandheldScreen(screen) })
+    if (screens.length !== 1) return ""
+    var screen = screens[0]
+    if (Hyprland.focusedMonitor?.name !== screen.name) return ""
+    if (expectedOutput !== "current" && expectedOutput !== screen.name) return ""
+    if (!shell.bar?.permitsHandheldPopout(screen)) return ""
+
+    var menu = panelLoaders["omarchy.menu"]?.item
+    // A regular menu can already be open on the dock, even when compositor
+    // focus has returned to eDP. Leave it there, including pending dmenu input.
+    if (!menu || (menu.opened && !menu.isOpenOn?.(screen))) return ""
+    switch (action) {
+      case "menu-toggle":
+        if (menu.opened) shell.hide("omarchy.menu")
+        else if (typeof menu.openHandheld === "function") menu.openHandheld(screen)
+        else return ""
+        return screen.name
+      case "power-prepare":
+        if (menu.opened) shell.hide("omarchy.menu")
+        return screen.name
+      case "power-toggle":
+        if (expectedOutput === screen.name && !menu.opened && shell.bar.toggleHandheldPower(screen))
+          return screen.name
+        return ""
+      default:
+        return ""
+    }
+  }
+
   // Map of pluginId -> Loader, populated by the Instantiator delegate below.
   property var panelLoaders: ({})
 
@@ -2027,6 +2059,10 @@ ShellRoot {
 
     function toggle(id: string, payloadJson: string): void {
       shell.toggle(id, payloadJson)
+    }
+
+    function handheldAction(action: string, expectedOutput: string, signature: string): string {
+      return shell.handheldAction(action, expectedOutput, signature)
     }
 
     // A bar section's panels answer to their position as well as their id, so a

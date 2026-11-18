@@ -20,6 +20,10 @@ Item {
   // `omarchy-shell shell summon omarchy.menu ...` and close() when hidden.
   property string pendingInitialMenu: "root"
   property string pendingScreenRoute: ""
+  property string handheldOutput: ""
+  readonly property var oemScreen: handheldOutput
+    ? Quickshell.screens.find(function(screen) { return screen.name === handheldOutput }) : null
+  onOemScreenChanged: if (handheldOutput && !oemScreen && opened) root.cancel()
   // Same-size outputs can satisfy Qt's geometry and scale checks while its
   // new surface still reports the old screen. Wait for the opening output.
   property string openingOutput: ""
@@ -38,11 +42,22 @@ Item {
     else if (opened && !dmenuActive) rebuildDisplay()
   }
 
+  function isOpenOn(screen) {
+    return opened && (handheldOutput ? oemScreen === screen : panel.targetScreen === screen)
+  }
+
+  function openHandheld(screen) {
+    handheldOutput = screen.name
+    openingOutput = screen.name
+    root.openRoute("root")
+  }
+
   function open(payloadJson) {
     if (!root.opened) root.openingOutput = Hyprland.focusedMonitor?.name || ""
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
+    handheldOutput = ""
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
     // A shell that started mid-update may never have read the shipped menu
     // whole; reading it again here keeps the menu from opening empty.
@@ -1398,7 +1413,8 @@ Item {
   }
   OverlayWindow {
     id: panel
-    shown: root.opened && root.rowsLoaded
+    shown: root.opened && root.rowsLoaded && (!root.handheldOutput || !!root.oemScreen)
+    screen: root.oemScreen || null
     WlrLayershell.namespace: "omarchy-menu"
 
     // The card opens centered exactly as always. The first search keystroke
