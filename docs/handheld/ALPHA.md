@@ -1,6 +1,14 @@
 # Handheld alpha (ROG Ally RC71L)
 
-The original RC71L can switch between Steam Gaming Mode and the managed Hyprland desktop. On the tested desktop, the right stick moves the pointer, RT left-clicks, LT right-clicks, Armoury Crate opens the Omarchy menu and Command Centre opens the power panel. Touch and RT can type on the optional themed keyboard.
+The optional handheld session gives the original RC71L a controller-driven Omarchy desktop and a dedicated Steam Gaming Mode.
+
+| On the handheld desktop | How to use it |
+|---|---|
+| Point and click | Move the right stick. RT left-clicks and LT right-clicks. |
+| Type | Focus the field. With the [touch keyboard](../rog-ally-touch-keyboard.md) configured, tap **Keyboard** in the bar. You can also swipe up from the bottom-centre handle when enabled on the undocked Ally. Type by touch or with the pointer and RT. Tap **Keyboard** again to hide it. |
+| Switch windows | Tap Armoury Crate, choose **Switch Window**, then select the window by title. **Apps** opens the launcher. |
+| Adjust brightness or volume | Tap Command Centre to open **Power**. The dock-aware candidate shows the handheld controls on the built-in panel. Brightness adjusts that screen. Volume adjusts the selected audio output, which may be the hub when docked. |
+| Switch modes | Save your desktop work, then choose **Omarchy → System → Switch to Gaming**. To return from the dedicated Gaming session, choose **Steam → Power → Switch to Desktop**. |
 
 The [feature-parity checklist](feature-parity.md) records the package versions, hardware results and open issues for the current build. Independent rear paddles, stick-ring lighting and output through the DisplayLink hub still need hardware work. The [gaming session reference](../rog-ally-gaming-session.md) covers the optional packages and session settings.
 
