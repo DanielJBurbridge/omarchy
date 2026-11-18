@@ -4,11 +4,28 @@
 
 Parity means a usable handheld on Omarchy: boot, play, suspend and return to a controller-friendly Hyprland desktop. Bazzite and CachyOS Handheld set the reference for the experience. The [prior-art audit](research/parity-gaps-ranked.md) records their implementations and licences. [Bazzite ASUS handhelds](https://docs.bazzite.gg/Handheld_and_HTPC_edition/Handheld_Wiki/ASUS_ROG_Ally/) · [CachyOS Handheld](https://wiki.cachyos.org/installation/installation_handheld/)
 
+| Area | On the original Ally | Next proof |
+|---|---|---|
+| Desktop controls | Right stick moves the pointer, RT left-clicks and LT right-clicks. Armoury opens the menu and Command Centre opens Power. The latest swipe opened the keyboard on the first try three times out of three. | Select an existing window by title with RT. Check dock and undock while using the new per-display controls. |
+| Gaming and wake | Hollow Knight resumed with picture, sound and controls on battery and AC. Steam’s volume rocker worked, and the desktop pointer returned after quitting Gaming. | Repeat on the next build and measure the occasional delay returning to Desktop. |
+| Power and lighting | Command Centre dimmed the built-in screen and restored it. Steam’s 20 W request reached firmware under the temporary power handoff. | Check power-limit persistence and visible ring colour with the original settings recoverable. |
+| Dock and paddles | Plugging in the charging hub rerouted game audio to its digital output. Selecting the speakers restored sound. Both rear paddles sent the same F15 event on the stock kernel. | Verify a physical external display and distinct M1/M2 events before assigning shortcuts. |
+| Installation and recovery | The prepared USB reached welcome. A sample save and a settings file restored from encrypted backup. | Verify a fresh physical install, first login and FLEET/Chezmoi reconnection. The current USB wizard and first disk unlock need a keyboard. |
+
+<details>
+<summary>Build identities and off-device test coverage</summary>
+
 The Ally runs runtime and settings `4.0.0.202611181330.r8227.handheld.e5b20774-1` and gaming-session `1.0.0-14`, on kernel `7.2.15-2-omarchy` and InputPlumber `0.84.0-1`. Snapshot #24 and the verified `675e46df` package pair at `~/omarchy-handheld-pkgs/candidate-675e46df.uzeoPGuJ` precede the thumb-swipe change. Snapshot #21 precedes the three-package pilot, #22 the enlarged handle and #23 the tap and fast-swipe fix. The stock UKI digest matched after each upgrade. The earlier `d61b9930` rollback also retains the original companion.
 
 **Source** means code in this branch. **Fixture** means an automated test of that path. **Older hardware** means an earlier build or desktop-only path was observed. **Gap** means the feature is absent, incomplete or blocked. Close each row against the exact candidate package versions.
 
 The desktop additions target the original Ally’s built-in eDP panel. In a two-output Hyprland session, the Ally menu selected a running window on another workspace and the external menu kept its ordinary rows. An open dock menu stayed on its screen through 36 rapid focus changes. A laptop retained its ordinary menu and power panel. These checks used synthetic displays. A physical external monitor remains an acceptance item.
+
+The next private desktop package pair is `fcd15f8b` with the optional output-aware `wvkbd 0.21-1.1`. It keeps the keyboard steady over the existing gesture strip. A trial that reclaimed the bottom 36 pixels moved the first visible keyboard frame on eight of twelve opens. On a second trial, a panel expanded under the open keyboard and its controls stopped receiving touch. Those trials used disposable compositors at 1× and 1.5×.
+
+On broad integration `9b5ca8354`, the installed RC71L VM passed the CLI and 436 of 442 shell files. Three failures reproduced on the earlier base: the Gaming recovery fixture lock, remote capture ownership and a tray icon with no visible pixels. On `f887593d1`, all three newly failing files passed in an installed RC71L guest after isolating the keyboard fixture’s hardware identity, fixing the standalone Gaming launcher’s argument handling and restoring the English **Power menu** label. The guest used virtual displays and substitutes for the Steam client and Gamescope. Some individual checks were skipped in the aggregate.
+
+</details>
 
 ## First release gates
 
