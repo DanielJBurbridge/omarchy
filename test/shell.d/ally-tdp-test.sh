@@ -49,6 +49,7 @@ pass "the leaf and the migration install TDP on an Ally"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/supply/ADP1" "$work/supply/BAT1"
+export SYSTEMCTL_LOG=$work/systemctl.log
 
 cat >"$work/bin/omarchy-hw-rog-ally" <<'EOF'
 #!/bin/bash
@@ -75,7 +76,17 @@ if [[ ${SYSTEMCTL_FAIL:-0} == 1 ]]; then
   exit 1
 fi
 if [[ $1 == is-active ]]; then
-  exit 3
+  shift
+  result=3
+  for unit in "$@"; do
+    if [[ $unit == "${OMARCHY_ALLY_TDP_CONFLICT:-}" || ( $unit == "asusd.service" && -e ${TEST_OWNER_STARTED:-} ) ]]; then
+      echo active
+      result=0
+    else
+      echo inactive
+    fi
+  done
+  exit "$result"
 fi
 if [[ $1 == is-enabled && $2 == power-profiles-daemon.service && ${PPD_MASKED:-0} == "1" ]]; then
   printf 'masked\n'
@@ -365,6 +376,25 @@ OMARCHY_ALLY_TDP_CONFLICT=asusd.service run_apply --reassert >/dev/null 2>"$work
   fail "a conflict changes firmware limits or the stored request" "$(tuple), $(stored)"
 pass "an active asusd blocks explicit requests and background reapply defers without writing"
 
+# asusd can start while a Steam request is waiting for another firmware writer.
+cat >"$work/bin/flock" <<'EOF'
+#!/bin/bash
+: >"$TEST_OWNER_STARTED"
+exec /usr/bin/flock "$@"
+EOF
+chmod +x "$work/bin/flock"
+if TEST_OWNER_STARTED="$work/asusd-started" run_apply --set 18 >/dev/null 2>"$work/err"; then
+  fail "a queued request wrote after asusd took ownership"
+fi
+rm "$work/bin/flock"
+[[ $(tuple) == 15/20/25 && $(stored) == 30 ]] || fail "the queued request changed the previous limits"
+grep -Fq 'asusd.service' "$work/err" || fail "the queued request reports the conflicting owner"
+pass "a queued request respects a new power owner"
+
+show=$(SYSTEMCTL_FAIL=1 run_apply --show)
+grep -Fxq 'writable=0' <<<"$show" && grep -Fxq 'conflict=unknown' <<<"$show" ||
+  fail "a systemd query failure leaves the firmware read-only" "$show"
+
 reset_state
 battery_table
 show=$(run_apply --show)
@@ -374,8 +404,6 @@ grep -q '^writable=1$' <<<"$show" || fail "--show is not writable" "$show"
 pass "--show reports the battery window"
 
 dest=$work/dest
-SYSTEMCTL_LOG=$work/systemctl.log
-export SYSTEMCTL_LOG
 : >"$SYSTEMCTL_LOG"
 HW=laptop OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
   PATH="$work/bin:$PATH" bash -euo pipefail "$migration"

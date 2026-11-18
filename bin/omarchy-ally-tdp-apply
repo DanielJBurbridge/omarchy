@@ -2,7 +2,7 @@
 
 # omarchy:hidden=true
 # omarchy:summary=Apply the ROG Ally sustained power limit
-# omarchy:args=--show | --snapshot | --set <watts> | --reassert
+# omarchy:args=--show | --conflict-units | --snapshot | --set <watts> | --reassert
 
 # RC71L sustained limit. SPPT and FPPT are derived here. The caller never
 # passes them. --show is unprivileged. --snapshot, --set and --reassert
@@ -20,6 +20,17 @@
 set -euo pipefail
 
 ATTRS=(ppt_pl1_spl ppt_pl2_sppt ppt_pl3_fppt)
+CONFLICT_UNITS=(
+  power-profiles-daemon.service
+  powerstation.service
+  hhd.service
+  adjustor.service
+  asusd.service
+  tlp.service
+  auto-cpufreq.service
+  tuned.service
+  gamemoded.service
+)
 LOCK_WAIT_DEFAULT=5
 AC_SPL_POLICY=30
 BATTERY_SPL_POLICY=20
@@ -32,7 +43,7 @@ log() {
 }
 
 usage() {
-  echo "Usage: omarchy-ally-tdp-apply --show | --snapshot | --set <watts> | --reassert" >&2
+  echo "Usage: omarchy-ally-tdp-apply --show | --conflict-units | --snapshot | --set <watts> | --reassert" >&2
   exit 1
 }
 
@@ -94,6 +105,12 @@ lowest() {
   done
   printf '%s\n' "$best"
 }
+
+# Steam watches the same services even when firmware is currently unavailable.
+if (( $# == 1 )) && [[ $1 == "--conflict-units" ]]; then
+  printf '%s\n' "${CONFLICT_UNITS[@]}"
+  exit 0
+fi
 
 fixture=0
 if [[ $EUID -ne 0 && ${OMARCHY_ALLY_TDP_FIXTURE:-} == 1 ]]; then
@@ -199,31 +216,18 @@ power_source() {
   fi
 }
 
-unit_active() {
-  local unit=$1
-  if (( fixture )); then
-    [[ -n ${OMARCHY_ALLY_TDP_CONFLICT:-} && ${OMARCHY_ALLY_TDP_CONFLICT} == "$unit" ]]
+conflict_owner() {
+  local i
+  local -a states
+  # is-active prints one state per requested unit, even when all are inactive.
+  mapfile -t states < <(systemctl is-active "${CONFLICT_UNITS[@]}")
+  if (( ${#states[@]} != ${#CONFLICT_UNITS[@]} )); then
+    printf '%s\n' 'unknown'
     return
   fi
-  systemctl is-active --quiet "$unit"
-}
-
-conflict_owner() {
-  local unit
-  local units=(
-    power-profiles-daemon.service
-    powerstation.service
-    hhd.service
-    adjustor.service
-    asusd.service
-    tlp.service
-    auto-cpufreq.service
-    tuned.service
-    gamemoded.service
-  )
-  for unit in "${units[@]}"; do
-    if unit_active "$unit"; then
-      printf '%s\n' "$unit"
+  for i in "${!states[@]}"; do
+    if [[ ${states[i]} != "inactive" && ${states[i]} != "failed" ]]; then
+      printf '%s\n' "${CONFLICT_UNITS[i]}"
       return
     fi
   done
@@ -446,6 +450,7 @@ emit_status() {
   printf 'min=%s\n' "$min"
   printf 'max=%s\n' "$max"
   printf 'writable=%s\n' "$writable"
+  printf 'conflict=%s\n' "$owner"
   printf 'spl_policy_battery=%s\n' "$BATTERY_SPL_POLICY"
   printf 'spl_policy_ac=%s\n' "$AC_SPL_POLICY"
 }
@@ -467,6 +472,15 @@ acquire_lock() {
     exit 1
   fi
 }
+
+if [[ $verb != "show" ]]; then
+  if [[ $verb == "set" ]] && ! canonical_watts "$watts"; then
+    log "watts must be a canonical whole number"
+    exit 1
+  fi
+  # A new owner or charger can appear while another request holds the lock.
+  acquire_lock
+fi
 
 owner=""
 if owner=$(conflict_owner); then
@@ -496,19 +510,13 @@ fi
 
 if (( writable == 0 )); then
   if [[ $verb == reassert ]]; then
-    log "skipping reapply while $owner is active"
+    log "skipping reapply (power service owner: $owner)"
     exit 0
   fi
-  log "refusing while $owner is active"
+  log "refusing to write (power service owner: $owner)"
   exit 1
 fi
 
-if [[ $verb == set ]] && ! canonical_watts "$watts"; then
-  log "watts must be a canonical whole number"
-  exit 1
-fi
-
-acquire_lock
 # Tell a running Steam shim when the write or reapply is complete, including
 # a power change that only changes the slider bounds. /run is present before
 # the first request, so the shim can watch the marker even before it exists.
@@ -516,7 +524,6 @@ if [[ $verb != "snapshot" ]]; then
   trap ': > "$lock_file.updated" || log "cannot notify the TDP shim"' EXIT
 fi
 
-# Power can change while another request holds the lock.
 source=$(power_source)
 ensure_snapshot "$source" || {
   log "cannot snapshot firmware limits"
