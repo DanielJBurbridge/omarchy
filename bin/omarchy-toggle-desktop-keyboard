@@ -31,7 +31,12 @@ HELP
   toggle | show | hide | stop | show-for-edge | show-for-menu | hide-for-menu) action=${1:-toggle} ;;
   *) echo 'Unknown action; use --help.' >&2; exit 2 ;;
 esac
-(( $# <= 1 )) || { echo 'Too many arguments; use --help.' >&2; exit 2; }
+if [[ $action == "show-for-edge" ]]; then
+  (( $# <= 2 )) && [[ ${2-0} =~ ^[0-7]$ ]] || { echo 'Expected a display transform from 0 to 7.' >&2; exit 2; }
+elif (( $# > 1 )); then
+  echo 'Too many arguments; use --help.' >&2
+  exit 2
+fi
 
 fail() {
   echo "Desktop keyboard: $*" >&2
@@ -94,7 +99,8 @@ edge_can_show() {
   local panel
   [[ :${desktop,,}: == *:hyprland:* ]] || return 1
   omarchy-hw-rog-ally || return 1
-  panel=$(hyprctl -j monitors | jq -er 'select(length == 1) | .[0] |
+  panel=$(hyprctl -j monitors | jq -er --argjson transform "$1" 'select(length == 1) | .[0] |
+    select($transform == null or .transform == $transform) |
     select(.focused == true and .dpmsStatus == true and (.solitaryBlockedBy |
       type == "array" and index("WINDOWED") != null and index("LOCK") == null and index("WORKSPACE") == null)) |
     .name | select(test("^eDP-[0-9]+$"))') || return 1
@@ -112,7 +118,7 @@ edge_can_show() {
 case "$action" in
   show-for-edge)
     [[ $(omarchy-shell lock isLocked 2>/dev/null) == "false" ]] || exit 0
-    edge_can_show 2>/dev/null || exit 0
+    edge_can_show "${2:-null}" 2>/dev/null || exit 0
     action=show
     ;;
   show-for-menu)

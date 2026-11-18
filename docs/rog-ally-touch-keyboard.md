@@ -43,6 +43,8 @@ Set `"desktopKeyboard": { "edgeSwipe": true }` in `~/.config/omarchy/shell.json`
 
 The handle reserves eight logical pixels along the bottom of the desktop. Touches can start within the middle 192 pixels, travel at least 64 pixels upwards and drift up to 24 pixels sideways. All distances are logical pixels. A mouse drag leaves the keyboard alone. The handle sits below application windows. A floating or fullscreen window covering it keeps the input. A bottom bar takes precedence. The normal bar button and controller shortcut are available when the handle is covered.
 
+The handle disappears while the keyboard, menu, a panel or a volume indicator is showing, and on an empty workspace. The eight-pixel reservation stays in place so tiled windows keep their size. After rotating the display, start a fresh swipe.
+
 The shell enables the handle only on an opted-in RC71L with a single internal display. At release the keyboard helper checks for the sole built-in Novatek touchscreen, an unlocked Hyprland session, a focused app and the expected desktop layers. A second touchscreen, another display, Gamescope, an authentication prompt or an unreadable desktop state suppresses the summon. Hyprland’s configurable swipes are trackpad gestures. Using a Quickshell layer gives this touchscreen control a bounded input area and leaves the compositor’s gesture bindings and device permissions alone. [Hyprland gestures](https://wiki.hypr.land/configuring/core/binds/gestures/)
 
 ## Wi-Fi passphrase entry

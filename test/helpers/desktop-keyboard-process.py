@@ -248,7 +248,7 @@ esac
             (root / 'omarchy-hw-rog-ally').symlink_to(repo / 'bin/omarchy-hw-rog-ally')
             (root / 'vendor').write_text('ASUSTeK COMPUTER INC.')
             (root / 'board').write_text('RC71L')
-            monitor = dict(name='eDP-1', focused=True, dpmsStatus=True, solitaryBlockedBy=['WINDOWED'])
+            monitor = dict(name='eDP-1', transform=0, focused=True, dpmsStatus=True, solitaryBlockedBy=['WINDOWED'])
             device = dict(name='nvtk0603:00-0603:f200')
             levels = {'1': [{'namespace': 'omarchy-keyboard-edge'}], '2': [], '3': []}
             ipc = dict(monitors=[monitor], devices={'touch': [device]}, layers={'eDP-1': {'levels': levels}},
@@ -274,7 +274,9 @@ esac
                 (root / query).write_text(json.dumps(ipc[query]))
             run('show-for-edge', extra=edge | {'SHELL_LOCK': 'unknown'})
             assert not record.exists()
-            run('show-for-edge', extra=edge)
+            run('show-for-edge', '2', extra=edge)
+            assert not record.exists(), 'A half-turn since the stroke started must cancel it'
+            run('show-for-edge', '0', extra=edge)
             assert record.exists() and (state / 'visibility').read_text().strip() == 'manual'
             run('hide-for-menu')
             assert (state / 'visibility').read_text().strip() == 'manual'
