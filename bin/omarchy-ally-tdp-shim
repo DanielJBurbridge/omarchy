@@ -21,7 +21,9 @@ OBJECT = "/com/steampowered/SteamOSManager1"
 TDP = BUS + ".TdpLimit1"
 MANAGER = BUS + ".Manager2"
 PROPS = "org.freedesktop.DBus.Properties"
-NOT_SUPPORTED = "org.freedesktop.DBus.Error.NotSupported"
+OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
+SYSTEMD = "org.freedesktop.systemd1"
+SYSTEMD_PATH = "/org/freedesktop/systemd1"
 TDP_PROPERTIES = {"TdpLimit": "limit", "TdpLimitMin": "min", "TdpLimitMax": "max"}
 
 # Steam discovers the supported interfaces through the manager at the bus root.
@@ -82,14 +84,22 @@ def parse_show(stdout):
             continue
         key, value = line.split("=", 1)
         data[key] = value
-    needed = ("source", "limit", "min", "max", "writable")
-    if any(key not in data for key in needed):
+    if data.get("writable") != "1":
         return None
-    return data
+    try:
+        props = {name: int(data[key]) for name, key in TDP_PROPERTIES.items()}
+    except (KeyError, ValueError):
+        return None
+    if any(value < 0 or value > 0xFFFFFFFF for value in props.values()):
+        return None
+    return props
 
 
 def show():
-    proc = run_apply(["--show"])
+    try:
+        proc = run_apply(["--show"])
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     return parse_show(proc.stdout)
@@ -116,26 +126,39 @@ def main():
         return 1
 
     loop = GLib.MainLoop()
-    state = {"failed": False, "stopping": False, "session": None, "last": None}
+    tdp = Gio.DBusNodeInfo.new_for_xml(tdp_xml).interfaces[0]
+    state = {"failed": False, "stopping": False, "session": None, "last": None, "tdp_id": 0}
 
     def stop():
         state["stopping"] = True
         loop.quit()
         return GLib.SOURCE_REMOVE
 
-    def emit_tdp(info):
+    def tdp_properties(info):
+        return {name: GLib.Variant("u", value) for name, value in info.items()}
+
+    def refresh_tdp(info, announce=True):
         connection = state["session"]
-        if connection is None or info is None:
-            return
         previous = state["last"]
-        state["last"] = info
-        changed = {
-            name: GLib.Variant("u", int(info[key]))
-            for name, key in TDP_PROPERTIES.items()
-            if previous is None or info[key] != previous[key]
-        }
-        if not changed:
+        if connection is None or info == previous:
             return
+        state["last"] = info
+        if info is None:
+            connection.unregister_object(state["tdp_id"])
+            state["tdp_id"] = 0
+            connection.emit_signal(
+                None, "/", OBJECT_MANAGER, "InterfacesRemoved", GLib.Variant("(oas)", (OBJECT, [TDP])),
+            )
+            return
+        if previous is None:
+            state["tdp_id"] = connection.register_object(OBJECT, tdp, on_method, on_get, on_set)
+            if announce:
+                connection.emit_signal(
+                    None, "/", OBJECT_MANAGER, "InterfacesAdded",
+                    GLib.Variant("(oa{sa{sv}})", (OBJECT, {TDP: tdp_properties(info)})),
+                )
+            return
+        changed = tdp_properties({name: value for name, value in info.items() if value != previous[name]})
         connection.emit_signal(
             None,
             OBJECT,
@@ -154,8 +177,8 @@ def main():
     def get_property(interface, name):
         if interface == TDP:
             info = state["last"]
-            if info is not None and name in TDP_PROPERTIES:
-                return GLib.Variant("u", int(info[TDP_PROPERTIES[name]]))
+            if info is not None and name in info:
+                return GLib.Variant("u", info[name])
         if interface == MANAGER and name == "DeviceModel":
             return GLib.Variant("(ss)", ("rog_ally", "RC71L"))
         return None
@@ -166,43 +189,32 @@ def main():
     def on_set(_connection, _sender, _path, interface, name, value):
         if interface == TDP and name == "TdpLimit":
             watts = value.get_uint32()
-            proc = run_apply(["--set", str(watts)])
-            if proc.returncode != 0:
-                return False
-            info = parse_show(proc.stdout)
+            try:
+                proc = run_apply(["--set", str(watts)])
+            except OSError:
+                proc = None
+            applied = proc is not None and proc.returncode == 0
+            info = parse_show(proc.stdout) if applied else None
             if info is None:
                 info = show()
-            if info is None:
-                return False
-            emit_tdp(info)
-            return True
+            refresh_tdp(info)
+            return applied and info is not None
         return False
 
     def on_bus(connection, _name):
         state["session"] = connection
-        info = show()
-        state["last"] = info
-        nodes = [Gio.DBusNodeInfo.new_for_xml(MANAGER_XML)]
-        if info is not None:
-            nodes.append(Gio.DBusNodeInfo.new_for_xml(tdp_xml))
-        interfaces = [interface for node in nodes for interface in node.interfaces]
-        for interface in interfaces:
-            connection.register_object(OBJECT, interface, on_method, on_get, on_set)
+        manager = Gio.DBusNodeInfo.new_for_xml(MANAGER_XML).interfaces[0]
+        connection.register_object(OBJECT, manager, on_method, on_get, on_set)
+        refresh_tdp(show(), announce=False)
 
         def get_managed_objects(_connection, _sender, _path, _interface, _method, _params, invocation):
-            managed = {}
-            for interface in interfaces:
-                properties = {}
-                for prop in interface.properties:
-                    value = get_property(interface.name, prop.name)
-                    if value is not None:
-                        properties[prop.name] = value
-                managed[interface.name] = properties
+            managed = {MANAGER: {"DeviceModel": get_property(MANAGER, "DeviceModel")}}
+            if state["last"] is not None:
+                managed[TDP] = tdp_properties(state["last"])
             invocation.return_value(GLib.Variant("(a{oa{sa{sv}}})", ({OBJECT: managed},)))
 
-        # The interfaces stay registered until the bus name is released.
-        manager = Gio.DBusNodeInfo.new_for_xml(OBJECT_MANAGER_XML).interfaces[0]
-        connection.register_object("/", manager, get_managed_objects, None, None)
+        object_manager = Gio.DBusNodeInfo.new_for_xml(OBJECT_MANAGER_XML).interfaces[0]
+        connection.register_object("/", object_manager, get_managed_objects, None, None)
 
     def on_lost(_connection, _name):
         if not state["stopping"]:
@@ -210,8 +222,14 @@ def main():
             loop.quit()
 
     def on_update(_monitor, _file, _other_file, event):
-        if event == Gio.FileMonitorEvent.CHANGES_DONE_HINT and state["last"] is not None:
-            emit_tdp(show())
+        if event == Gio.FileMonitorEvent.CHANGES_DONE_HINT and state["session"] is not None:
+            refresh_tdp(show())
+
+    def on_unit_change(_connection, _sender, path, _interface, _signal, parameters):
+        if path in conflict_paths and state["session"] is not None:
+            _unit, changed, invalidated = parameters.unpack()
+            if "ActiveState" in changed or "ActiveState" in invalidated:
+                refresh_tdp(show())
 
     lock = "/run/omarchy-ally-tdp.lock"
     if os.environ.get("OMARCHY_ALLY_TDP_FIXTURE") == "1" and not use_pkexec():
@@ -222,6 +240,23 @@ def main():
         updates.connect("changed", on_update)
     except GLib.Error as exc:
         print(f"omarchy-ally-tdp-shim: could not watch for power updates: {exc}", file=sys.stderr)
+
+    try:
+        proc = run_apply(["--conflict-units"])
+        conflict_paths = {
+            f"{SYSTEMD_PATH}/unit/{Gio.dbus_escape_object_path(unit)}" for unit in proc.stdout.splitlines()
+        } if proc.returncode == 0 else set()
+        if conflict_paths:
+            system_bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+            system_bus.signal_subscribe(
+                SYSTEMD, PROPS, "PropertiesChanged", None, SYSTEMD + ".Unit", Gio.DBusSignalFlags.NONE, on_unit_change,
+            )
+            system_bus.call_sync(
+                SYSTEMD, SYSTEMD_PATH, SYSTEMD + ".Manager", "Subscribe", None, None,
+                Gio.DBusCallFlags.NONE, 3000, None,
+            )
+    except (OSError, GLib.Error) as exc:
+        print(f"omarchy-ally-tdp-shim: could not watch for power owner changes: {exc}", file=sys.stderr)
 
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)

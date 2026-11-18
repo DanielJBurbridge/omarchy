@@ -649,94 +649,13 @@ if (root / "packaging").exists():
 PY
 pass "the shim compiles and the vendored interface is the default tree"
 
-cat >"$work/shim-session.sh" <<EOF
-#!/bin/bash
-set -euo pipefail
-export HW=ally
-export OMARCHY_PATH=$ROOT
-export OMARCHY_ALLY_TDP_NO_PKEXEC=1
-export OMARCHY_ALLY_TDP_APPLY=$apply
-export OMARCHY_ALLY_TDP_FIXTURE=1
-export OMARCHY_ALLY_TDP_ARMOURY=$armoury
-export OMARCHY_ALLY_TDP_POWER=$work/supply
-export OMARCHY_ALLY_TDP_STATE=$state
-export OMARCHY_ALLY_TDP_RUN=$run
-export OMARCHY_ALLY_TDP_LOCK=$lock
-export OMARCHY_ALLY_TDP_BOOT_ID=boot
-export PATH=$work/bin:\$PATH
-"\$ROOT/bin/omarchy-ally-tdp-shim" &
-pid=\$!
-trap 'kill "\$pid" 2>/dev/null || true; wait "\$pid" 2>/dev/null || true' EXIT
-ready=0
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  if busctl --user status com.steampowered.SteamOSManager1 >/dev/null 2>&1; then
-    ready=1
-    break
-  fi
-  sleep 0.2
-done
-[[ \$ready == 1 ]]
-model=\$(busctl --user get-property com.steampowered.SteamOSManager1 /com/steampowered/SteamOSManager1 com.steampowered.SteamOSManager1.Manager2 DeviceModel)
-[[ \$model == *rog_ally* && \$model == *RC71L* ]]
-bus=com.steampowered.SteamOSManager1
-object=/com/steampowered/SteamOSManager1
-interface=\$bus.TdpLimit1
-python3 - <<'PY'
-import gi
-
-gi.require_version("Gio", "2.0")
-from gi.repository import Gio
-
-bus = "com.steampowered.SteamOSManager1"
-path = "/com/steampowered/SteamOSManager1"
-manager = Gio.DBusObjectManagerClient.new_for_bus_sync(
-    Gio.BusType.SESSION, Gio.DBusObjectManagerClientFlags.DO_NOT_AUTO_START, bus, "/",
-)
-tdp = manager.get_interface(path, bus + ".TdpLimit1")
-assert tdp is not None, "Steam discovery could not find TdpLimit1"
-for name, value in {"TdpLimit": 30, "TdpLimitMin": 7, "TdpLimitMax": 30}.items():
-    prop = tdp.get_cached_property(name)
-    assert prop is not None and prop.get_uint32() == value, name
-assert manager.get_interface(path, bus + ".GpuPerformanceLevel1") is None
-assert manager.get_interface(path, bus + ".PerformanceProfile1") is None
-PY
-busctl --user set-property "\$bus" "\$object" "\$interface" TdpLimit u 30
-[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
-expect_tdp_update() {
-  local limit=\$1
-  for _ in {1..50}; do
-    if grep -q "PropertiesChanged.*TdpLimitMax.*uint32 \$limit" "$work/tdp-signals"; then return 0; fi
-    sleep 0.1
-  done
-  printf 'No TDP update to %s: %s\\n' "\$limit" "\$(cat "$work/tdp-signals")" >&2
-  return 1
-}
-stdbuf -oL gdbus monitor --session --dest "\$bus" --object-path "\$object" > "$work/tdp-signals" &
-monitor=\$!
-trap 'kill "\$monitor" "\$pid" 2>/dev/null || true; wait "\$monitor" "\$pid" 2>/dev/null || true' EXIT
-for _ in {1..50}; do
-  if grep -q 'is owned by' "$work/tdp-signals"; then break; fi
-  sleep 0.1
-done
-grep -q 'is owned by' "$work/tdp-signals"
-printf '0\\n' > "\$OMARCHY_ALLY_TDP_POWER/ADP1/online"
-"\$OMARCHY_ALLY_TDP_APPLY" --reassert >/dev/null
-expect_tdp_update 20
-[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimit) == "u 20" ]]
-[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 20" ]]
-[[ \$(<"\$OMARCHY_ALLY_TDP_STATE/request") == 30 ]]
-
-# With no saved setting, a power change still updates the slider bounds.
-rm "\$OMARCHY_ALLY_TDP_STATE/request"
-printf '1\\n' > "\$OMARCHY_ALLY_TDP_POWER/ADP1/online"
-"\$OMARCHY_ALLY_TDP_APPLY" --reassert >/dev/null
-expect_tdp_update 30
-[[ \$(busctl --user get-property "\$bus" "\$object" "\$interface" TdpLimitMax) == "u 30" ]]
-EOF
-chmod +x "$work/shim-session.sh"
 ac_table
 reset_state
-if dbus-run-session -- bash "$work/shim-session.sh"; then
+if env HW=ally OMARCHY_ALLY_TDP_NO_PKEXEC=1 OMARCHY_ALLY_TDP_FIXTURE=1 \
+  OMARCHY_ALLY_TDP_ARMOURY="$armoury" OMARCHY_ALLY_TDP_POWER="$work/supply" \
+  OMARCHY_ALLY_TDP_STATE="$state" OMARCHY_ALLY_TDP_RUN="$run" \
+  OMARCHY_ALLY_TDP_LOCK="$lock" OMARCHY_ALLY_TDP_BOOT_ID=boot PATH="$work/bin:$PATH" \
+  dbus-run-session -- python3 "$ROOT/test/helpers/ally-tdp-shim.py"; then
   [[ $(tuple) == 20/20/25 ]] || fail "a reassert without a request writes to firmware" "$(tuple)"
   [[ -z $(stored) ]] || fail "a reassert without a request persists a setting" "$(stored)"
   pass "clients discover the TDP shim and receive external reassert updates"

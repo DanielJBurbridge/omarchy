@@ -121,6 +121,8 @@ This section is the TDP contract. The writer is `bin/omarchy-ally-tdp-apply`. Th
 
 The shim owns `com.steampowered.SteamOSManager1` on the session bus and loads `TdpLimit1` from `default/ally-tdp/com.steampowered.SteamOSManager1.TdpLimit1.xml`. That interface, and the SPL then SPPT then FPPT write, are from evlaV/steamos-manager `85fbd8f` (MIT; `default/ally-tdp/NOTICE.steamos-manager`). The shim does not write sysfs. It uses pkexec to call the writer for `--set`.
 
+The shim exposes `TdpLimit1` only while the writer reports a writable slider. It keeps `Manager2` available and signals `InterfacesAdded` or `InterfacesRemoved` when a writer update or a competing system service changes that capability. A writable slider reports changes to its limit and bounds through `PropertiesChanged`.
+
 `install/hardware/asus/ally-tdp.sh` runs `omarchy-ally-tdp-install hardware`, and `session` when `omarchy-gaming-session` is installed. Session install enables the shim, writes the polkit rule, and masks `power-profiles-daemon` after recording its previous state.
 
 - One polkit action, `org.omarchy.ally.set-tdp`. The policy defaults are `allow_any=no`, `allow_inactive=no`, `allow_active=yes` (`default/polkit/org.omarchy.ally.set-tdp.policy`). The exec path is `/usr/bin/omarchy-ally-tdp-apply`. The generated rule returns YES only for the user in `omarchy-handheld-user.conf`, and only while that session is active and local. `sddm` is NO. There is no `wheel` grant. D1's sign-off of `allow_active=yes` is still open. The caller does not pass SPPT or FPPT.
