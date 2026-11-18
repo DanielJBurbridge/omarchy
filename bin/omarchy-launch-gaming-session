@@ -3,9 +3,16 @@
 # omarchy:args=[--help|--confirm|--available]
 
 set -euo pipefail
-if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
-  echo 'Save your work and exit Steam, then run omarchy-launch-gaming-session from a managed handheld desktop.'
-  exit 0
+if (( $# )); then
+  (( $# == 1 )) || exit 2
+  case $1 in
+    --help|-h)
+      echo 'Save your work and exit Steam, then run omarchy-launch-gaming-session from a managed handheld desktop.'
+      exit 0
+      ;;
+    --available|--confirm) ;;
+    *) exit 2 ;;
+  esac
 fi
 source "$OMARCHY_PATH/default/gaming/session.sh"
 
@@ -18,17 +25,13 @@ managed_desktop() {
 }
 
 # Used at Hyprland config load, before the compositor exports its display.
-if (( $# == 1 )) && [[ $1 == "--available" ]]; then
+if [[ ${1:-} == "--available" ]]; then
   managed_desktop && gaming_handheld_variant
   exit $?
 fi
 
 # --confirm is the menu's confirmation. Steam's Switch to Desktop is the other
 # confirmation; neither path prompts again inside gamescope.
-if (( $# == 1 )) && [[ $1 == --confirm ]]; then
-  set --
-fi
-(( $# == 0 )) || exit 2
 omarchy-hw-rog-ally || { gaming_fail 'this action supports the original RC71L only.'; exit 1; }
 [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] || exit 1
 if ! managed_desktop || ! omarchy-pkg-present omarchy-gaming-session; then
