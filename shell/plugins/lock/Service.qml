@@ -19,6 +19,7 @@ Item {
   readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
 
   property bool lockRequested: false
+  onLockRequestedChanged: lockStateSocket.stateChanged()
   property bool pendingSessionLock: false
   property bool authenticatingPassword: false
   property bool fingerprintAuthenticating: false
@@ -463,12 +464,20 @@ Item {
     }
   }
 
+  LockStateSocket {
+    id: lockStateSocket
+    // Only the registered lock service should publish the session state.
+    active: root.shell !== null && path.length > 0
+    readLocked: function() { return root.currentlyLocked() }
+  }
+
   WlSessionLock {
     id: sessionLock
 
     locked: false
 
     onSecureStateChanged: {
+      lockStateSocket.stateChanged()
       root.logEvent("secure=" + secure)
       if (secure) {
         root.pendingSessionLock = false
@@ -479,6 +488,7 @@ Item {
     }
 
     onLockStateChanged: {
+      lockStateSocket.stateChanged()
       root.logEvent("session-locked=" + locked)
 
       if (locked) {

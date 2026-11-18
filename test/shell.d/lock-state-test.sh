@@ -24,3 +24,32 @@ assert(
   'lock, isLocked and status decide from the current lock state'
 )
 JS
+# Exercise the real one-way producer without a compositor or authentication.
+# Restricted agent sandboxes can forbid AF_UNIX; retain static checks there.
+if command -v quickshell >/dev/null 2>&1; then
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  mkdir -p "$work/config" "$work/runtime" "$work/home"
+  chmod 700 "$work/runtime"
+  if python3 - "$work/runtime/probe.sock" 2>/dev/null <<'PY_PROBE'
+import socket, sys
+with socket.socket(socket.AF_UNIX) as probe:
+  probe.bind(sys.argv[1])
+PY_PROBE
+  then
+    cp "$SHELL_TEST_DIR/fixtures/lock-state-socket/shell.qml" "$work/config/shell.qml"
+    HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" HYPRLAND_INSTANCE_SIGNATURE=fixture \
+      OMARCHY_PATH="$ROOT" QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
+      QT_QUICK_BACKEND=software timeout 15 quickshell -p "$work/config" --no-color >"$work/log" 2>&1 || {
+        cat "$work/log" >&2
+        fail "readonly lock-state socket runs"
+      }
+    if ! grep -q 'LOCK_STATE_SOCKET_TEST_PASS' "$work/log" || grep -q 'LOCK_STATE_SOCKET_TEST_FAIL' "$work/log"; then
+      cat "$work/log" >&2
+      fail "readonly lock-state socket publishes transitions and closes on death"
+    fi
+    pass "readonly lock-state socket sends initial state and transitions, rejects writes and closes subscribers"
+  else
+    skip "AF_UNIX unavailable; skipping readonly lock-state socket runtime check"
+  fi
+fi
