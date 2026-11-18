@@ -17,10 +17,10 @@ No automatic startup, input-device permissions or system service is needed.
 
 Tap Desktop Keyboard in the bar or open it from Apps. On a configured RC71L,
 Super+Ctrl+Y also toggles it. Enable menu.onScreenKeyboard in shell.json to
-summon it when you click or tap menu search. Use the bottom-left symbol to
-change layouts:
-full has Ctrl/Esc/arrows; special has Alt, Sup (Super) and AltGr. Abc returns
-to letters. The keyboard symbol changes layouts; it does not hide the keyboard.
+summon it when you click or tap menu search. On RC71L, desktopKeyboard.edgeSwipe
+lets you swipe up from the handle at the bottom centre of the desktop.
+The bottom-left symbol changes layouts. Full has Ctrl/Esc/arrows. Special has
+Alt, Sup (Super) and AltGr. Abc returns to letters.
 Cmp plus a letter opens accents; Cmp plus Space opens the layout index.
 Modifiers are one-shot; the keyboard uses its own layouts, not the physical
 keyboard's layout setting. Tap the bar button again to hide, or use hide.
@@ -28,7 +28,7 @@ Steam owns its keyboard in Gaming Mode; this command never starts Steam.
 HELP
     exit 0
     ;;
-  toggle | show | hide | stop | show-for-menu | hide-for-menu) action=${1:-toggle} ;;
+  toggle | show | hide | stop | show-for-edge | show-for-menu | hide-for-menu) action=${1:-toggle} ;;
   *) echo 'Unknown action; use --help.' >&2; exit 2 ;;
 esac
 (( $# <= 1 )) || { echo 'Too many arguments; use --help.' >&2; exit 2; }
@@ -43,7 +43,7 @@ fail() {
   fi
   exit 1
 }
-if [[ $action == "show" || $action == "toggle" || $action == "show-for-menu" ]]; then
+if [[ $action == "show" || $action == "toggle" || $action == "show-for-menu" || $action == "show-for-edge" ]]; then
   desktop=${XDG_CURRENT_DESKTOP:-}
   [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && ${desktop,,} != *gamescope* ]] ||
     fail 'show it in the Hyprland desktop; use the Steam keyboard in Gaming Mode.'
@@ -88,7 +88,33 @@ if $alive && [[ -f $state/visibility ]]; then
   read -r visibility < "$state/visibility" || true
 fi
 
+# Wayland delivers a seat's touch events without the hardware identity, and
+# wvkbd chooses its own output. Require an unambiguous panel and touchscreen.
+edge_can_show() {
+  local panel
+  [[ :${desktop,,}: == *:hyprland:* ]] || return 1
+  omarchy-hw-rog-ally || return 1
+  panel=$(hyprctl -j monitors | jq -er 'select(length == 1) | .[0] |
+    select(.focused == true and .dpmsStatus == true and (.solitaryBlockedBy |
+      type == "array" and index("WINDOWED") != null and index("LOCK") == null and index("WORKSPACE") == null)) |
+    .name | select(test("^eDP-[0-9]+$"))') || return 1
+  hyprctl -j devices | jq -e '.touch | length == 1 and (.[0].name |
+    test("^nvtk0603:00-0603:f200($|-touchscreen$)"))' >/dev/null || return 1
+  hyprctl -j activewindow | jq -e '.mapped == true and
+    ([.class, .initialClass] | all(type == "string" and length > 0 and
+      (ascii_downcase | contains("gamescope") | not)))' >/dev/null || return 1
+  hyprctl -j layers | jq -e --arg panel "$panel" '
+    .[$panel].levels as $l | keys == [$panel] and ($l["1"] | any(.namespace == "omarchy-keyboard-edge"))
+    and ($l["2"] | type == "array" and all(.namespace == "omarchy-bar" or .namespace == "omarchy-dock"))
+    and ($l["3"] | type == "array" and all(.namespace == "omarchy-notifications"))' >/dev/null
+}
+
 case "$action" in
+  show-for-edge)
+    [[ $(omarchy-shell lock isLocked 2>/dev/null) == "false" ]] || exit 0
+    edge_can_show 2>/dev/null || exit 0
+    action=show
+    ;;
   show-for-menu)
     [[ $visibility != "manual" ]] || exit 0
     [[ $(omarchy-shell lock isLocked 2>/dev/null) == "false" ]] || exit 0

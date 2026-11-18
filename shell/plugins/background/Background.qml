@@ -583,6 +583,20 @@ Item {
     }
   }
 
+  // The normal tiled resize border can own even the outermost wallpaper
+  // pixel. Reserve a shallow strip only on the opted-in handheld desktop.
+  Variants {
+    model: root.shell?.handheldAlly === true && root.shell?.shellConfig?.desktopKeyboard?.edgeSwipe === true
+      && root.shell?.barConfig?.position !== "bottom" && Quickshell.screens.length === 1
+      && /^eDP-[0-9]+$/.test(Quickshell.screens[0].name) ? Quickshell.screens : []
+
+    KeyboardEdge {
+      required property var modelData
+      screen: modelData
+      DesktopClicks { service: root }
+    }
+  }
+
   // Inline components do not see this file's ids, so each one is handed the service.
   component DesktopClicks: MouseArea {
     required property var service

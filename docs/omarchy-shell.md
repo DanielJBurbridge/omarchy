@@ -194,7 +194,7 @@ machine-level `~/.config/omarchy/shell.toml` is watched live by the
 shell and its keys win over the active theme's `shell.toml`, so
 overrides like `omarchy display text size` survive theme switches.
 
-With the optional desktop keyboard installed, set `"menu": { "onScreenKeyboard": true }` in `shell.json` to show it when you tap or click Omarchy's menu search field. Leaving the field hides a keyboard opened by that click. A manually opened keyboard keeps its normal controls. This setting defaults to off and applies only to Omarchy's menu search.
+With the optional desktop keyboard installed, set `"menu": { "onScreenKeyboard": true }` in `shell.json` to show it when you tap or click Omarchy's menu search field. Leaving the field hides a keyboard opened by that click. A manually opened keyboard keeps its normal controls. This setting defaults to off and applies only to Omarchy's menu search. The original ROG Ally also supports an independent `desktopKeyboard.edgeSwipe` setting for manual summon from the bottom edge. See the [touch keyboard guide](rog-ally-touch-keyboard.md#optional-bottom-edge-swipe).
 
 ## Theme tokens
 

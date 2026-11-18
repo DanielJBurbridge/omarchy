@@ -7,6 +7,7 @@ are touched. This checks helper routing/identity/locking and the DMI gate
 on keyboard setup. It does not check focus retention, held-key release or
 overlay geometry.
 """
+import json
 import os
 from pathlib import Path
 import signal
@@ -152,6 +153,7 @@ def main():
         shell.chmod(0o700)
         hyprctl = root / 'hyprctl'
         hyprctl.write_text("""#!/bin/bash
+if [[ -n $EDGE_IPC ]]; then exec cat "$EDGE_IPC/$2"; fi
 case $2 in
   monitors) printf '[{"solitaryBlockedBy":["%s"]}]\\n' "${MONITOR_BLOCKER:-CANDIDATE}" ;;
   layers) printf '{"eDP-1":{"levels":{"3":[{"namespace":"omarchy-menu"},{"namespace":"%s"}]}}}\\n' "${LAYER:-omarchy-notifications}" ;;
@@ -200,7 +202,7 @@ esac
             print('[Haki] PASS help, invalid arguments, missing session, inactive hide/stop')
 
             # A dedicated Steam compositor must not acquire a desktop OSK.
-            for action in ('show', 'toggle', 'show-for-menu'):
+            for action in ('show', 'toggle', 'show-for-menu', 'show-for-edge'):
                 run(action, ok=False, extra={'HYPRLAND_INSTANCE_SIGNATURE': ''})
                 run(action, ok=False, extra={'XDG_CURRENT_DESKTOP': 'Gamescope'})
                 assert not record.exists() and not (root / 'signals').exists()
@@ -227,6 +229,44 @@ esac
             run('stop')
             wait_for(lambda: events().endswith('EHSSHX'))
             print('[Haki] PASS menu cleanup hides its own keyboard, preserves manual show and skips lock and polkit')
+
+            # Only the compositor can distinguish a sole internal touch device
+            # from two devices routed to the same Wayland seat.
+            (root / 'omarchy-hw-rog-ally').symlink_to(repo / 'bin/omarchy-hw-rog-ally')
+            (root / 'vendor').write_text('ASUSTeK COMPUTER INC.')
+            (root / 'board').write_text('RC71L')
+            monitor = dict(name='eDP-1', focused=True, dpmsStatus=True, solitaryBlockedBy=['WINDOWED'])
+            device = dict(name='nvtk0603:00-0603:f200')
+            levels = {'1': [{'namespace': 'omarchy-keyboard-edge'}], '2': [], '3': []}
+            ipc = dict(monitors=[monitor], devices={'touch': [device]}, layers={'eDP-1': {'levels': levels}},
+                       activewindow={'mapped': True, 'class': 'foot', 'initialClass': 'foot'})
+            edge = {'EDGE_IPC': str(root), 'OMARCHY_DMI_SYS_VENDOR_PATH': str(root / 'vendor'),
+                    'OMARCHY_DMI_BOARD_NAME_PATH': str(root / 'board'),
+                    'OMARCHY_DMI_PRODUCT_NAME_PATH': str(root / 'missing-product')}
+            for query, response in ipc.items():
+                (root / query).write_text(json.dumps(response))
+            for query, response in (
+                ('devices', {'touch': [device, dict(name='usb-touchscreen')]}),
+                ('devices', {'touch': [dict(name='usb-touchscreen')]}),
+                ('monitors', [monitor, monitor | {'name': 'HDMI-A-1'}]),
+                ('monitors', [monitor | {'solitaryBlockedBy': ['WINDOWED', 'LOCK']}]),
+                ('monitors', [monitor | {'solitaryBlockedBy': None}]),
+                ('activewindow', {}),
+                ('activewindow', ipc['activewindow'] | {'initialClass': 'gamescope'}),
+                ('layers', {'eDP-1': {'levels': levels | {'3': [{'namespace': 'omarchy-polkit'}]}}}),
+            ):
+                (root / query).write_text(json.dumps(response))
+                run('show-for-edge', extra=edge)
+                assert not record.exists(), (query, response)
+                (root / query).write_text(json.dumps(ipc[query]))
+            run('show-for-edge', extra=edge | {'SHELL_LOCK': 'unknown'})
+            assert not record.exists()
+            run('show-for-edge', extra=edge)
+            assert record.exists() and (state / 'visibility').read_text().strip() == 'manual'
+            run('hide-for-menu')
+            assert (state / 'visibility').read_text().strip() == 'manual'
+            run('stop')
+            print('PASS edge summon requires a known desktop and one internal panel and touch device')
 
             for _ in range(3):
                 run('show')

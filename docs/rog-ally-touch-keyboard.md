@@ -37,11 +37,19 @@ Gaming Mode uses Steam's keyboard: `Guide + X` (West), or Steam's text-field UI.
 
 Desktop wvkbd is not a greeter, lock-screen or disk-unlock keyboard. AUTH owns those surfaces. Omarchy's full-screen menus and Apps grid currently use exclusive overlay focus. Their interaction with wvkbd needs explicit acceptance, including opening the keyboard before and after the menu. The bar summon control avoids needing menu search to open the keyboard; it does not establish menu typing compatibility. Do not change authentication or generic overlay policy to mask a failure.
 
+## Optional bottom-edge swipe
+
+Set `"desktopKeyboard": { "edgeSwipe": true }` in `~/.config/omarchy/shell.json`. With an app text field focused, swipe one finger up from the small handle at the bottom centre of the built-in screen, then lift. The gesture opens the themed keyboard under manual control. Tap **Keyboard** in the bar to hide it. Removing the setting or setting it to `false` also removes the handle and its reserved space.
+
+The handle reserves eight logical pixels along the bottom of the desktop. Touches can start within the middle 192 pixels, travel at least 64 pixels upwards and drift up to 24 pixels sideways. All distances are logical pixels. A mouse drag leaves the keyboard alone. The handle sits below application windows. A floating or fullscreen window covering it keeps the input. A bottom bar takes precedence. The normal bar button and controller shortcut are available when the handle is covered.
+
+The shell enables the handle only on an opted-in RC71L with a single internal display. At release the keyboard helper checks for the sole built-in Novatek touchscreen, an unlocked Hyprland session, a focused app and the expected desktop layers. A second touchscreen, another display, Gamescope, an authentication prompt or an unreadable desktop state suppresses the summon. Hyprland’s configurable swipes are trackpad gestures. Using a Quickshell layer gives this touchscreen control a bounded input area and leaves the compositor’s gesture bindings and device permissions alone. [Hyprland gestures](https://wiki.hypr.land/configuring/core/binds/gestures/)
+
 ## Optional keyboard on menu search
 
 Add `"menu": { "onScreenKeyboard": true }` to your `shell.json` to show the keyboard when you deliberately tap or click Omarchy menu search. A keyboard opened this way hides when search loses focus or the menu closes. The bar, app and keyboard shortcuts still provide manual control. This setting defaults to off.
 
-Other applications use manual summon. Omarchy starts Fcitx5, which uses Hyprland's single input-method slot. Both manual summon and menu search use wvkbd's virtual-keyboard path. Application-wide activation needs a supported adapter through the existing input-method owner and real application tests. [Hyprland input-method implementation](https://github.com/hyprwm/Hyprland/blob/main/src/managers/input/InputMethodRelay.cpp) · [wvkbd v0.21](https://github.com/jjsullivan5196/wvkbd/blob/v0.21/main.c)
+Use the bar, shortcut or optional edge swipe for other applications. Omarchy starts Fcitx5, which uses Hyprland's single input-method slot. Both manual summon and menu search use wvkbd's virtual-keyboard path. Application-wide activation needs a supported adapter through the existing input-method owner and real application tests. [Hyprland input-method implementation](https://github.com/hyprwm/Hyprland/blob/main/src/managers/input/InputMethodRelay.cpp) · [wvkbd v0.21](https://github.com/jjsullivan5196/wvkbd/blob/v0.21/main.c)
 
 ## Install and rollback for the rollout owner
 
@@ -86,5 +94,6 @@ The rollout owner must record the source commit, installed package versions, act
 3. Exercise `Cmp`, symbols and at least one required non-Latin layout. Confirm the keyboard's independent keymap does not change the physical layout or Fcitx method. Check touch targets, clipping and the covered application area at the agreed display scale, in both orientations and when docked.
 4. Open Omarchy menu/Apps before and after showing the keyboard. Attempt actual search typing and dismiss/selection. Record focus or stacking failures separately from ordinary app entry; existing user clones are not proof the packaged shell works.
 5. Launch Big Picture through its wrapper, then the dedicated gaming session. Confirm no desktop keyboard remains, and Guide+West opens Steam's keyboard in a focused Steam field. Test one game's text entry. Exit/fail gaming back to Hyprland, summon wvkbd again with Steam closed, log out/in and repeat. Lock/unlock acceptance belongs to AUTH.
+6. With the optional swipe enabled, check the handle in landscape and portrait. Focus a field, swipe from the bezel, type, then hide from the bar. Check short swipes, mouse drags, a docked display and the locked screen. Record whether the physical bezel reliably delivers the initial contact within eight logical pixels.
 
 Source-ready and installed/physically verified are separate milestones. A failing physical check remains open with its exact session, application and reproduction; do not replace it with a fixture pass.
