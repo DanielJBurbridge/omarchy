@@ -29,6 +29,8 @@ The candidate combined Quattro `c6be7abb9` and draft head `515d61405` at merge `
 
 Twelve installed package versions differed between the original RC71L guests because the mirror advanced. The matched clones controlled that difference. The exact late recovery-menu timeout remains unresolved, with a similar wrong-output state on reverted code and a candidate pass on identical inputs. The cloned runs test desktop behaviour. The original fresh installs provide the installer evidence. Candidate ISO SHA-256: `7eb22d176d0b804de4a707aba6f5bbfb69748810f1eac3f658f1de5fd654ff5d`.
 
+Local review branch `draft/rc71l-first-login-retry` at `c8c861626` builds on Quattro `419a5a709` and contains the original draft plus the offline retry fix. First-run, RC71L setup and hardware-quirks fixtures passed on that exact tree. Offline lifecycle VM replay and a fresh ISO with the retry fix are separate checks.
+
 ## Controller, touch and accessibility
 
 | Feature | Current evidence | Work and acceptance |
