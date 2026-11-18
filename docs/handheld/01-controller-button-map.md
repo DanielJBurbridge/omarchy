@@ -166,6 +166,28 @@ The guest's alternate UKI occupied 41.70 MiB and had an empty EFI signature dire
 4. Capture two presses and releases on each labelled paddle, first at the raw device and then with InputPlumber running. Record the device, code and direction for each side. Independent bindings need two distinguishable inputs. Record the visible ring state on the device as well as the LED interface. [Paddle capture tool](research/tools/ally-press-test.sh)
 5. Reboot normally and verify the stock kernel, disk unlock, sign-in, right-stick pointer, RT click and ring state. If the alternate entry fails to start, reboot and choose the stock entry. Remove the trial kernel from a working stock boot and confirm the trial entry and UKI disappear.
 
+#### Checking the ring lighting interface
+
+The Deckify driver represents each of the four lighting zones as a single packed `0xRRGGBB` intensity. The read-only check below works on an attended trial boot. Capture the values before changing modes. If the class is absent, record that result and continue the paddle test.
+
+```bash
+rings=/sys/class/leds/ally:rgb:joystick_rings
+if [[ -d $rings ]]; then
+  for attr in multi_index multi_max_intensity multi_intensity brightness max_brightness; do
+    if [[ -r $rings/$attr ]]; then
+      printf '%s: ' "$attr"
+      cat "$rings/$attr"
+    fi
+  done
+fi
+```
+
+On Deckify 7.3.3-1, the packaged driver leaves each zone's maximum at its default, 255. The Linux multicolour LED class clamps each submitted intensity to that maximum. Four `rgb` indexes therefore need **four maxima of 16777215** for the full red, green and blue range. A successful write alone cannot establish which colour the kernel accepted. On this release, limit the physical check to the readout and visual observation. [Pinned Deckify driver](https://github.com/CachyOS/kernel-patches/blob/2e716ee0ac667e481661189ea7d717c4c6f25bca/7.3/misc/0001-handheld.patch) · [Linux 7.3.3 multicolour LED implementation](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/drivers/leds/led-class-multicolor.c?h=v7.3.3)
+
+InputPlumber 0.84.0's upstream RC71L composite includes this LED. The older `omarchy-rog-ally-input` companion installed an override at `/etc/inputplumber/devices.d/50-rog_ally.yaml` that omits it. The integrated profiles leave composite discovery to InputPlumber. Its D-Bus LED interface exposes only the device ID. The Gaming profile creates a virtual USB DualSense Edge with a lightbar output. In 0.84.0 its output dispatch classifies DualSense reports as force feedback or unimplemented, so the LED source receives neither colour-only nor combined reports. Its multicolour handler would otherwise copy the colour to all four zones at maximum brightness. The Desktop profile creates an Xbox Elite target. [RC71L composite](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/rootfs/usr/share/inputplumber/devices/50-rog_ally.yaml) · [Output dispatch](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/output_event/mod.rs) · [LED handler](https://github.com/ShadowBlip/InputPlumber/blob/117cb04e949f842397b96178bcc0d7fc7ba23acf/src/input/source/led/multicolor.rs)
+
+In KVM, the two private fixes together passed an end-to-end check through `SDL_SetGamepadLED` on the Ally composite's virtual Edge. With the corrected driver callbacks on the Deckify kernel, the four calculated zone triplets matched `#123456`, `#BC6543` and black. A memory sink captured the driver's intended output. With just the dispatch fix both colours became blue. Test two distinct colours and zero RGB, then read all four packed values after each request. Zero RGB is visually off even though this handler sets `brightness` to 255. A single SDL colour can restore the starting state only if all four zones were identical at maximum brightness. Arrange restoration of any other starting state before changing it. An operator still needs to confirm both rings visibly match the request and report what survives suspend and the return to stock. [SDL3 gamepad LED control](https://wiki.libsdl.org/SDL3/SDL_SetGamepadLED)
+
 ### 5.4 Community comparison
 
 | | Community InputPlumber default | HHD | Omarchy (this spec) |
