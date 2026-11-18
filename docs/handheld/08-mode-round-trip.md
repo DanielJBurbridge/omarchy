@@ -1,56 +1,30 @@
-# 08 · Mode round trip
+# Gaming and Desktop on the original ROG Ally
 
-Status: draft, 12 Nov 2026. Device: ROG Ally RC71L. This is only the missing round trip on top of the session that already ships. It adds no overlay, input map, TDP, or dock behaviour.
+The optional `omarchy-gaming-session` package provides a managed Steam and Hyprland login on the RC71L. Install and rollback instructions are in the [alpha runbook](ALPHA.md). The [feature-parity checklist](feature-parity.md) records the exact builds and physical results.
 
-Today `bin/omarchy-launch-gaming-session` can leave Hyprland for gaming, and Steam's Switch to Desktop can ask the same `bin/omarchy-session-start` process to start Hyprland. There is no menu row and no binding, and a later SDDM relogin ignores that choice.
+## Desktop to Gaming
 
-## 1. Desktop → gaming
+Save desktop work and exit the desktop Steam client. Tap **Armoury Crate** to open the Omarchy menu, then use the right stick and RT to choose **System → Switch to Gaming**. With a keyboard, press **Super + Ctrl + G**.
 
-Add **Switch to Gaming** and `Super + Ctrl + G`. `Super + Ctrl + G` is free. `Super + Shift + Ctrl + G` stays Google Messages (`default/hypr/bindings/applications.lua`).
+The RC71L hardware check and gaming package gate both the menu row and the shortcut. The launcher checks for a managed Desktop session, Steam and Gamescope before submitting the switch. A running desktop Steam client leaves the desktop open. A transient user job records the requested mode and asks UWSM to log out. The supervisor starts Gaming after the desktop exits.
 
-| Piece | File | Change |
-|---|---|---|
-| Menu row | `default/omarchy/omarchy-menu.jsonc` | `system.switch-gaming`, under System, label "Switch to Gaming", action `omarchy-launch-gaming-session`. The shell reads this file (`shell/plugins/menu/MenuModel.js`). No new menu script. No `aliases`. |
-| Binding | `default/hypr/bindings/utilities.lua` | `o.bind("SUPER + CTRL + G", "Switch to Gaming", "omarchy-launch-gaming-session")`, gated like the existing Ally `Super + Ctrl + Y` check. |
-| Catalog line | `default/i18n/en/keybindings.json` | The bind's description string, same as "Desktop keyboard". |
+## Gaming to Desktop
 
-The command is `omarchy-launch-gaming-session`, not `omarchy-gaming-session.target`. The launcher logs the desktop out. `default/gaming/switch.sh` writes `gaming` into the runtime switch file and runs `omarchy-system logout --execute`. After that logout, `bin/omarchy-session-start` sees the switch and `run_gaming` starts the target.
+Save and quit the game. Choose **Steam → Power → Switch to Desktop**. The Steam menu calls `steamos-session-select plasma` inside Gamescope. The supervisor asks Steam to exit on its own display, stops the Gamescope scope, then applies the desktop sign-in policy.
 
-Guards, using what the command already does:
+| Desktop sign-in policy | What happens on return |
+|---|---|
+| Passwordless | Hyprland starts in the managed login. The supervisor records a one-use Desktop choice before teardown. Once the new Hyprland socket appears it clears that choice. An interruption before the socket appears leaves one Desktop login available through SDDM relogin. |
+| Sign-in required | The supervisor prepares SDDM with relogin disabled, requests the greeter pointer profile and ends the Gaming session. Signing in starts the managed desktop and its controller observer. The next return from Gaming requires a fresh sign-in. |
 
-- The row's `when` is `omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session`. Hidden when this is not an RC71L, or the gaming session package is not installed. The binding uses that same predicate.
-- The command exits 1 when `omarchy-hw-rog-ally` fails, when this login is not the managed preference session (`active` is not `desktop`), when Steam is still running, or when `gamescope` or `steam` is missing. It accepts `--confirm` and does not prompt again.
-- No new unsaved-work or open-apps prompt. The user saves work and exits Steam first. The command already refuses while Steam is running, then logs out.
-- Controller-only: nothing in this tree opens the menu from the pad. With a keyboard the row is `Super + Space` then the row, or `Super + Ctrl + G`. Reaching it from the pad alone is out of scope until the input map exists.
-
-## 2. Gaming → desktop, and Relogin
-
-Steam's Power → Switch to Desktop runs `default/gaming/bin/steamos-session-select` with `plasma`, which execs `omarchy-launch-gaming-desktop`. That writes `desktop` on the return FIFO. `omarchy-session-start` stays in the same process, sets the selection to desktop, and `desktop()` runs `uwsm start` Hyprland. That path does not show the greeter.
-
-The hole is `Relogin=true` in `/etc/sddm.conf.d/zz-omarchy-handheld.conf`. When `omarchy-session-start` exits, SDDM starts `omarchy-handheld.desktop` again. That runs `bin/omarchy-handheld-autologin`. If `/run/omarchy/handheld-autologin/stop` exists, the `session` verb exits 0 and does not start a session. Otherwise it execs `omarchy-session-start relogin`. `gaming_entry_selection` in `default/gaming/session.sh` prints `gaming` for `relogin` and does not read `next`. A process exit after Switch to Desktop therefore comes back as gaming.
-
-Change, on the explicit return only: before the gamescope scope stops, write the existing one-shot `${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next` as `desktop`. `gaming_entry_selection relogin` consumes `next=desktop` once, returns `desktop`, and deletes the file. Any other relogin still returns `gaming`. Clear that same file once Hyprland is up in the in-process handoff, so a later logout is a normal relogin into gaming and does not pin the desktop. If the process dies before Hyprland is up, the file is still there and the one relogin lands in Hyprland, not the greeter and not gaming.
-
-Do not write `next` on a crash, a timeout, a missing `gamescope` or `steam`, or a non-zero Steam exit. Those stay on today's failure path.
-
-Crash-loop, unchanged: `omarchy-handheld-autologin fail` runs only when the process exits without the ready FIFO reading `started`. A switch after `started` has already called `reset`, so it adds no timestamp. Three failures inside 60 seconds still write `stop`, set `Relogin=false`, and show the greeter. The one-shot must not delete `stop` and must not set `Relogin` back to true. Do not set `Relogin=false` for a normal switch. That would be the greeter.
-
-## 3. Desktop → gaming with no keyboard
-
-No cheap path. The new row and `Super + Ctrl + G` need a keyboard, and the pad does not open the menu. Out of scope.
+Steam can be usable even when its initial readiness probe times out. As long as Steam and Gamescope are still running, a later **Switch to Desktop** follows the same shutdown and sign-in path. A failed start has its own retry and recovery handling. Only an explicit passwordless return writes the one-use Desktop choice.
 
 ## Acceptance
 
-1. On an RC71L with `omarchy-gaming-session` installed, System shows Switch to Gaming, and `Super + Ctrl + G` runs `omarchy-launch-gaming-session`.
-2. On any other machine, and on an RC71L without that package, the row is absent and the binding is absent.
-3. With Steam still running, the command exits and does not log out. With Steam exited, from the preference session, it reaches Gaming Mode. There is no new confirm dialog.
-4. Steam Power → Switch to Desktop shows the Hyprland session. The greeter does not appear, and that return does not start gaming again.
-5. If that process exits before Hyprland is up, the next autologin starts Hyprland once and then the one-shot is gone. A later logout with no one-shot returns to gaming.
-6. A gaming start that never reads `started` does not write `next=desktop`. Three such starts in 60 seconds still write `/run/omarchy/handheld-autologin/stop`, set `Relogin=false`, and show the greeter.
+1. On a managed RC71L with the companion installed, open Gaming from the desktop with the built-in controls. Confirm the right stick moves the pointer and RT selects the menu entry before the switch. On another model, or without the companion, the menu entry and shortcut should be absent.
+2. Leave desktop Steam running and try the same action. The desktop should stay open. Exit Steam, repeat, and confirm the Steam library becomes interactive.
+3. Exercise both return policies. For a passwordless return, use the pointer and RT on the desktop. For a required sign-in, enter the password at SDDM by touch, then try the pointer and RT. Confirm that an ordinary later login follows the configured policy.
+4. For a post-game return, record the selection, Steam exit, Gamescope scope stop, first visible desktop or greeter, and first working input. Record the power source and whether the game had resumed from sleep.
+5. In the supervisor fixtures, delay the explicit switch beyond the readiness window. Verify one graceful Steam exit, the intended destination and no retry or recovery latch. Exercise an interrupted passwordless handoff and a fast Hyprland start separately.
 
-## Out of scope
-
-- Controller-only reachability, InputPlumber, the F17 escape, and the overlay watchdog.
-- An unsaved-work or open-apps prompt.
-- Dock switching, TDP, the suspend broker, and the greeter keyboard.
-- Setting `Relogin=false` on a normal Switch to Desktop.
+The [Steam readiness](../../test/shell.d/gaming-steam-ready-test.sh), [sign-in and recovery](../../test/shell.d/gaming-relogin-fallback-test.sh), [scope shutdown](../../test/shell.d/gaming-session-target-test.sh) and [session lifecycle](../../test/helpers/gaming-session.py) fixtures cover these branches.
