@@ -19,15 +19,15 @@ The Ally now has runtime and settings candidate `4.0.0.202611180201.r8097.handhe
 
 ### Installer comparison
 
-The candidate combined Quattro `c6be7abb9` and draft head `515d61405` at merge `89ea3e2cb`. Stock Quattro and both candidate suites exited 1. All three reproduced the browser launch, Mozc browser launch, style submenu, notification content and default Chromium assertions. Three candidate assertions remain unresolved.
+The candidate combined Quattro `c6be7abb9` and draft head `515d61405` at merge `89ea3e2cb`. Stock Quattro and both candidate suites exited 1. All three reproduced the browser launch, Mozc browser launch, style submenu, notification content and default Chromium assertions. The three remaining assertions were then probed on candidate and reverted clones sharing package inventories and VM geometry.
 
 | Assertion | Stock RC71L | Candidate RC71L | Candidate Strix G16 |
 |---|---|---|---|
-| Layout map shows its keys | Shell was unresponsive earlier in the test | Failed | Failed |
-| Menu opens on the temporary monitor | Passed | Passed | Failed |
-| Recovery menu maps on a tall monitor | Passed | Failed | Unreached |
+| Layout map shows its keys | Original stock stopped at shell IPC. The focused reverted clones reproduced the OCR timeout. | Focused OCR timed out while the hint was visible | Same timeout; per-output OCR read the hint in all four focused captures |
+| Menu opens on the temporary monitor | Reverted RC71L reproduced the menu mapping on the primary output while Hyprland reported the temporary output focused | Original passed | Original failed with the same wrong-output state |
+| Recovery menu maps on a tall monitor | Original stock passed. Reverted control passed once and stopped earlier at shell IPC once. | Failed once and passed once with identical image and packages | Focused probe reproduced the wrong-output state before monitor removal |
 
-Twelve installed package versions differed between the two RC71L guests because the mirror advanced. The candidate RC71L acceptance overlay needed one Enter at Limine. This comparison establishes which failures also occurred on stock and leaves version and harness differences open. Candidate ISO SHA-256: `7eb22d176d0b804de4a707aba6f5bbfb69748810f1eac3f658f1de5fd654ff5d`.
+Twelve installed package versions differed between the original RC71L guests because the mirror advanced. The matched clones controlled that difference. The exact late recovery-menu timeout remains unresolved, with a similar wrong-output state on reverted code and a candidate pass on identical inputs. The cloned runs test desktop behaviour. The original fresh installs provide the installer evidence. Candidate ISO SHA-256: `7eb22d176d0b804de4a707aba6f5bbfb69748810f1eac3f658f1de5fd654ff5d`.
 
 ## Controller, touch and accessibility
 
