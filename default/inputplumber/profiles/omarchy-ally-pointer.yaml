@@ -5,36 +5,23 @@
 version: 1
 kind: DeviceProfile
 name: Omarchy Ally pointer
-description: Left stick moves the pointer and the south button clicks. Loaded before the greeter. Whether the greeter actually moves is unverified on device.
+description: Left stick moves the pointer and the south button clicks. Loaded before the greeter.
 # xbox-elite stays in the target list. A mouse-only list is what hid the built-in pad from Steam.
 target_devices:
   - xbox-elite
   - mouse
   - keyboard
 mapping:
-  - name: Left stick horizontal
+  # Match the whole gamepad axis. InputPlumber 0.84.0 only accepts cardinal
+  # directions in a gamepad source filter, so horizontal/vertical never match.
+  - name: Left stick pointer
     source_event:
       gamepad:
         axis:
           name: LeftStick
-          direction: horizontal
-          deadzone: 0.2
     target_events:
       - mouse:
           motion:
-            direction: horizontal
-            speed_pps: 900
-  - name: Left stick vertical
-    source_event:
-      gamepad:
-        axis:
-          name: LeftStick
-          direction: vertical
-          deadzone: 0.2
-    target_events:
-      - mouse:
-          motion:
-            direction: vertical
             speed_pps: 900
   - name: South clicks
     source_event:
