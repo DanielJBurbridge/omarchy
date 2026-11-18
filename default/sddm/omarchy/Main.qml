@@ -1,5 +1,5 @@
-import QtQuick 2.0
-import SddmComponents 2.0
+import QtQuick
+import QtQuick.Controls.Basic as Controls
 
 Rectangle {
   id: root
@@ -9,6 +9,10 @@ Rectangle {
 
   property string currentUser: userModel.lastUser
   property bool loginFailed: false
+  property bool authenticating: false
+  property bool keyboardRequested: false
+  property bool keyboardUnavailable: false
+  readonly property color foreground: "#ffffff"
   property int sessionIndex: {
     for (var i = 0; i < sessionModel.rowCount(); i++) {
       var name = (sessionModel.data(sessionModel.index(i, 0), Qt.DisplayRole) || "").toString()
@@ -18,32 +22,62 @@ Rectangle {
     return sessionModel.lastIndex
   }
 
+  function showKeyboard() {
+    if (authenticating || keyboardUnavailable) return
+    keyboardRequested = true
+    password.forceActiveFocus()
+    Qt.inputMethod.show()
+  }
+
+  function hideKeyboard() {
+    keyboardRequested = false
+    Qt.inputMethod.hide()
+  }
+
+  function submit() {
+    if (authenticating || !currentUser || sessionIndex < 0) return
+    Qt.inputMethod.commit()
+    const secret = password.text
+    authenticating = true
+    password.clear()
+    Qt.inputMethod.hide()
+    sddm.login(currentUser, secret, sessionIndex)
+  }
+
   Connections {
     target: sddm
     function onLoginFailed() {
+      root.authenticating = false
       root.loginFailed = true
-      password.text = ""
-      password.focus = true
+      password.forceActiveFocus()
+      if (root.keyboardRequested) root.showKeyboard()
     }
     function onLoginSucceeded() {
-      root.loginFailed = false
+      root.hideKeyboard()
     }
   }
 
   Column {
-    anchors.centerIn: parent
-    spacing: 40
+    id: form
+    readonly property real availableHeight: root.height - (keyboard.visible ? keyboard.height : 0)
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: Math.max(0, (availableHeight - height) / 2)
+    spacing: keyboard.visible ? 12 : 24
 
     Image {
       id: logo
       source: "logo.png"
       width: Math.min(sourceSize.width, root.width * 0.8)
-      height: sourceSize.width > 0 ? Math.round(width * sourceSize.height / sourceSize.width) : 0
+      height: sourceSize.width > 0 ? Math.max(0, Math.min(
+        width * sourceSize.height / sourceSize.width,
+        form.availableHeight - entryRow.height - actions.height - 2 * form.spacing - 16
+      )) : 0
       fillMode: Image.PreserveAspectFit
       anchors.horizontalCenter: parent.horizontalCenter
     }
 
     Row {
+      id: entryRow
       anchors.horizontalCenter: parent.horizontalCenter
       spacing: 15
 
@@ -84,6 +118,7 @@ Rectangle {
 
         TextInput {
           id: password
+          objectName: "greeterPassword"
           anchors.fill: parent
           anchors.leftMargin: 20
           anchors.rightMargin: 20
@@ -98,122 +133,78 @@ Rectangle {
           selectedTextColor: "transparent"
           cursorDelegate: Item {}
           focus: true
+          enabled: !root.authenticating
+          Accessible.name: qsTr("Password")
+          passwordMaskDelay: 0
+          inputMethodHints: Qt.ImhHiddenText | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
 
-          onTextChanged: root.loginFailed = false
-
-          Keys.onPressed: {
-            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-              sddm.login(root.currentUser, password.text, root.sessionIndex)
-              event.accepted = true
-            }
-          }
+          onTextEdited: root.loginFailed = false
+          onAccepted: root.submit()
+          Keys.onEscapePressed: root.hideKeyboard()
+          TapHandler { onTapped: root.showKeyboard() }
         }
       }
     }
 
+    Row {
+      id: actions
+      anchors.horizontalCenter: parent.horizontalCenter
+      spacing: 12
+
+      GreeterButton {
+        objectName: "greeterKeyboardToggle"
+        text: qsTr("Keyboard")
+        visible: !root.keyboardUnavailable
+        enabled: !root.authenticating
+        onClicked: {
+          if (keyboard.visible) root.hideKeyboard()
+          else root.showKeyboard()
+        }
+      }
+
+      GreeterButton {
+        objectName: "greeterSubmit"
+        text: qsTr("Sign in")
+        enabled: !root.authenticating && root.currentUser.length > 0 && root.sessionIndex >= 0
+        onClicked: root.submit()
+      }
+    }
+  }
+
+  // Only the active SDDM window can own Qt's process-wide input panel. Load
+  // its optional import separately so physical input still works without it.
+  Loader {
+    id: keyboard
+    objectName: "greeterKeyboard"
+    active: root.keyboardRequested && !root.keyboardUnavailable && root.Window.active
+    visible: !!item && item.active
+    source: "Keyboard.qml"
+    width: Math.min(root.width - 16, root.height * 1.4, 1000)
+    anchors.horizontalCenter: parent.horizontalCenter
+    anchors.bottom: parent.bottom
+    onLoaded: root.showKeyboard()
+    onStatusChanged: {
+      if (status === Loader.Error) {
+        Qt.callLater(function() {
+          root.keyboardUnavailable = true
+          root.hideKeyboard()
+        })
+      }
+    }
+  }
+
+  component GreeterButton: Controls.Button {
+    height: 44
+    width: Math.max(104, implicitWidth)
+    focusPolicy: Qt.NoFocus
+    palette.buttonText: root.foreground
+    palette.highlightedText: root.foreground
+    background: Rectangle {
+      color: parent.down ? Qt.alpha(root.foreground, 0.2) : root.color
+      border.color: root.foreground
+      opacity: parent.enabled ? 1 : 0.5
+    }
   }
 
   Component.onCompleted: password.forceActiveFocus()
-
-  // Shown with the greeter when autologin is stopped. Qt's virtual keyboard
-  // style is not part of this tree; these keys type into the password field.
-  Grid {
-    id: greeterKeyboard
-    objectName: "greeterKeyboard"
-    anchors.bottom: parent.bottom
-    anchors.bottomMargin: 16
-    anchors.horizontalCenter: parent.horizontalCenter
-    columns: 10
-    spacing: 4
-
-    Repeater {
-      model: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a", "s", "d", "f", "g", "h", "j", "k", "l", "z", "x", "c", "v", "b", "n", "m", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
-
-      Rectangle {
-        width: 28
-        height: 28
-        radius: 4
-        color: "#1a1b26"
-        border.color: "#ffffff"
-        border.width: 1
-
-        Text {
-          anchors.centerIn: parent
-          text: modelData
-          color: "#ffffff"
-          font.pixelSize: 14
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          onClicked: password.insert(password.length, modelData)
-        }
-      }
-    }
-  }
-
-  Row {
-    anchors.bottom: greeterKeyboard.top
-    anchors.bottomMargin: 8
-    anchors.horizontalCenter: parent.horizontalCenter
-    spacing: 8
-
-    Rectangle {
-      width: 96
-      height: 36
-      radius: 4
-      color: "#1a1b26"
-      border.color: "#ffffff"
-      border.width: 1
-      Text {
-        anchors.centerIn: parent
-        text: "backspace"
-        color: "#ffffff"
-        font.pixelSize: 12
-      }
-      MouseArea {
-        anchors.fill: parent
-        onClicked: if (password.length > 0) password.remove(password.length - 1, password.length)
-      }
-    }
-
-    Rectangle {
-      width: 96
-      height: 36
-      radius: 4
-      color: "#1a1b26"
-      border.color: "#ffffff"
-      border.width: 1
-      Text {
-        anchors.centerIn: parent
-        text: "space"
-        color: "#ffffff"
-        font.pixelSize: 12
-      }
-      MouseArea {
-        anchors.fill: parent
-        onClicked: password.insert(password.length, " ")
-      }
-    }
-
-    Rectangle {
-      width: 96
-      height: 36
-      radius: 4
-      color: "#1a1b26"
-      border.color: "#ffffff"
-      border.width: 1
-      Text {
-        anchors.centerIn: parent
-        text: "enter"
-        color: "#ffffff"
-        font.pixelSize: 12
-      }
-      MouseArea {
-        anchors.fill: parent
-        objectName: "greeterSubmit"
-        onClicked: sddm.login(root.currentUser, password.text, root.sessionIndex)
-      }
-    }
-  }
 }

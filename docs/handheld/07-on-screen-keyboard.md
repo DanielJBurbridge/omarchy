@@ -21,7 +21,7 @@ Status: draft, revision 8, 12 Nov 2026 (AWST). Owner: dev-ux. Depends on: [01](0
 | ISO installer (TTY) | none (spec 03 §3.1: buffyboard does not run on the live ISO) | Physical keyboard, or the plain form | — | INSTALL |
 | First-boot provisioning (tty1) | **buffyboard**, only as a child of that stage | Stage unit starts it for a text field and stops it when the field is left | `tty` profile (spec 03 §3) | INSTALL |
 | Polkit and sudo prompts (desktop) | wvkbd, with the `osk` profile | Same summon as the desktop row. Turning `desktop-lock` off is one of these prompts (spec 02: interactive password, no passwordless grant) | `osk` while wvkbd is visible | TOUCH |
-| SDDM greeter | Qt Virtual Keyboard, embedded (`default/sddm/omarchy/Main.qml` and `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf`, on `feat/ally-auth-20261111` and `feat/ally-parity-release-20261111`). The integration tip has both files without the virtual keyboard or `GreeterEnvironment`. | Keyboard button on the greeter | Touch; controller TBC (AUTH) | AUTH |
+| SDDM greeter | Qt Virtual Keyboard, embedded in the active greeter window. `default/sddm/omarchy/Keyboard.qml` is loaded on demand with `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf`. | Keyboard button or password field | Touch. Controller at the greeter needs a hardware test. | AUTH |
 | Hyprland desktop | **wvkbd-mobintl 0.21** via `omarchy-toggle-desktop-keyboard` | CC long, bar, Apps, menu, `SUPER + CTRL + Y` | `osk` profile while visible | TOUCH / INPUT |
 | Omarchy menus / Apps grid | wvkbd (stays up) | Before or after opening the menu | `osk` profile | TOUCH (acceptance pending) |
 | Gaming (Gamescope + Steam) | **Steam OSK** | CC long (Guide+West), Steam text field | Steam | Steam |

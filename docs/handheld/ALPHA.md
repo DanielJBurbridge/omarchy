@@ -13,7 +13,6 @@ What's missing:
 - The first-boot wizard and buffyboard (spec 03).
 - Gaming notifications (spec 05) and the accessibility pack (spec 06).
 - The `osk` profile, a themed wvkbd, and a Command Centre keyboard chord (spec 07).
-- A greeter keyboard that can backspace, shift, enter symbols, and submit (spec 02 AC 59).
 - A migration that enables autologin on an Ally that is already installed.
 
 ## Before you install the alpha
@@ -60,11 +59,11 @@ On the RC71L the desktop power button runs `omarchy-system-sleep-lock`, then `sy
 
 ## Escape and recovery
 
-Recovery is `ssh rog-ally`, and only if sshd was already enabled and that check worked. The other way in is a USB keyboard: Enter submits the password. The greeter grid has backspace, space and enter, so the same password can be submitted by touch. There is no session picker. This tree has no TTY switch.
+Recovery is `ssh rog-ally`, and only if sshd was already enabled and that check worked. At the greeter, tap **Keyboard** or the password field to type with Qt Virtual Keyboard, then tap **Sign in**. A USB keyboard also works, with Enter to submit. There is no session picker. This tree has no TTY switch.
 
 The F17 escape and the watchdog aren't in this alpha because no InputPlumber intercept ships in the tree, so there's no stuck intercept to escape. They become required when the intercept lands. `omarchy-ally-pointer.service` loads Omarchy's stick-to-pointer profile before the greeter. Whether the pointer moves there is unverified.
 
-The greeter keypad has backspace, space and enter. Qt Virtual Keyboard is `GreeterEnvironment=QT_IM_MODULE=qtvirtualkeyboard` in `etc/sddm.conf.d/10-wayland.conf`. There is no `InputMethod=` line and no kwin `--inputmethod`.
+The greeter embeds Qt Virtual Keyboard using `GreeterEnvironment` in `etc/sddm.conf.d/10-wayland.conf`. If the module is unavailable, the password field and physical keyboard still work.
 
 ### Handheld stuck at the passphrase prompt
 
