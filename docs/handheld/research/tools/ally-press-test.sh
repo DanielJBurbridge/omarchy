@@ -7,22 +7,46 @@
 # Stops inputplumber.service for the capture when it is active, and starts it again on the way out.
 # Remove afterwards: rm -r ~/ally-press-test.sh ~/ally-press-test ; sudo pacman -Rns evtest
 set -u
-case "$#" in
-  0) paddles_only=false ;;
-  1)
-    case "$1" in
-      --paddles-only) paddles_only=true ;;
-      --help|-h) echo "Usage: bash ally-press-test.sh [--paddles-only]"; exit 0 ;;
-      *) echo "Usage: bash ally-press-test.sh [--paddles-only]" >&2; exit 2 ;;
-    esac
-    ;;
-  *) echo "Usage: bash ally-press-test.sh [--paddles-only]" >&2; exit 2 ;;
+usage="Usage: bash ally-press-test.sh [--paddles-only|--face-buttons-only]"
+(( $# <= 1 )) || { echo "$usage" >&2; exit 2; }
+mode=${1:-}
+case "$mode" in
+  ""|--paddles-only|--face-buttons-only) ;;
+  --help|-h) echo "$usage"; exit 0 ;;
+  *) echo "$usage" >&2; exit 2 ;;
 esac
-if $paddles_only && ! command -v evtest >/dev/null; then
-  echo "Paddle capture requires evtest to be installed." >&2
+if [[ -n $mode ]] && ! command -v evtest >/dev/null; then
+  echo "Focused capture requires evtest to be installed." >&2
   exit 1
 fi
-OUT=~/ally-press-test/$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
+
+# Stock RC71L places its xpad on root port 2 and its ASUS N-KEY MCU on sibling
+# port 3. Names and Xbox USB IDs alone also match a controller in a USB hub.
+ally_face_pad() {
+  local usb=/sys/bus/usb/devices root bus pad mcu event
+  local -a matches=()
+  for root in "$usb"/usb*; do
+    bus=${root##*/usb}
+    pad=$usb/$bus-2
+    mcu=$usb/$bus-3
+    [[ -r $pad/idVendor && -r $mcu/idVendor ]] || continue
+    [[ $(< "$pad/idVendor") == "045e" && $(< "$pad/idProduct") == "028e" &&
+       $(< "$mcu/idVendor") == "0b05" && $(< "$mcu/idProduct") == "1abe" &&
+       $(readlink "$pad:1.0/driver") == */xpad ]] || continue
+    for event in "$pad:1.0"/input/input*/event[0-9]*; do
+      [[ -d $event ]] && matches+=("/dev/input/${event##*/}")
+    done
+  done
+  (( ${#matches[@]} == 1 )) || return 1
+  printf '%s\n' "${matches[0]}"
+}
+
+if [[ $mode == "--face-buttons-only" ]] && ! omarchy-hw-rog-ally; then
+  echo "The stock face-button capture requires an original ROG Ally RC71L." >&2
+  exit 1
+fi
+mkdir -p ~/ally-press-test || exit 1
+OUT=$(mktemp -d "$HOME/ally-press-test/$(date +%Y%m%d-%H%M%S).XXXXXX") || exit 1
 LOG=~/omarchy-handheld-deploy.log
 SECS=${SECS:-5}
 IP_UNIT=inputplumber.service
@@ -59,6 +83,41 @@ if systemctl is-active --quiet "$IP_UNIT" 2>/dev/null; then
 fi
 
 { date -Is; pacman -Q omarchy-dev 2>/dev/null; uname -r; cat /sys/class/dmi/id/bios_version; } > "$OUT/state.txt"
+if [[ $mode == "--face-buttons-only" ]]; then
+  if ! PAD=$(ally_face_pad) || [[ ! -c $PAD ]]; then
+    echo "Could not identify one embedded RC71L xpad on its stock USB ports." >&2
+    exit 1
+  fi
+  echo "Embedded xpad: $PAD" | tee "$OUT/devices.txt"
+  for face in X Y; do
+    read -rp "Press Enter, then tap and release the physical $face button when recording begins: " _ || exit 1
+    echo "Recording $face for ${SECS}s..."
+    # Keep only the two raw X/Y codes. evtest's capability list and other
+    # controller activity are omitted from the file.
+    sudo timeout "$SECS" stdbuf -oL evtest --grab "$PAD" | awk '
+      $1 == "Event:" && $4 == "type" && $5 == "1" && $7 == "code" &&
+        ($8 == 307 || $8 == 308) && ($NF == 0 || $NF == 1) { print }
+    ' > "$OUT/$face.txt"
+    status=("${PIPESTATUS[@]}")
+    if (( (status[0] != 124 && status[0] != 0) || status[1] != 0 )); then
+      echo "Could not read $PAD for $face." >&2
+      exit 1
+    fi
+    cat "$OUT/$face.txt"
+    if ! awk '
+      NR == 1 { code = $8 }
+      $8 != code { mixed = 1 }
+      $NF == 1 { down = 1 }
+      $NF == 0 && down { pair = 1; down = 0 }
+      END { exit !(pair && !down && !mixed) }
+    ' "$OUT/$face.txt"; then
+      echo "Expected a press and release of just $face. Capture is inconclusive." >&2
+      exit 1
+    fi
+  done
+  echo "Results: $OUT"
+  exit 0
+fi
 if ! command -v evtest >/dev/null; then
   echo "$(date -Is) press-test: installing evtest (pacman -S evtest). State: $(pacman -Q omarchy-dev 2>/dev/null), kernel $(uname -r). Remove: sudo pacman -Rns evtest" >> "$LOG"
   sudo pacman -S --needed --noconfirm evtest || exit 1
@@ -76,7 +135,7 @@ PADDLE_STEPS=(
 )
 WMI=
 VOL=
-if $paddles_only; then
+if [[ $mode == "--paddles-only" ]]; then
   STEPS=("${PADDLE_STEPS[@]}")
 else
   WMI=$(dev 'Asus WMI hotkeys' '' | head -1)
