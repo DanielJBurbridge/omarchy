@@ -73,17 +73,14 @@ PanelWindow {
     command: ["hyprctl", "-j", "monitors"]
     stdout: StdioCollector { id: monitors; waitForEnd: true }
     onExited: code => {
-      const expected = touch.pendingTapTransform
-      touch.pendingTapTransform = -1
+      const expected = touch.pendingTransform
+      touch.pendingTransform = -1
       if (code !== 0) return
       try {
         const start = JSON.parse(monitors.text)
         if (start.length !== 1 || start[0].name !== edge.screen.name || !Number.isInteger(start[0].transform)) return
         transform = start[0].transform
-        if (expected >= 0) {
-          if (expected === transform && edge.available) touch.show(transform)
-          else Hyprland.refreshMonitors()
-        }
+        if (expected >= 0 && edge.available) touch.showIfUnchanged(expected)
       } catch (_) { /* An unreadable output at contact cannot open the keyboard. */ }
     }
   }
@@ -112,15 +109,17 @@ PanelWindow {
     property double pressTime: 0
 
     property int cachedTransform: -1
-    property int pendingTapTransform: -1
+    property int pendingTransform: -1
 
     function cancel() {
       tracking = false
-      pendingTapTransform = -1
+      pendingTransform = -1
     }
 
-    function show(transform) {
-      Quickshell.execDetached(["omarchy-toggle-desktop-keyboard", "show-for-edge", String(transform)])
+    function showIfUnchanged(expected) {
+      if (expected === monitorAtPress.transform)
+        Quickshell.execDetached(["omarchy-toggle-desktop-keyboard", "show-for-edge", String(expected)])
+      else Hyprland.refreshMonitors()
     }
 
     function withinTapDistance(p) {
@@ -153,10 +152,11 @@ PanelWindow {
       const tapped = tapCandidate && withinTapDistance(p) && Date.now() - pressTime < Application.styleHints.mousePressAndHoldInterval
       const swiped = p.startY - p.y >= 48 && Math.abs(p.x - p.startX) <= maximumDrift
       if (tracking && (tapped || swiped)) {
-        if (monitorAtPress.transform >= 0) show(monitorAtPress.transform)
-        // A quick tap can lift before the press query returns. Only complete it
-        // when that query also agrees with the monitor state cached at contact.
-        else if (tapped && monitorAtPress.running) pendingTapTransform = cachedTransform
+        // A quick gesture can lift before the press query returns. Both event
+        // orders require the sample to agree with the state cached at contact.
+        if (cachedTransform < 0) Hyprland.refreshMonitors()
+        else if (monitorAtPress.transform >= 0) showIfUnchanged(cachedTransform)
+        else if (monitorAtPress.running) pendingTransform = cachedTransform
       }
       tracking = false
       contacts = Math.max(0, contacts - points.length)
