@@ -139,6 +139,23 @@ charging_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bi
 grep -Fx $'time\t1h' <<<"$charging_output" >/dev/null || fail "time to full counts up to the charge limit" "$charging_output"
 pass "battery status times charging to the charge limit"
 
+# UPower can still describe its configured 75–80% range when that policy is
+# disabled. BAT0 exposes only the effective firmware end threshold.
+sed -i '/charge-end-threshold: 80%/a\  charge-start-threshold: 75%\n  charge-threshold-supported: yes' "$hold_dir/bin/upower"
+printf '100\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+disabled_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'time\t1h 30m' <<<"$disabled_output" >/dev/null || fail "a disabled charge limit counts up to 100%" "$disabled_output"
+if grep -q $'^threshold\t' <<<"$disabled_output"; then
+  fail "a configured but disabled charge limit is not reported" "$disabled_output"
+fi
+printf '65\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+manual_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'threshold\t65%' <<<"$manual_output" >/dev/null || fail "the actual firmware limit is reported without a stale start threshold" "$manual_output"
+grep -Fx $'time\t38m' <<<"$manual_output" >/dev/null || fail "charging time follows the actual firmware limit" "$manual_output"
+printf '80\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+sed -i '/charge-start-threshold: 75%/d; /charge-threshold-supported: yes/d' "$hold_dir/bin/upower"
+pass "battery status follows the effective firmware threshold when UPower has a different configuration"
+
 # UPower's own estimate stands in when the draw is too small to divide by...
 printf '100000\n' >"$hold_dir/power/BAT0/power_now"
 idle_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
