@@ -478,9 +478,17 @@ hookroot = work / "hookroot"
 mod.INSTALL_ROOT = hookroot
 mod.gaming_session_installed = lambda: True
 systemctl_state["value"] = "not-found"
-check(mod.install_greeter() == 0 and mod.install_service() == 0, "the package hook has a greeter and a service")
+check(mod.install_greeter() == 0, "the greeter is installed before the gaming package")
+hook_sddm = hookroot / "etc/sddm.conf.d"
+hook_sddm.mkdir(parents=True)
+(hook_sddm / "autologin.conf").write_text("[Autologin]\nUser=daniel\n")
 hook_bin = work / "hookbin"
 hook_bin.mkdir()
+(hook_bin / "omarchy-cmd-present").symlink_to(root / "bin/omarchy-cmd-present")
+(hook_bin / "omarchy-hw-rog-ally").symlink_to(work / "bin/omarchy-hw-rog-ally")
+hook_tdp = hook_bin / "omarchy-ally-tdp-install"
+hook_tdp.write_text("#!/bin/bash\nexit 0\n")
+hook_tdp.chmod(0o755)
 hook_calls = work / "hook-calls"
 hook_stub = hook_bin / "omarchy-inputplumber-profile"
 hook_stub.write_text(
@@ -493,15 +501,16 @@ hook_stub.write_text(
   "calls = Path(os.environ['HOOK_CALLS'])\n"
   "with calls.open('a') as handle:\n"
   "    handle.write(sys.argv[1] + '\\n')\n"
-  "if sys.argv[1] != 'remove-service':\n"
-  "    raise SystemExit(0)\n"
   "loader = SourceFileLoader('hooked_profile', os.environ['HOOK_HELPER'])\n"
   "spec = spec_from_loader('hooked_profile', loader)\n"
   "hooked = module_from_spec(spec)\n"
   "loader.exec_module(hooked)\n"
-  "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, '', '')\n"
+  "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, 'enabled\\n' if args[0] == 'is-enabled' else '', '')\n"
   "hooked.run_busctl = lambda args: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
-  "raise SystemExit(hooked.remove_service_into(Path(os.environ['HOOK_ROOT'])))\n"
+  "dest = Path(os.environ['HOOK_ROOT'])\n"
+  "if sys.argv[1] == 'install-service':\n"
+  "    raise SystemExit(hooked.install_service_into(dest))\n"
+  "raise SystemExit(hooked.remove_service_into(dest))\n"
 )
 os.chmod(hook_stub, 0o755)
 hook_env = os.environ.copy()
@@ -509,13 +518,22 @@ hook_env["PATH"] = str(hook_bin) + os.pathsep + hook_env.get("PATH", "")
 hook_env["HOOK_CALLS"] = str(hook_calls)
 hook_env["HOOK_HELPER"] = str(helper)
 hook_env["HOOK_ROOT"] = str(hookroot)
-hook_env["OMARCHY_SDDM_CONF_DIR"] = str(work / "hook-sddm")
-hook_script = root / "packages/omarchy-gaming-session/omarchy-gaming-session.install"
+hook_env["OMARCHY_SDDM_CONF_DIR"] = str(hook_sddm)
+hook_env["OMARCHY_SDDM_STATE"] = str(hookroot / "var/lib/sddm/state.conf")
+hook_env["HOOK_USER_HELPER"] = str(root / "default/gaming/sddm-user.sh")
+hook_env["HOOK_HW"] = str(hook_bin / "omarchy-hw-rog-ally")
+hook_source = root / "packages/omarchy-gaming-session/omarchy-gaming-session.install"
+hook_script = work / "omarchy-gaming-session.install"
+# Redirect the package paths while running the SDDM helper unchanged.
+hook_script.write_text(hook_source.read_text()
+  .replace("/usr/bin/omarchy-setup-handheld-dirs", '"$HOOK_ROOT/usr/bin/omarchy-setup-handheld-dirs"')
+  .replace("/usr/bin/omarchy-hw-rog-ally", '"$HOOK_HW"')
+  .replace("/usr/lib/omarchy-gaming-session/sddm-user.sh", '"$HOOK_USER_HELPER"'))
 
 def run_hook(function):
   hook_calls.write_text("")
   proc = subprocess.run(
-    ["bash", "-c", f"source {hook_script}; {function}"],
+    ["bash", "-c", 'source "$1"; "$2"', "_", str(hook_script), function],
     env=hook_env,
     text=True,
     capture_output=True,
@@ -524,6 +542,8 @@ def run_hook(function):
   return hook_calls.read_text().split()
 
 check(run_hook("post_install") == ["install-service"], "post_install installs the profile service")
+hook_rule = hookroot / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules"
+check('subject.user == "daniel"' in hook_rule.read_text(), "the first package install authorizes the recorded handheld user")
 check(run_hook("post_upgrade") == ["install-service"], "post_upgrade installs the profile service")
 check(all((hookroot / rel).is_file() for rel in mod.SERVICE_FILES), "the service files are present before removal")
 check(run_hook("post_remove") == ["remove-service"], "post_remove removes the profile service")

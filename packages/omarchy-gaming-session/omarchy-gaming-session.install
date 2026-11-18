@@ -16,21 +16,21 @@ post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
+  # Both policy installers read the recorded handheld user. Create the
+  # drop-in first on a provisioned system that has just added this package.
+  local user_status=0
+  if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
+    if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
+      OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded || user_status=$?
+    fi
+  fi
   if command -v omarchy-inputplumber-profile >/dev/null; then
     warn_profile_step "InputPlumber profile service install" omarchy-inputplumber-profile install-service
   fi
   if command -v omarchy-ally-tdp-install >/dev/null; then
     warn_profile_step "Ally TDP session install" omarchy-ally-tdp-install session
   fi
-  # Fill an empty User= from the installer record. A counted User= is
-  # left in place. The name is not the account that ran pacman. No second
-  # file, no Session=, no sudoers. The package is present because this
-  # scriptlet is that package. The file itself stays unpackaged.
-  if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
-    if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
-      OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded
-    fi
-  fi
+  return "$user_status"
 }
 
 post_upgrade() {
