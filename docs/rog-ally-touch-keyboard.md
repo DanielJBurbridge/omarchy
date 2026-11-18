@@ -1,6 +1,6 @@
 # ROG Ally desktop touch keyboard
 
-Scope: the original RC71L, rows K01–K05/K09–K10 in [the parity inventory](../plans/rog-ally-parity.md). This extends the existing optional wvkbd setup. Source tests establish command routing, process ownership and hardware guards. Installed touch, controller, character delivery, focus and layout acceptance remain pending the sole Ally rollout owner; do not mark these rows verified from the source tests.
+On the original RC71L, the optional wvkbd keyboard accepts touch and right-trigger clicks in Omarchy menu search. Daniel tested both on build `71d6b055` and found the themed Retro 82 layout usable. The optional search-field and edge-swipe actions have separate acceptance checks. [Parity inventory](handheld/feature-parity.md#controller-touch-and-accessibility)
 
 ## Desktop operation
 
@@ -35,7 +35,7 @@ The existing Big Picture launcher hides the desktop keyboard. SESSION must call 
 
 Gaming Mode uses Steam's keyboard: `Guide + X` (West), or Steam's text-field UI. INPUT maps the upstream Keyboard capability to Guide+West in gamepad/DS5 mode, while keeping manual Guide+West Steam-owned. Steam documents the chord in [its controller shortcuts](https://help.steampowered.com/en/faqs/view/69e3-14af-9764-4c28). A desktop layer-shell keyboard does not cross into a separate Gamescope session. Verify Steam search and in-game text entry separately; this helper does not configure Steam Input or claim every game accepts Steam's keyboard.
 
-Desktop wvkbd is not a greeter, lock-screen or disk-unlock keyboard. AUTH owns those surfaces. Omarchy's full-screen menus and Apps grid currently use exclusive overlay focus. Their interaction with wvkbd needs explicit acceptance, including opening the keyboard before and after the menu. The bar summon control avoids needing menu search to open the keyboard; it does not establish menu typing compatibility. Do not change authentication or generic overlay policy to mask a failure.
+Sign-in and unlock use their own keyboards. On the physical Ally, Daniel opened the desktop keyboard, then the Omarchy menu, and typed into its search field with both touch and RT. In disposable Hyprland, opening menu search first and tapping its field also showed a working keyboard with the option enabled. The Apps grid still needs a typing and selection check.
 
 ## Optional bottom-edge swipe
 

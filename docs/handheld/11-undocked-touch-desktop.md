@@ -2,7 +2,7 @@
 
 Status: draft, 16 November 2026. Device: ROG Ally RC71L, 7 inch 1080p, landscape, no dock and no keyboard. Owner: dev-ux. Depends on [01](01-controller-button-map.md) (the desktop map), [02](02-mode-switch-and-dock.md) (dock, session), [06](06-accessibility.md) (scale), [07](07-on-screen-keyboard.md) (wvkbd), [08](08-mode-round-trip.md) (Switch to Desktop). This file is the undocked Hyprland desktop.
 
-Research: [touch-desktop-and-stick-mouse.md](research/touch-desktop-and-stick-mouse.md), [touch-first-boot.md](research/touch-first-boot.md), [prior-art.md](research/prior-art.md), [feature-parity-audit.md](research/feature-parity-audit.md). The desktop profile is `default/inputplumber/profiles/desktop.yaml`, loaded by the helper from [PR #53](https://github.com/DanielJBurbridge/omarchy/pull/53). Nothing here was run on an RC71L.
+Research: [touch-desktop-and-stick-mouse.md](research/touch-desktop-and-stick-mouse.md), [touch-first-boot.md](research/touch-first-boot.md), [prior-art.md](research/prior-art.md), [feature-parity-audit.md](research/feature-parity-audit.md). The desktop profile is `default/inputplumber/profiles/desktop.yaml`, loaded by the helper from [PR #53](https://github.com/DanielJBurbridge/omarchy/pull/53). The [parity checklist](feature-parity.md#controller-touch-and-accessibility) records which parts of this design have passed on the RC71L.
 
 ## 0. Decisions
 
@@ -39,7 +39,7 @@ A USB keyboard on an undocked Ally turns the touch profile off (D3) and leaves t
 | F4 | Dock while here | Spec 02. Touch profile off. External scale unchanged. `desktop` stays loaded. |
 | F5 | Undock, Stay | Spec 02's Stay. Keyboard gone and no external display: touch profile on. The session stays Hyprland. |
 
-With the optional gaming-session package and its profile service running, the managed login requests `desktop` before starting Hyprland, including after Switch to Desktop. It requests `pointer` again on desktop exit after a successful desktop profile request. A missing service or a refused request still allows Hyprland to start. The failure-limit recovery desktop has its own OSK profile. The automated test covers request ordering. Stick movement and the full round trip still need an RC71L check.
+With the optional gaming-session package and its profile service running, the managed login requests `desktop` before starting Hyprland, including after Switch to Desktop. It requests `pointer` again on desktop exit after a successful desktop profile request. A missing service or a refused request still allows Hyprland to start. The failure-limit recovery desktop has its own OSK profile. The automated test covers request ordering. On the physical RC71L the right stick moved the pointer and RT left-clicked after both an ordinary return and a touchscreen password sign-in.
 
 ## 3. On-screen keyboard
 
@@ -66,7 +66,7 @@ iPadOS shows the keyboard because the field is focused, and a secure field draws
 
 ## 4. Gestures
 
-The first gesture to trial is an opt-in swipe up from a small bottom-centre handle on the undocked Ally desktop. It shows the themed keyboard while keeping the caret in the active app. The bar button still toggles the keyboard, and Apps stays under Menu → Apps. The other gestures below are proposals. [HHD touch recogniser](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/controllers.py#L375-L456) · [HHD shortcut defaults](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/shortcuts.yml#L60-L94)
+The implemented gesture uses a Quickshell handle. Enable `desktopKeyboard.edgeSwipe` and swipe up from the bottom centre of the undocked Ally desktop. It shows the themed keyboard while keeping the caret in the active app. The bar button still toggles the keyboard, and Apps stays under Menu → Apps. The other gestures below are proposals. [HHD touch recogniser](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/controllers.py#L375-L456) · [HHD shortcut defaults](https://github.com/hhd-dev/hhd/blob/dec62efc3a8a87079d793a6671f3d45b196d633c/src/hhd/plugins/overlay/shortcuts.yml#L60-L94)
 
 | Gesture | Action | Also reached by | Borrowed |
 |---|---|---|---|
@@ -90,7 +90,7 @@ Conflict with Steam and with games:
 | Session locked | No gesture fires. Each `hl.plugin.hyprgrass.bind` omits `locked`, so Hyprland does not run it while the session lock is up. The gesture config gates itself. No edit to `shell/plugins/lock` or `LockView.qml` |
 | Plugin absent or dead | The table's "also reached by" column is the product |
 
-hyprgrass is the plugin this config targets: edge swipe, multi-finger swipe, one command per gesture ([configuration](https://github.com/horriblename/hyprgrass/blob/main/docs/configuration.md)). SPDX `BSD-3-Clause` (copyright Ching Pei Yang 2023). Some parts follow AOSP (Apache-2.0) and the examples follow Waybar (MIT). It stays a plugin. The BSD notice travels with any example we adapt. A bad load can leave the touch device dead until the plugin unloads, which is why D7 does not use the plugin as the way back. There is no Arch extra package. AUR `hyprgrass-git` depends on `hyprland-git`, so this image does not install it (L92). Install is `hyprpm` against a commit that builds on the extra `hyprland` this tree ships, and a Hyprland update means a rebuild. The plugin is still alpha. [omarchy-tablet](https://github.com/yeutterg/omarchy-tablet) has no licence: ideas only, and we do not copy it.
+The other proposed gestures target hyprgrass for edge and multi-finger swipes with one command per gesture ([configuration](https://github.com/horriblename/hyprgrass/blob/main/docs/configuration.md)). SPDX `BSD-3-Clause` (copyright Ching Pei Yang 2023). Some parts follow AOSP (Apache-2.0) and the examples follow Waybar (MIT). It stays a plugin. The BSD notice travels with any example we adapt. A bad load can leave the touch device dead until the plugin unloads, which is why D7 does not use the plugin as the way back. There is no Arch extra package. AUR `hyprgrass-git` depends on `hyprland-git`, so this image does not install it (L92). Install is `hyprpm` against a commit that builds on the extra `hyprland` this tree ships, and a Hyprland update means a rebuild. The plugin is still alpha. [omarchy-tablet](https://github.com/yeutterg/omarchy-tablet) has no licence: ideas only, and we do not copy it.
 
 ## 5. Scale and targets
 
