@@ -131,8 +131,9 @@ else
   state_dir=/var/lib/omarchy/handheld/ally-tdp
   run_dir=/run/omarchy-ally-tdp
   lock_file=/run/omarchy-ally-tdp.lock
-  boot_id=$(IFS= read -r boot_id </proc/sys/kernel/random/boot_id || true)
-  [[ -n ${boot_id:-} ]] || boot_id=unknown
+  if ! IFS= read -r boot_id </proc/sys/kernel/random/boot_id || [[ -z $boot_id ]]; then
+    boot_id=unknown
+  fi
   lock_wait=$LOCK_WAIT_DEFAULT
 fi
 

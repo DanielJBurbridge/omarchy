@@ -201,6 +201,24 @@ stored() {
   fi
 }
 
+ac_table
+boot_cache=$work/boot-run/omarchy-ally-tdp/boot
+mkdir -p "$boot_cache/unknown/ac" "$work/boot-sys/class/firmware-attributes/asus-armoury"
+ln -s "$armoury" "$work/boot-sys/class/firmware-attributes/asus-armoury/attributes"
+ln -s "$work/supply" "$work/boot-sys/class/power_supply"
+printf '15\n' >"$boot_cache/unknown/ac/ppt_pl1_spl.max_value"
+# Exercise the production path in a rootless namespace with an old cache.
+show=$(PATH="$work/bin:$PATH" OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_BOOT_ID=unknown \
+  unshare --user --map-root-user --mount --propagation private bash -euc '
+    mount --bind "$1/boot-sys" /sys
+    mount --bind "$1/boot-run" /run
+    mount -t tmpfs tmpfs /var/lib
+    "$2" --snapshot
+  ' bash "$work" "$apply")
+grep -Fxq 'max=30' <<<"$show" && [[ -f $boot_cache/$(</proc/sys/kernel/random/boot_id)/ac/ppt_pl1_spl.max_value ]] ||
+  fail "the current boot must snapshot its own AC ceiling" "$show"
+pass "the current boot ignores an earlier TDP snapshot"
+
 reset_state
 battery_table
 run_apply --set 25 >/dev/null
