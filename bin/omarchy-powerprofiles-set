@@ -31,6 +31,9 @@ esac
 source "$OMARCHY_PATH/default/ally-tdp/profiles.sh"
 ally_tdp=0
 if ally_tdp_profiles_enabled; then
+  # Wake and AC changes reapply the shared request from the root services.
+  # Only an explicit preset should replace a request made in Gaming Mode.
+  [[ -n $requested_profile ]] || exit 0
   ally_tdp=1
   profiles=()
   declare -A tdp_watts=()

@@ -562,12 +562,43 @@ printf '29\n' >"$armoury/ppt_pl1_spl/current_value"
 [[ $(list_profiles) == "$no_active_presets" ]] || fail "a firmware mismatch clears the preset's active state"
 run_apply --set 18 >/dev/null
 [[ $(list_profiles) == "$no_active_presets" ]] || fail "a custom TDP request leaves presets unselected"
+rm "$work/profiles-state/ac" "$work/profiles-state/battery"
+before_startup=$(tuple)
+env "${profile_env[@]}" "$ROOT/bin/omarchy-powerprofiles-init"
+[[ $(stored) == 18 && $(tuple) == "$before_startup" ]] ||
+  fail "desktop startup preserves a custom Gaming Mode request" "$(stored), $(tuple)"
+
+printf 'balanced\n' >"$work/profiles-state/battery"
+printf 'performance\n' >"$work/profiles-state/ac"
+battery_table
+run_apply --reassert >/dev/null
+set_profile battery
+[[ $(stored) == 18 && $(tuple) == 18/20/25 ]] ||
+  fail "unplug preserves a custom request despite an older battery preference" "$(stored), $(tuple)"
+ac_table
+set_profile ac
+run_apply --reassert >/dev/null
+[[ $(stored) == 18 && $(tuple) == "$before_startup" ]] ||
+  fail "replug preserves a custom request despite an older AC preference" "$(stored), $(tuple)"
+
+run_apply --set 30 >/dev/null
+battery_table
+set_profile battery
+run_apply --reassert >/dev/null
+[[ $(stored) == 30 && $(tuple) == 20/20/25 ]] ||
+  fail "desktop battery refresh clamps the applied limit without replacing the saved AC request" "$(stored), $(tuple)"
+ac_table
+run_apply --reassert >/dev/null
+set_profile ac
+[[ $(stored) == 30 && $(tuple) == 30/43/53 ]] ||
+  fail "desktop AC refresh restores the saved limit" "$(stored), $(tuple)"
+
 rm "$armoury/ppt_pl3_fppt/current_value"
 [[ -z $(list_profiles) ]] || fail "missing firmware attributes leave no Omarchy presets available"
 pass "masked profile queries and writes share the live TDP backend and report honest active state"
 
 env "${profile_env[@]}" PPD_MASKED=0 "$ROOT/bin/omarchy-powerprofiles-set" ac balanced
-[[ $(<"$POWERPROFILES_LOG") == balanced && $(stored) == 18 ]] ||
+[[ $(<"$POWERPROFILES_LOG") == balanced && $(stored) == 30 ]] ||
   fail "a stale record cannot route an unmasked daemon's profiles to the TDP writer"
 pass "an unmasked Power Profiles Daemon still handles presets with an old record present"
 
