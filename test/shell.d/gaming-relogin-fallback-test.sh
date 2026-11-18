@@ -25,11 +25,12 @@ cleanup() {
 trap cleanup EXIT
 
 refuse() {
+  local -a identity=()
   if (( EUID == 0 )); then
-    setpriv --reuid=65534 --regid=65534 --clear-groups "$@"
-  else
-    "$@"
+    identity=(--reuid=65534 --regid=65534 --clear-groups)
   fi
+  # This refusal must also hold on a development Ally with the real sudo grant.
+  setpriv --no-new-privs "${identity[@]}" "$@"
 }
 if refuse "$ROOT/bin/omarchy-handheld-autologin" fail >"$work/noop-out" 2>"$work/noop-err"; then
   fail "fail without a passwordless root grant is a silent success"
