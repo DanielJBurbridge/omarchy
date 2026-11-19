@@ -56,6 +56,8 @@ On the original Ally with the optional Gaming Session installed, insert the card
 
 At Gaming login and on reinsertion, the session asks UDisks to mount that UUID using the signed-in user's permissions. It reuses an existing desktop mount and leaves a safely unmounted card alone until reinsertion or the next Gaming login. The session skips the mounted root filesystem, drives UDisks marks as system or excluded from automount, filesystems configured in fstab and duplicate UUIDs visible at the same time. After a duplicate, disconnect both copies and insert only the intended one. A single attached clone with the same UUID is indistinguishable from the original.
 
+Stock Omarchy follows the e2fsprogs rule that disables automatic mounting of ext2, ext3 and ext4 filesystems. For an existing ext4 library, mount the card in the desktop file manager before switching to Gaming Mode. Steam can use that existing mount. After removing the card, return to the desktop to mount it again.
+
 UDisks chooses the mount point. Two drives with the same label can receive different paths depending on insertion order. If Steam needs the existing library folder selected again, use its **Settings → Storage** controls. Mount errors and read-only results are recorded in the user's Gaming Session log. The companion keeps the filesystem's existing ownership and permissions.
 
 ## Render settings and optional integrations
