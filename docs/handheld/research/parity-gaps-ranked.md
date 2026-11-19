@@ -2,7 +2,7 @@
 
 For current source and physical acceptance status, see the [feature-parity checklist](../feature-parity.md).
 
-17 Nov 2026. The current ranked list of what Bazzite, CachyOS Handheld and SteamOS do on the original ASUS ROG Ally (RC71L) that this branch still does not. Read against [`feat/ally-parity-integration-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-parity-integration-20261111) at `5534cf292`. [feature-parity-audit.md](feature-parity-audit.md) now points here. Nothing here was run on an RC71L.
+17 Nov 2026. Historical source audit of features exposed by Bazzite, CachyOS Handheld and SteamOS on the original ASUS ROG Ally (RC71L). Use the current physical and guest results in the [parity checklist](../feature-parity.md) to determine which gaps remain. Read against [`feat/ally-parity-integration-20261111`](https://github.com/DanielJBurbridge/omarchy/tree/feat/ally-parity-integration-20261111) at `5534cf292`. [feature-parity-audit.md](feature-parity-audit.md) now points here. Nothing here was run on an RC71L.
 
 **Unverified** means the cited page did not say it, or nobody has tried it on this unit. Invent nothing: every behaviour below is in those notes or in the tree at that commit.
 
