@@ -6,6 +6,9 @@
 # the daemon later, inside gamescope, and this leaf never enables a unit.
 # A failed build must not stall the rest of hardware setup.
 if omarchy-hw-rog-ally; then
+  if ! omarchy-pkg-add wvkbd; then
+    echo "Could not install the ROG Ally on-screen keyboard." >&2
+  fi
   echo "ROG Ally RC71L: skipping ROG laptop asusctl setup. Steam is optional under Install > Gaming."
   if omarchy-pkg-present omarchy-gaming-session; then
     if ! omarchy-install-rog-ally-powerbutton; then

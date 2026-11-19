@@ -112,3 +112,42 @@ after_release=$(grep -c release_pressed_on_close "$bind_log" || true)
   fail "Super+Ctrl+Y does not take the Agents panel binding Super+Ctrl+X"
 pass "keyboard shortcut requires RC71L and optional wvkbd, and never runs while locked"
 pass "native internal-display transform events require RC71L and optional wvkbd"
+
+# First-install provisioning must work before the Wayland session, while
+# preserving the file if a user already set an explicit keyboard preference.
+cat >"$test_dir/bin/pacman" <<'SH'
+#!/bin/bash
+[[ $* == '-Q -- wvkbd' && $WVKBD_INSTALLED == true ]]
+SH
+chmod +x "$test_dir/bin/pacman"
+owner_config="$test_dir/owner/omarchy/shell.json"
+stock_config="$ROOT/config/omarchy/shell.json"
+mkdir -p "${owner_config%/*}"
+cp "$stock_config" "$owner_config"
+
+provision_keyboard() {
+  printf '%s\n' 'ASUSTeK COMPUTER INC.' >"$test_dir/vendor"
+  printf '%s\n' "$1" >"$test_dir/product"
+  printf '%s\n' "$2" >"$test_dir/board"
+  env -u WAYLAND_DISPLAY PATH="$ROOT/bin:$test_dir/bin:$PATH" \
+    OMARCHY_PATH="$ROOT" XDG_CONFIG_HOME="$test_dir/owner" \
+    OMARCHY_DMI_SYS_VENDOR_PATH="$test_dir/vendor" \
+    OMARCHY_DMI_PRODUCT_NAME_PATH="$test_dir/product" OMARCHY_DMI_BOARD_NAME_PATH="$test_dir/board" \
+    OMARCHY_SETUP_CONTEXT="$3" WVKBD_INSTALLED="$4" \
+    bash -eu -c 'source "$1"' bash "$ROOT/install/user/hardware/asus/rog-ally-keyboard.sh"
+}
+
+provision_keyboard 'ROG Ally X RC72LA' RC72LA iso-chroot true
+provision_keyboard 'ROG Ally RC71L' RC71L iso-chroot false
+provision_keyboard 'ROG Ally RC71L' RC71L runtime true
+cmp -s "$stock_config" "$owner_config" || fail "other hardware, missing packages and runtime leave the keyboard choice alone"
+
+provision_keyboard 'ROG Ally RC71L' RC71L iso-chroot true
+jq -e '.desktopKeyboard.edgeSwipe == true' "$owner_config" >/dev/null || fail "the installer enables the Ally touch keyboard gesture"
+diff -u <(jq -S . "$stock_config") <(jq -S 'del(.desktopKeyboard)' "$owner_config") || fail "the installer preserves other preferences"
+
+jq '.desktopKeyboard.edgeSwipe = false' "$owner_config" >"$test_dir/owned.json"
+cp "$test_dir/owned.json" "$owner_config"
+provision_keyboard 'ROG Ally RC71L' RC71L provision-owner true
+cmp -s "$owner_config" "$test_dir/owned.json" || fail "first-install finalization preserves the owner's opt-out"
+pass "the offline keyboard default requires the original Ally and preserves user choices"
