@@ -19,8 +19,10 @@ PanelWindow {
   mask: Region { item: touch.enabled ? touch : null }
 
   readonly property var client: ToplevelManager.activeToplevel
-  readonly property bool available: layersClear && !!client && client.activated && !client.fullscreen
-    && !!client.appId && !/gamescope/i.test(client.appId)
+  readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace
+  readonly property bool emptyDesktop: !client && workspace?.id > 0 && workspace.toplevels.values.length === 0
+  readonly property bool available: layersClear && (emptyDesktop || (!!client && client.activated && !client.fullscreen
+    && !!client.appId && !/gamescope/i.test(client.appId)))
   property bool layersClear: false
 
   // Hyprland signals a layer's name but not its stack level. Read the stack
@@ -69,6 +71,7 @@ PanelWindow {
   }
   onDevicePixelRatioChanged: touch.cancel()
   onClientChanged: touch.cancel()
+  onWorkspaceChanged: touch.cancel()
 
   // A half-turn can leave Qt's screen geometry and orientation unchanged.
   // Read Hyprland's transform on contact and compare it with the release probe.

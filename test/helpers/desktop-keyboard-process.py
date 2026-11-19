@@ -327,11 +327,13 @@ esac
             # from two devices routed to the same Wayland seat.
             (root / 'vendor').write_text('ASUSTeK COMPUTER INC.')
             (root / 'board').write_text('RC71L')
-            monitor = dict(name='eDP-1', transform=0, focused=True, dpmsStatus=True, solitaryBlockedBy=['WINDOWED'])
+            monitor = dict(name='eDP-1', transform=0, focused=True, dpmsStatus=True,
+                           activeWorkspace={'id': 1}, solitaryBlockedBy=['WINDOWED'])
             device = dict(name='nvtk0603:00-0603:f200')
             levels = {'1': [{'namespace': 'omarchy-keyboard-edge'}], '2': [], '3': []}
+            workspace = dict(id=1, monitor='eDP-1', windows=1, hasfullscreen=False)
             ipc = dict(monitors=[monitor], devices={'touch': [device]}, layers={'eDP-1': {'levels': levels}},
-                       activewindow={'mapped': True, 'class': 'foot', 'initialClass': 'foot'})
+                       activeworkspace=workspace, activewindow={'mapped': True, 'class': 'foot', 'initialClass': 'foot'})
             edge = {'EDGE_IPC': str(root), 'OMARCHY_DMI_SYS_VENDOR_PATH': str(root / 'vendor'),
                     'OMARCHY_DMI_BOARD_NAME_PATH': str(root / 'board'),
                     'OMARCHY_DMI_PRODUCT_NAME_PATH': str(root / 'missing-product')}
@@ -360,7 +362,14 @@ esac
             run('hide-for-menu')
             assert (state / 'visibility').read_text().strip() == 'manual'
             run('stop')
-            print('PASS edge summon requires a known desktop and one internal panel and touch device')
+            (root / 'activewindow').write_text('{}')
+            (root / 'activeworkspace').write_text(json.dumps(workspace | {'windows': 0}))
+            run('show-for-edge', '0', extra=edge)
+            assert record.exists() and (state / 'visibility').read_text().strip() == 'manual'
+            run('stop')
+            (root / 'activewindow').write_text(json.dumps(ipc['activewindow']))
+            (root / 'activeworkspace').write_text(json.dumps(workspace))
+            print('PASS edge summon works on an empty workspace or focused app on the sole internal panel')
 
             external = monitor | {'name': 'DP-1'}
             docked = [monitor | {'focused': False}, external]
