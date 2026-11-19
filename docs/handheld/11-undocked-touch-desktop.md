@@ -29,6 +29,12 @@ Research: [touch-desktop-and-stick-mouse.md](research/touch-desktop-and-stick-mo
 
 The gesture becomes available again when the built-in display is the sole active output. A hub supplying power or USB input can be connected during this transition.
 
+### Floating windows on the built-in display
+
+On the Ally's built-in display, tap the active workspace's shape in the top bar until it becomes a triangle. From the square for Tiling, tap twice. In Floating, drag a window by its titlebar or use the right stick and trigger to click its ×. Omarchy saves the layout for that workspace.
+
+Tap the triangle once to return to Tiling. The default under **Appearance → Workspace Layout** applies to all displays.
+
 ## 2. Entry and exit
 
 | # | Flow | What happens |
