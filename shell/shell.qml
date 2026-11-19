@@ -1305,12 +1305,9 @@ ShellRoot {
     return isPluginOpen(id) ? hide(id) : summon(id, payloadJson)
   }
 
-  function handheldMenuButton(action, screen) {
-    // The compositor emits these events only for a mapped menu on this
-    // output. Resolve the enabled menu, including an older user's clone.
-    const menuId = shell.pluginRegistry.resolveEnabledId("omarchy.menu")
-    const menu = panelLoaders[menuId]?.item
-    if (!menu?.opened || (menu.isOpenOn && !menu.isOpenOn(screen))) return false
+  function handheldMenuButton(action, menuId, menu, screen) {
+    // The compositor emits these events only for a mapped menu on this output.
+    if (!menu?.opened || (typeof menu.isOpenOn === "function" && !menu.isOpenOn(screen))) return false
     if (typeof menu.handheldButton === "function") return menu.handheldButton(action)
     if (menuId === "omarchy.menu" || typeof menu.activateIndex !== "function"
         || typeof menu.goBack !== "function" || typeof menu.cancel !== "function") return false
@@ -1340,25 +1337,29 @@ ShellRoot {
     var screen = screens[0]
     if (Hyprland.focusedMonitor?.name !== screen.name) return ""
     if (expectedOutput !== "current" && expectedOutput !== screen.name) return ""
+    const menuId = shell.pluginRegistry.resolveEnabledId("omarchy.menu")
+    const menu = panelLoaders[menuId]?.item
     if (fromMenuLayer === true)
-      return shell.handheldMenuButton(action, screen) ? screen.name : ""
+      return shell.handheldMenuButton(action, menuId, menu, screen) ? screen.name : ""
     if (!shell.bar?.permitsHandheldPopout(screen)) return ""
 
-    var menu = panelLoaders["omarchy.menu"]?.item
-    // A regular menu can already be open on the dock, even when compositor
-    // focus has returned to eDP. Leave it there, including pending dmenu input.
-    if (!menu || (menu.opened && !menu.isOpenOn?.(screen))) return ""
+    // A clone without output routing can safely use its ordinary open and
+    // close methods when the built-in panel is the only active screen.
+    const onlyInternal = Quickshell.screens.length === 1
+    const menuOpen = shell.isPluginOpen(menuId)
+    if (menuOpen && !(typeof menu?.isOpenOn === "function" ? menu.isOpenOn(screen) : onlyInternal))
+      return ""
     switch (action) {
       case "menu-toggle":
-        if (menu.opened) shell.hide("omarchy.menu")
-        else if (typeof menu.openHandheld === "function") menu.openHandheld(screen)
-        else return ""
+        if (menuOpen) shell.hide(menuId)
+        else if (typeof menu?.openHandheld === "function") menu.openHandheld(screen)
+        else if (!onlyInternal || !shell.summon(menuId, '{"menu":"root"}')) return ""
         return screen.name
       case "power-prepare":
-        if (menu.opened) shell.hide("omarchy.menu")
+        if (menuOpen) shell.hide(menuId)
         return screen.name
       case "power-toggle":
-        if (expectedOutput === screen.name && !menu.opened && shell.bar.toggleHandheldPower(screen))
+        if (expectedOutput === screen.name && !menuOpen && shell.bar.toggleHandheldPower(screen))
           return screen.name
         return ""
       default:
