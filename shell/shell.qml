@@ -1325,6 +1325,9 @@ ShellRoot {
         else if (typeof menu.openHandheld === "function") menu.openHandheld(screen)
         else return ""
         return screen.name
+      case "menu-select":
+      case "menu-back":
+        return menu.handheldButton?.(action) === true ? screen.name : ""
       case "power-prepare":
         if (menu.opened) shell.hide("omarchy.menu")
         return screen.name
@@ -1334,6 +1337,16 @@ ShellRoot {
         return ""
       default:
         return ""
+    }
+  }
+
+  Connections {
+    target: Hyprland
+    enabled: shell.handheldAlly
+    function onRawEvent(event) {
+      if (event.name !== "custom" || !event.data.startsWith("omarchy-ally-menu-")) return
+      const match = /^omarchy-ally-(menu-select|menu-back):(eDP-[0-9]+)$/.exec(event.data)
+      if (match) shell.handheldAction(match[1], match[2], Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE"))
     }
   }
 

@@ -41,6 +41,67 @@ if o.shell_succeeds(o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-all
     return focused
   end
 
+  local menu_buttons = {}
+  local menu_buttons_enabled = false
+  local navigation_cursor
+  if os.getenv("OMARCHY_HANDHELD_SESSION") then
+    -- A, RT and R3 share left click. B and LT share right click on this
+    -- virtual pointer. Only its clicks in the built-in menu become actions.
+    local function menu_button(code, action)
+      local bind = hl.bind(code, function()
+        if action == "select" then
+          local cursor = hl.get_cursor_pos()
+          if navigation_cursor and (math.abs(cursor.x - navigation_cursor.x) > 1 or
+              math.abs(cursor.y - navigation_cursor.y) > 1) then
+            navigation_cursor = nil
+          end
+          -- Preserve normal click delivery to search, rows and header buttons
+          -- after aiming with the stick. Hyprland also forwards its release.
+          if not navigation_cursor then return { pass_event = true } end
+        end
+        local monitor = hl.get_active_monitor()
+        if monitor and monitor.name:match("^eDP%-%d+$") then
+          hl.dispatch(hl.dsp.event("omarchy-ally-menu-" .. action .. ":" .. monitor.name))
+        end
+      end, { click = action == "back", device = { list = { "inputplumber-mouse" } } })
+      bind:set_enabled(false)
+      return bind
+    end
+
+    menu_buttons = {
+      menu_button("mouse:272", "select"),
+      menu_button("mouse:273", "back"),
+    }
+
+    -- Hyprland reports XKB keycodes. The controller's D-pad sends these
+    -- arrows through its existing keyboard map.
+    local arrows = { [111] = true, [113] = true, [114] = true, [116] = true }
+    hl.on("input.keyboard.key", function(keycode, _, state)
+      if menu_buttons_enabled and state ~= 0 and arrows[keycode] then
+        navigation_cursor = hl.get_cursor_pos()
+      end
+    end)
+  end
+
+  local function sync_menu_buttons(focused, closing, keyboard_monitor)
+    if #menu_buttons == 0 then return end
+    local enabled = false
+    if focused and focused.name:match("^eDP%-%d+$") and keyboard_monitor ~= focused then
+      for _, layer in ipairs(hl.get_layers({ namespace = "omarchy-menu" })) do
+        if layer ~= closing and layer.mapped and layer.monitor == focused then
+          enabled = true
+          break
+        end
+      end
+    end
+    if enabled == menu_buttons_enabled then return end
+    menu_buttons_enabled = enabled
+    navigation_cursor = enabled and hl.get_cursor_pos() or nil
+    for _, bind in ipairs(menu_buttons) do
+      if tostring(bind) ~= "HL.Keybind(expired)" then bind:set_enabled(enabled) end
+    end
+  end
+
   local function sync_panel_order(focused, closing)
     local keyboard_monitor
     for _, layer in ipairs(hl.get_layers({ namespace = "wvkbd" })) do
@@ -54,6 +115,7 @@ if o.shell_succeeds(o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-all
       local enabled = keyboard_monitor ~= nil and panel_monitor(namespace, focused, closing) == keyboard_monitor
       if rule:is_enabled() ~= enabled then rule:set_enabled(enabled) end
     end
+    sync_menu_buttons(focused, closing, keyboard_monitor)
   end
 
   local function panel_or_keyboard(layer)

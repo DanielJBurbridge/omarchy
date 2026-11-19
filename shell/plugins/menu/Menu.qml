@@ -940,6 +940,28 @@ Item {
     return true
   }
 
+  function activateCurrent() {
+    if (root.dmenuActive) {
+      if (root.mode === "input") root.applyDmenuSelection(root.filterText)
+      else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
+    } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
+    else root.settleCursor()
+  }
+
+  function handheldButton(action) {
+    if (!root.opened || !root.handheldScreen || !panel.contentRevealed) return false
+    if (root.deleteConfirmOpen) {
+      deleteConfirm.handleKey({ key: action === "menu-select" ? Qt.Key_Return : Qt.Key_Escape })
+    } else if (action === "menu-select") {
+      root.activateCurrent()
+    } else if (root.filterText) {
+      root.setFilter("")
+    } else if ((root.dmenuActive && !root.windowChoices) || !root.goBack()) {
+      root.cancel()
+    }
+    return true
+  }
+
   function activateIndex(index, fromPointer) {
     if (root.deleteConfirmOpen) return
     if (root.dmenuActive) {
@@ -1509,11 +1531,7 @@ Item {
             root.select(6)
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || Util.readingKey(event) === Qt.Key_Right) {
-            if (root.dmenuActive) {
-              if (root.mode === "input") root.applyDmenuSelection(root.filterText)
-              else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
-            } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
-            else root.settleCursor()
+            root.activateCurrent()
             event.accepted = true
           }
         }
