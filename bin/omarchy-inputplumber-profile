@@ -515,7 +515,6 @@ def _unit_state(unit: str) -> str | None:
   return None
 
 
-POINTER_UNIT = "omarchy-ally-pointer.service"
 SERVICE_UNIT = "omarchy-inputplumber-profile.service"
 SERVICE_FILES = (
   "etc/systemd/system/omarchy-inputplumber-profile.service",
@@ -558,34 +557,6 @@ def _enable(unit: str) -> bool:
     print("omarchy-inputplumber-profile: enable failed", file=sys.stderr)
     return False
   return True
-
-
-def install_greeter_into(dest: Path) -> int:
-  """Rewrite the greeter pointer unit under dest.
-
-  The caller has already decided this is an Ally. A disabled unit stays
-  disabled. A mask is left untouched. This does not install the profile
-  switch service.
-  """
-  root = package_root()
-  unit = dest / "etc/systemd/system" / POINTER_UNIT
-  try:
-    state = _unit_state(POINTER_UNIT)
-    if state is None:
-      print("omarchy-inputplumber-profile: cannot read the pointer unit state", file=sys.stderr)
-      return 1
-    enable = False
-    if not _leave_unit(unit, state):
-      enable = state in {"enabled", "alias", "linked", "indirect", "not-found"}
-      _copy(root / "default/systemd/system" / POINTER_UNIT, unit)
-  except ProfileError as exc:
-    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
-    return 1
-  if not _reload():
-    return 1
-  if enable and not _enable(POINTER_UNIT):
-    return 1
-  return 0
 
 
 def install_service_into(dest: Path) -> int:
@@ -661,7 +632,13 @@ def install_greeter() -> int:
     return refused
   if not ally():
     return 0
-  return install_greeter_into(INSTALL_ROOT)
+  root = package_root()
+  leaf = root / "install/hardware/asus/inputplumber.sh"
+  return subprocess.run(
+    ["/bin/bash", "-eE", "-c", 'source "$1"', "bash", str(leaf)],
+    env={**os.environ, "OMARCHY_PATH": str(root)},
+    check=False,
+  ).returncode
 
 
 def install_service() -> int:

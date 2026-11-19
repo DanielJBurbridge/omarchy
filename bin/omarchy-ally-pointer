@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# omarchy:summary=Load the built-in RC71L controller pointer
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+omarchy-hw-rog-ally || exit 0
+bus=org.shadowblip.InputPlumber
+composite=org.shadowblip.Input.CompositeDevice
+profile="$OMARCHY_PATH/default/inputplumber/profiles/omarchy-ally-pointer.yaml"
+
+# InputPlumber takes its bus name before udev has assembled the controller.
+# Use one snapshot per attempt, so the composite and its sources are matched
+# together. Keep an external Xbox pad out even if InputPlumber combines it
+# with the Ally’s other built-in sources.
+for ((attempt = 0; attempt < 20; attempt++)); do
+  if paths=$(busctl --timeout=500ms --json=short call "$bus" /org/shadowblip/InputPlumber \
+    org.freedesktop.DBus.ObjectManager GetManagedObjects |
+    jq -r --arg composite "$composite" '
+      .data[0] as $objects
+      | ($objects[]["org.shadowblip.Input.Source.UdevDevice"]
+         | select(.IdVendor.data == "0b05" and .IdProduct.data == "1abe"
+           and .Properties.data.ID_INTEGRATION != "external")
+         | .DevicePath.data) as $ally_source
+      | [$objects[]["org.shadowblip.Input.Source.UdevDevice"]
+          | select(.IdVendor.data == "045e" and .IdProduct.data == "028e"
+            and .Properties.data.ID_INTEGRATION == "external")
+          | .DevicePath.data] as $external_pads
+      | $objects | to_entries[]
+      | select(.value[$composite].Name.data == "ASUS ROG Ally")
+      | select(.value[$composite].SourceDevicePaths.data
+         | index($ally_source) and all(.[]; . as $source | ($external_pads | index($source)) == null))
+      | .key' | sort -u) && [[ -n $paths ]]; then
+    if [[ $paths =~ ^/org/shadowblip/InputPlumber/CompositeDevice[0-9]+$ ]]; then
+      exec busctl --timeout=1s call "$bus" "$paths" "$composite" LoadProfilePath s "$profile"
+    fi
+    printf '%s\n' "Cannot identify a single RC71L controller in InputPlumber." >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+
+printf '%s\n' "The RC71L controller did not become ready in InputPlumber." >&2
+exit 1

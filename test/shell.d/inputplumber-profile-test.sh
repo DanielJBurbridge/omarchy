@@ -16,7 +16,7 @@ set -euo pipefail
 helper=$ROOT/bin/omarchy-inputplumber-profile
 [[ -x $helper ]] || fail "the profile helper is executable"
 [[ ! -e $ROOT/bin/omarchy-ally-pointer-load ]] || fail "the old pointer loader is still shipped"
-grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
+grep -q '^ExecStart=/usr/bin/omarchy-ally-pointer$' \
   "$ROOT/default/systemd/system/omarchy-ally-pointer.service" ||
   fail "the greeter unit calls the helper"
 grep -q '^Before=display-manager.service$' \
@@ -40,7 +40,6 @@ service_migration=$ROOT/migrations/1794988800.sh
 [[ $(stat -c %a -- "$service_migration") == 644 ]] || fail "the service migration is mode 0644"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$service_migration" || fail "the service migration requires the gaming session package"
 grep -q 'install-service$' "$service_migration" || fail "the service migration installs the profile service"
-grep -q 'install-greeter' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf installs the greeter unit"
 grep -q 'install-service' "$ROOT/install/hardware/asus/inputplumber.sh" && fail "the hardware leaf installs the profile service"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$ROOT/install/hardware/asus/gaming-session.sh" || fail "the gaming session leaf is opt-in"
 grep -q 'install-service' "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install" || fail "the package installs the profile service"
@@ -49,7 +48,7 @@ grep -q 'remove-service' "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-s
 if setpriv --reuid=1 --regid=1 --clear-groups "$helper" install-greeter; then
   fail "install as the desktop user is refused"
 fi
-pass "the greeter calls omarchy-inputplumber-profile and install is root-only"
+pass "greeter provisioning is root-only"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -106,10 +105,9 @@ from pathlib import Path
 
 root = Path(os.environ["ROOT"])
 work = Path(os.environ["WORK"])
-for name in ("omarchy-ally-pointer", "omarchy-inputplumber-profile"):
-    unit = configparser.ConfigParser()
-    unit.read(root / "default/systemd/system" / f"{name}.service")
-    assert unit["Service"].get("ExecCondition") == "/usr/bin/omarchy-hw-rog-ally", name
+unit = configparser.ConfigParser()
+unit.read(root / "default/systemd/system/omarchy-inputplumber-profile.service")
+assert unit["Service"].get("ExecCondition") == "/usr/bin/omarchy-hw-rog-ally"
 helper = root / "bin" / "omarchy-inputplumber-profile"
 loader = SourceFileLoader("inputplumber_profile", str(helper))
 spec = importlib.util.spec_from_loader("inputplumber_profile", loader)
@@ -128,7 +126,7 @@ def cp(code, stdout="", stderr=""):
 profiles = root / "default/inputplumber/profiles"
 gamepads = {"ds5", "ds5-edge", "deck", "deck-uhid", "xbox-elite"}
 shipped = {
-  "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer v2", ["xbox-elite", "mouse", "keyboard"]),
+  "omarchy-ally-pointer.yaml": ("Omarchy Ally boot pointer", ["xbox-elite", "mouse", "keyboard"]),
   "desktop.yaml": ("Omarchy Ally desktop v2", ["xbox-elite", "mouse", "keyboard"]),
   "osk.yaml": ("Omarchy Ally osk v2", ["xbox-elite", "mouse", "keyboard"]),
   "gaming.yaml": ("Omarchy Ally gaming", ["ds5-edge", "mouse", "keyboard"]),
@@ -301,7 +299,7 @@ prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{xbox}"')
 bus.reset()
 prop(c1, "ProfileName", 's "Omarchy Ally pointer"')
 check(mod.load("pointer") == 0 and bus.methods() == ["LoadProfileFromYaml"], "pointer replaces the cached profile with inert stick axes")
-prop(c1, "ProfileName", 's "Omarchy Ally pointer v2"')
+prop(c1, "ProfileName", 's "Omarchy Ally boot pointer"')
 bus.reset()
 check(mod.load("pointer") == 0 and bus.methods() == [], "the corrected pointer stays loaded on a repeated request")
 bus.reset()
@@ -415,43 +413,17 @@ user_conf.parent.mkdir(parents=True)
 user_conf.write_text("[Autologin]\nUser=daniel\n")
 os.chmod(user_conf, 0o644)
 os.environ["OMARCHY_PATH"] = str(root)
-check(mod.install_greeter_into(dest) == 0, "the greeter install rewrites the pointer unit")
 check(mod.install_service_into(dest) == 0, "the service install writes the Ally policy")
-unit = (dest / "etc/systemd/system/omarchy-ally-pointer.service").read_text()
-check("omarchy-inputplumber-profile load pointer" in unit, "install ships the helper unit")
-check("omarchy-ally-pointer-load" not in unit, "install does not keep the old loader")
 rule = (dest / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules").read_text()
 check('subject.user == "sddm"' in rule and "polkit.Result.NO" in rule, "the rule refuses sddm")
 check("subject.active && subject.local && subject.user == \"daniel\"" in rule, "the rule allows the handheld user")
 check("NOPASSWD" not in rule and "pkexec" not in rule, "the rule is not a sudoers grant")
 check(all(not line.strip().startswith("polkit") or "shadowblip" not in line for line in rule.splitlines()), "the rule does not grant InputPlumber")
-check(["enable", "omarchy-ally-pointer.service"] in system, "a missing greeter unit is enabled")
 check(["enable", "omarchy-inputplumber-profile.service"] in system, "a missing profile service is enabled")
 policy = (dest / "usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf").read_text()
 check('<allow own="org.omarchy.InputPlumberProfile"/>' in policy, "root may own the profile bus name")
 check('<deny own="org.omarchy.InputPlumberProfile"/>' in policy, "other users may not own the profile bus name")
 check("org.shadowblip" not in policy.split("-->", 1)[-1], "the bus policy grants no InputPlumber name")
-
-system.clear()
-systemctl_state["value"] = "disabled"
-check(mod.install_greeter_into(dest) == 0, "install updates a disabled unit")
-check(not any(call[0] == "enable" for call in system), "a disabled pointer unit stays disabled")
-
-kept_pointer = (dest / "etc/systemd/system/omarchy-ally-pointer.service").read_text()
-system.clear()
-systemctl_state["value"] = "masked"
-masked = dest / "etc/systemd/system/omarchy-ally-pointer.service"
-masked.unlink()
-masked.symlink_to("/dev/null")
-check(mod.install_greeter_into(dest) == 0, "a masked pointer unit does not fail the greeter install")
-check(masked.is_symlink() and os.path.realpath(masked) == os.path.realpath("/dev/null"), "the mask symlink stays")
-check(not any(call[0] == "enable" for call in system), "a masked unit is not enabled")
-check(mod.install_service_into(dest) == 0, "a masked greeter unit does not block the profile service")
-check((dest / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules").is_file(), "the profile service still installs its rule")
-masked.unlink()
-systemctl_state["value"] = "not-found"
-check(mod.install_greeter_into(dest) == 0, "the greeter unit can be installed again after the mask is removed")
-check((dest / "etc/systemd/system/omarchy-ally-pointer.service").read_text() == kept_pointer, "removing the mask installs the helper unit")
 
 os.chmod(user_conf, 0o666)
 systemctl_state["value"] = "enabled"
@@ -468,24 +440,19 @@ check(mod.install_service_into(dest) == 0, "installing the service again reads t
 refreshed = (dest / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules").read_text()
 check('subject.user == "daniel"' in refreshed, "a later user file becomes the YES user")
 
-linked = dest / "etc/systemd/system/omarchy-ally-pointer.service"
-linked.unlink()
-linked.symlink_to("/tmp/not-our-unit")
-check(mod.install_greeter_into(dest) == 1, "install refuses a symlinked unit")
-linked.unlink()
+pointer_mask = dest / "etc/systemd/system/omarchy-ally-pointer.service"
+pointer_mask.symlink_to("/dev/null")
 
 service_paths = [dest / rel for rel in mod.SERVICE_FILES]
 check(mod.remove_service_into(dest) == 0, "removing the gaming session drops the profile service")
 check(all(not path.exists() for path in service_paths), "the service, policy and rule are removed")
-check(not (dest / "etc/systemd/system/omarchy-ally-pointer.service").exists(), "the greeter unit was already unlinked for the symlink test")
+check(os.readlink(pointer_mask) == "/dev/null", "removing the profile service leaves a pointer mask")
 
 bare = work / "bare"
 mod.INSTALL_ROOT = bare
 mod.gaming_session_installed = lambda: False
 systemctl_state["value"] = "not-found"
 system.clear()
-check(mod.install_greeter() == 0, "an Ally without the package still installs the greeter")
-check((bare / "etc/systemd/system/omarchy-ally-pointer.service").is_file(), "the greeter unit is the only unit")
 check(mod.install_service() == 0, "an Ally without the package does not install the service")
 check(all(not (bare / rel).exists() for rel in mod.SERVICE_FILES), "an Ally without the package gets no service, policy or rule")
 
@@ -522,7 +489,7 @@ hook_stub.write_text(
   "hooked.run_busctl = lambda args: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
   "dest = Path(os.environ['HOOK_ROOT'])\n"
   "if sys.argv[1] == 'install-greeter':\n"
-  "    raise SystemExit(hooked.install_greeter_into(dest))\n"
+  "    raise SystemExit(0)\n"
   "if sys.argv[1] == 'install-service':\n"
   "    raise SystemExit(hooked.install_service_into(dest))\n"
   "raise SystemExit(hooked.remove_service_into(dest))\n"
@@ -561,6 +528,8 @@ hook_rule = hookroot / "etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rul
 check('subject.user == "daniel"' in hook_rule.read_text(), "the first package install authorizes the recorded handheld user")
 check(run_hook("post_upgrade") == ["install-greeter", "install-service"], "post_upgrade installs the profile service")
 check(all((hookroot / rel).is_file() for rel in mod.SERVICE_FILES), "the service files are present before removal")
+hook_pointer = hookroot / "etc/systemd/system/omarchy-ally-pointer.service"
+hook_pointer.touch()
 check(run_hook("post_remove") == ["remove-service"], "post_remove removes the profile service")
 check(all(not (hookroot / rel).exists() for rel in mod.SERVICE_FILES), "post_remove deletes the service, policy and rule")
 check((hookroot / "etc/systemd/system/omarchy-ally-pointer.service").is_file(), "post_remove leaves the greeter unit")
@@ -648,7 +617,9 @@ pass "a failed profile scriptlet warns and still returns"
 
 pkg=$work/pkg
 mkdir -p "$pkg/usr/bin" "$pkg/usr/share/omarchy/bin" "$pkg/usr/share/omarchy/default" \
-  "$pkg/etc/systemd/system" "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules"
+  "$pkg/usr/share/omarchy/install/hardware/asus" "$pkg/etc/systemd/system" \
+  "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules"
+cp "$ROOT/install/hardware/asus/inputplumber.sh" "$pkg/usr/share/omarchy/install/hardware/asus/"
 cp "$ROOT/bin/omarchy-inputplumber-profile" "$pkg/usr/bin/omarchy-inputplumber-profile"
 chmod 755 "$pkg/usr/bin/omarchy-inputplumber-profile"
 ln -s ../../../bin/omarchy-inputplumber-profile "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile"
@@ -661,20 +632,42 @@ cat > "$pkg/usr/bin/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
+ln -s omarchy-pkg-present "$pkg/usr/bin/omarchy-pkg-add"
+cat > "$pkg/usr/bin/omarchy-pkg-missing" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
 cat > "$pkg/usr/bin/systemctl" <<'EOF'
 #!/bin/bash
-if [[ ${1:-} == is-enabled ]]; then
-  printf 'not-found\n'
-  exit 1
-fi
-exit 0
+case $1 in
+  enable)
+    if [[ $2 == /* ]]; then
+      ln -sfn -- "$2" "/etc/systemd/system/${2##*/}"
+    fi
+    ;;
+  is-enabled)
+    unit="/etc/systemd/system/$2"
+    if [[ -L $unit ]]; then
+      case $(readlink -- "$unit") in
+        /dev/null) printf 'masked\n'; exit 1 ;;
+        *) printf 'enabled\n' ;;
+      esac
+    elif [[ -f $unit ]]; then
+      printf 'disabled\n'
+      exit 1
+    else
+      printf 'not-found\n'
+      exit 4
+    fi
+    ;;
+esac
 EOF
 cat > "$pkg/usr/bin/busctl" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
 chmod 755 "$pkg/usr/bin/omarchy-hw-rog-ally" "$pkg/usr/bin/omarchy-pkg-present" \
-  "$pkg/usr/bin/systemctl" "$pkg/usr/bin/busctl"
+  "$pkg/usr/bin/systemctl" "$pkg/usr/bin/busctl" "$pkg/usr/bin/omarchy-pkg-missing"
 
 pkg_mounts=()
 pkg_cleanup() {
@@ -685,6 +678,8 @@ pkg_cleanup() {
   rm -rf "$work"
 }
 trap pkg_cleanup EXIT
+mount -t tmpfs tmpfs /var/lib
+pkg_mounts+=("/var/lib")
 mount --bind "$pkg/etc/systemd/system" /etc/systemd/system
 pkg_mounts+=("/etc/systemd/system")
 mount --bind "$pkg/dbus" /usr/share/dbus-1/system.d
@@ -700,10 +695,11 @@ run_packaged() {
 if ! run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter >"$pkg/greeter.out" 2>"$pkg/greeter.err"; then
   fail "install-greeter fails on the packaged layout" "$(cat "$pkg/greeter.err")"
 fi
+[[ -L /etc/systemd/system/omarchy-ally-pointer.service ]] || fail "the pointer unit follows package updates"
 if ! run_packaged "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile" install-service >"$pkg/service.out" 2>"$pkg/service.err"; then
   fail "install-service fails on the packaged layout" "$(cat "$pkg/service.err")"
 fi
-grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
+grep -q '^ExecStart=/usr/bin/omarchy-ally-pointer$' \
   /etc/systemd/system/omarchy-ally-pointer.service ||
   fail "the packaged greeter unit does not call the helper" "$(cat /etc/systemd/system/omarchy-ally-pointer.service)"
 grep -q 'omarchy-ally-pointer-load' /etc/systemd/system/omarchy-ally-pointer.service &&
@@ -714,11 +710,22 @@ grep -q 'omarchy-ally-pointer-load' /etc/systemd/system/omarchy-ally-pointer.ser
 [[ -f /etc/polkit-1/rules.d/50-omarchy-inputplumber-profile.rules ]] || fail "the packaged install skips the polkit rule"
 pass "a packaged layout installs the greeter unit and the profile service"
 
+pointer_unit=/etc/systemd/system/omarchy-ally-pointer.service
+rm -- "$pointer_unit"
+ln -s /dev/null "$pointer_unit"
+run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter
+[[ $(readlink -- "$pointer_unit") == /dev/null ]] || fail "packaged provisioning preserves the administrator's mask"
+rm -- "$pointer_unit"
+printf '[Unit]\nDescription=Administrator pointer\n' >"$pointer_unit"
+run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter
+grep -Fxq 'Description=Administrator pointer' "$pointer_unit" || fail "packaged provisioning preserves a disabled administrator unit"
+
 # sudo and pacman start this helper with OMARCHY_PATH unset. The files then
 # come from /usr/share/omarchy, not from the directory that holds the binary.
 printf '\n# package-root=/usr/share/omarchy\n' >> \
   "$pkg/usr/share/omarchy/default/systemd/system/omarchy-ally-pointer.service"
-rm -f /etc/systemd/system/omarchy-ally-pointer.service \
+rm -f /var/lib/omarchy/handheld/ally-pointer-provisioned \
+  /etc/systemd/system/omarchy-ally-pointer.service \
   /etc/systemd/system/omarchy-inputplumber-profile.service \
   /usr/share/dbus-1/system.d/org.omarchy.InputPlumberProfile.conf \
   /usr/share/polkit-1/actions/org.omarchy.inputplumber-profile.policy \
@@ -743,7 +750,7 @@ if ! run_unset "$pkg/usr/bin/omarchy-inputplumber-profile" install-service \
   >"$pkg/unset-service.out" 2>"$pkg/unset-service.err"; then
   fail "install-service fails when OMARCHY_PATH is unset" "$(cat "$pkg/unset-service.err")"
 fi
-grep -q '^ExecStart=/usr/bin/omarchy-inputplumber-profile load pointer$' \
+grep -q '^ExecStart=/usr/bin/omarchy-ally-pointer$' \
   /etc/systemd/system/omarchy-ally-pointer.service ||
   fail "an unset OMARCHY_PATH does not install the greeter unit" \
   "$(cat /etc/systemd/system/omarchy-ally-pointer.service)"

@@ -4,8 +4,8 @@
 # not that device config.
 version: 1
 kind: DeviceProfile
-name: Omarchy Ally pointer v2
-description: Left stick moves the pointer and the south button clicks. Loaded before the greeter.
+name: "Omarchy Ally boot pointer"
+description: Move with either stick and click with A or the right trigger.
 # xbox-elite stays in the target list. A mouse-only list is what hid the built-in pad from Steam.
 target_devices:
   - xbox-elite
@@ -23,6 +23,24 @@ mapping:
       - mouse:
           motion:
             speed_pps: 900
+  - name: Right stick pointer
+    source_event:
+      gamepad:
+        axis:
+          name: RightStick
+    target_events:
+      - mouse:
+          motion:
+            speed_pps: 900
+  - name: Right trigger clicks
+    source_event:
+      gamepad:
+        trigger:
+          name: RightTrigger
+          deadzone: 0.25
+    target_events:
+      - mouse:
+          button: Left
   - name: South clicks
     source_event:
       gamepad:
