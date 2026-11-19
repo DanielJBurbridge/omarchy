@@ -10,7 +10,7 @@ The optional handheld session gives the original RC71L a controller-driven Omarc
 | Adjust brightness or volume | Tap Command Centre to open **Power**. The dock-aware candidate shows the handheld controls on the built-in panel. Brightness adjusts that screen. Volume adjusts the selected audio output, which may be the hub when docked. |
 | Switch modes | Save your desktop work, then choose **Omarchy → System → Switch to Gaming**. To return from the dedicated Gaming session, choose **Steam → Power → Switch to Desktop**. |
 
-`Super + W` asks the focused app to close. With the optional **Active window** bar widget visible, point at the window title and press LT or X to make the same request using the controller.
+`Super + W` asks the focused app to close. To close with the controller, put the active workspace in Omarchy’s **Floating** mode using its layout glyph in the top bar. Point at the window’s native titlebar × and press RT. The **Appearance → Workspace Layout** menu sets the global default.
 
 The [feature-parity checklist](feature-parity.md) records the package versions, hardware results and open issues for the current build. Independent rear paddles, stick-ring lighting and output through the DisplayLink hub still need hardware work. The [gaming session reference](../rog-ally-gaming-session.md) covers the optional packages and session settings.
 
