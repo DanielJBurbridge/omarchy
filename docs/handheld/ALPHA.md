@@ -6,9 +6,11 @@ The optional handheld session gives the original RC71L a controller-driven Omarc
 |---|---|
 | Point and click | Move the right stick. RT left-clicks and LT right-clicks. |
 | Type | Focus the field. With the [touch keyboard](../rog-ally-touch-keyboard.md) configured, tap **Keyboard** in the bar. You can also swipe up from the bottom-centre handle when enabled on the undocked Ally. Type by touch or with the pointer and RT. Tap **Keyboard** again to hide it. |
-| Switch windows | Tap Armoury Crate, choose **Switch Window**, then select the window by title. **Apps** opens the launcher. |
+| Switch windows | Tap Armoury Crate. Use D-pad Up and Down to highlight a row, Right to select it and Left to go back. Choose **Switch Window** to select an open window by title or **Apps** to open the launcher. |
 | Adjust brightness or volume | Tap Command Centre to open **Power**. The dock-aware candidate shows the handheld controls on the built-in panel. Brightness adjusts that screen. Volume adjusts the selected audio output, which may be the hub when docked. |
 | Switch modes | Save your desktop work, then choose **Omarchy → System → Switch to Gaming**. To return from the dedicated Gaming session, choose **Steam → Power → Switch to Desktop**. |
+
+`Super + W` asks the focused app to close. With the optional **Active window** bar widget visible, point at the window title and press LT or X to make the same request using the controller.
 
 The [feature-parity checklist](feature-parity.md) records the package versions, hardware results and open issues for the current build. Independent rear paddles, stick-ring lighting and output through the DisplayLink hub still need hardware work. The [gaming session reference](../rog-ally-gaming-session.md) covers the optional packages and session settings.
 
