@@ -15,9 +15,13 @@ If Steam is not running for this user, do nothing; never start it just to close
 Big Picture. Otherwise use: steam -ifrunning steam://close/bigpicture
 The -ifrunning flag also guards against Steam exiting after the process check.
 
-This submits a request, not confirmation that the UI has changed. If Steam is
-busy or the request has no effect, use Big Picture's Power menu and choose
-"Exit Big Picture Mode". Reopen it with the Steam Big Picture application.
+At fullscreen sign-in, Steam can accept the request and keep sign-in in front.
+On the Omarchy desktop, swipe right with three fingers on a touchpad to use
+another workspace. Big Picture stays open. With Steam on workspace 1, Super + 2
+switches away and Super + 1 returns.
+
+After sign-in, choose Menu > Power > Exit Big Picture Mode to leave the mode
+from Steam. Reopen it with the Steam Big Picture application.
 EOF
 }
 

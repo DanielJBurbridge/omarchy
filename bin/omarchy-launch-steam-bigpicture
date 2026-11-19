@@ -14,13 +14,17 @@ The exact Steam invocation is: steam steam://open/bigpicture
 No Steam flags are added. The URI opens Big Picture in a new or existing client;
 repeated launches forward the same request to Steam, without stopping it.
 
-To return to the desktop, open Big Picture's Power menu and choose
-"Exit Big Picture Mode". Steam stays running and games/downloads are not stopped
-by this launcher. Launch again to reopen Big Picture.
+The launch request can finish before the interface opens. On first launch,
+Steam may spend several minutes updating before sign-in.
+For touchscreen-only sign-in, open Steam from Apps to keep the top bar in reach.
 
-This submits a launch request; success does not prove the UI is ready. Steam's
-first start may need updates and sign-in. No session, display, controller or
-Steam settings are changed, and Gamescope is not required.
+At fullscreen sign-in, swipe right with three fingers on a touchpad to use
+another Omarchy workspace. Big Picture stays open. With Steam on workspace 1,
+Super + 2 switches away and Super + 1 returns.
+
+After sign-in, choose Menu > Power > Exit Big Picture Mode to leave the mode.
+Steam, games and downloads stay running. Launch again to reopen Big Picture.
+The launcher uses your existing session and settings. Gamescope is optional.
 EOF
 }
 

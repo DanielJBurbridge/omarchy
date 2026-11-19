@@ -92,6 +92,7 @@ while true; do
     "$(omarchy-i18n gaming.firstSignIn)")
       choose "$(omarchy-i18n gaming.helpBackTitle)" \
         "$(row '' "$(omarchy-i18n gaming.finishUpdating)" "$(omarchy-i18n gaming.updatingHint)")" \
+        "$(row '󰍹' "$(omarchy-i18n gaming.windowedSignIn)" "$(omarchy-i18n gaming.windowedSignInHint)")" \
         "$(row '󰌾' "$(omarchy-i18n gaming.scanQr)" "$(omarchy-i18n gaming.qrHint)")" \
         "$(row '' "$(omarchy-i18n gaming.usbKeyboard)" "$(omarchy-i18n gaming.usbHint)")" "$(row '󰌑' "$(omarchy-i18n gaming.back)" "$(omarchy-i18n gaming.backHint)")"
       ;;
@@ -103,6 +104,7 @@ while true; do
       ;;
     "$(omarchy-i18n gaming.returnHelp)")
       choose "$(omarchy-i18n gaming.helpBackTitle)" \
+        "$(row '󰍹' "$(omarchy-i18n gaming.fullscreenSignIn)" "$(omarchy-i18n gaming.fullscreenSignInHint)")" \
         "$(row '󰍹' "$(omarchy-i18n gaming.powerMenu)" "$(omarchy-i18n gaming.powerMenuHint)")" \
         "$(row '' "$(omarchy-i18n gaming.steamStaysOpen)" "$(omarchy-i18n gaming.downloadsHint)")" "$(row '󰌑' "$(omarchy-i18n gaming.back)" "$(omarchy-i18n gaming.backHint)")"
       ;;
