@@ -21,9 +21,23 @@ PanelWindow {
   readonly property var client: ToplevelManager.activeToplevel
   readonly property var workspace: Hyprland.monitorFor(screen)?.activeWorkspace
   readonly property bool emptyDesktop: !client && workspace?.id > 0 && workspace.toplevels.values.length === 0
-  readonly property bool available: layersClear && (emptyDesktop || (!!client && client.activated && !client.fullscreen
-    && !!client.appId && !/gamescope/i.test(client.appId)))
+  readonly property bool desktopAvailable: emptyDesktop || (!!client && client.activated && !client.fullscreen
+    && !!client.appId && !/gamescope/i.test(client.appId))
+  readonly property bool available: layersClear && desktopAvailable
+  readonly property int keyboardInset: keyboardTop === null ? 0 : screen.y + screen.height - keyboardTop
+  readonly property bool dismissAvailable: desktopAvailable && keyboardInset > 0 && keyboardInset <= screen.height - implicitHeight
   property bool layersClear: false
+  property var keyboardTop: null
+
+  function cancelGestures() {
+    touch.cancel()
+    dismissTouch.tracking = false
+  }
+
+  function refreshGeometry() {
+    cancelGestures()
+    layers.refresh()
+  }
 
   // Hyprland signals a layer's name but not its stack level. Read the stack
   // once on startup and again when it changes, including external surfaces.
@@ -44,9 +58,15 @@ PanelWindow {
       }
       try {
         const levels = JSON.parse(snapshot.text)[edge.screen.name].levels
-        edge.layersClear = code === 0 && levels["2"].every(s => s.namespace === "omarchy-bar" || s.namespace === "omarchy-dock")
-          && levels["3"].every(s => s.namespace === "omarchy-notifications")
-      } catch (_) { edge.layersClear = false }
+        const desktop = code === 0 && levels["2"].every(s => s.namespace === "omarchy-bar" || s.namespace === "omarchy-dock")
+        const overlay = levels["3"].filter(s => s.namespace !== "omarchy-keyboard-dismiss" && s.namespace !== "omarchy-notifications")
+        const keyboard = desktop && overlay.length === 1 && overlay[0].namespace === "wvkbd" && overlay[0].h > 0 ? overlay[0] : null
+        edge.layersClear = desktop && overlay.length === 0
+        edge.keyboardTop = keyboard ? keyboard.y : null
+      } catch (_) {
+        edge.layersClear = false
+        edge.keyboardTop = null
+      }
     }
     Component.onCompleted: refresh()
   }
@@ -54,11 +74,15 @@ PanelWindow {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      if (event.name === "openlayer") edge.layersClear = false
+      if (event.data === "omarchy-keyboard-dismiss") return
+      if (event.name === "openlayer") {
+        edge.layersClear = false
+        edge.keyboardTop = null
+      }
       if (event.name === "openlayer" || event.name === "closelayer") layers.refresh()
       if (event.name === "configreloaded"
           || (event.name === "custom" && event.data === "omarchy-monitor-transform:" + edge.screen.name)) {
-        touch.cancel()
+        edge.refreshGeometry()
         Hyprland.refreshMonitors()
       }
     }
@@ -66,12 +90,12 @@ PanelWindow {
 
   Connections {
     target: edge.screen
-    function onGeometryChanged() { touch.cancel() }
-    function onOrientationChanged() { touch.cancel() }
+    function onGeometryChanged() { edge.refreshGeometry() }
+    function onOrientationChanged() { edge.refreshGeometry() }
   }
-  onDevicePixelRatioChanged: touch.cancel()
-  onClientChanged: touch.cancel()
-  onWorkspaceChanged: touch.cancel()
+  onDevicePixelRatioChanged: refreshGeometry()
+  onClientChanged: cancelGestures()
+  onWorkspaceChanged: cancelGestures()
 
   // A half-turn can leave Qt's screen geometry and orientation unchanged.
   // Read Hyprland's transform on contact and compare it with the release probe.
@@ -178,5 +202,60 @@ PanelWindow {
       contacts = Math.max(0, contacts - points.length)
     }
     onCanceled: { cancel(); contacts = 0 }
+  }
+
+  // Start the downward swipe above the keyboard. Its keys keep their entire
+  // touch area, and the swipe still belongs to this strip when it crosses them.
+  PanelWindow {
+    id: dismiss
+    screen: edge.screen
+    visible: edge.dismissAvailable
+    anchors.bottom: true
+    margins.bottom: Math.max(0, edge.keyboardInset)
+    implicitWidth: handle.width + 24
+    implicitHeight: edge.implicitHeight
+    exclusionMode: ExclusionMode.Ignore
+    color: "transparent"
+    WlrLayershell.namespace: "omarchy-keyboard-dismiss"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    Rectangle {
+      anchors.centerIn: parent
+      width: handle.width
+      height: handle.height
+      radius: height / 2
+      color: dismissTouch.tracking ? Commons.Color.accent : Commons.Color.foreground
+      border.color: Commons.Color.background
+    }
+
+    MultiPointTouchArea {
+      id: dismissTouch
+      anchors.fill: parent
+      enabled: edge.dismissAvailable
+      mouseEnabled: false
+      property int contacts: 0
+      property bool tracking: false
+
+      onEnabledChanged: if (!enabled) { tracking = false; contacts = 0 }
+      onPressed: points => {
+        contacts += points.length
+        tracking = contacts === 1
+      }
+      onUpdated: points => {
+        const p = points[0]
+        const fall = p.y - p.startY
+        if (fall < -16 || Math.abs(p.x - p.startX) > Math.max(36, fall * 1.5)) tracking = false
+      }
+      onReleased: points => {
+        const p = points[0]
+        const fall = p.y - p.startY
+        if (tracking && fall >= 48 && Math.abs(p.x - p.startX) <= fall * 0.75)
+          Quickshell.execDetached(["omarchy-toggle-desktop-keyboard", "hide"])
+        tracking = false
+        contacts = Math.max(0, contacts - points.length)
+      }
+      onCanceled: { tracking = false; contacts = 0 }
+    }
   }
 }
