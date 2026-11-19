@@ -690,8 +690,7 @@ function fullscreenOn(toplevels, workspaceId) {
 var handheldTouchPins = [
   { id: "omarchy.desktop-keyboard" },
   { id: "omarchy.network" },
-  { id: "omarchy.bluetooth" },
-  { id: "omarchy.active-window", closeOnly: true }
+  { id: "omarchy.bluetooth" }
 ]
 
 function isRogAllyDmi(vendor, product, board) {
