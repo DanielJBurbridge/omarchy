@@ -1305,7 +1305,34 @@ ShellRoot {
     return isPluginOpen(id) ? hide(id) : summon(id, payloadJson)
   }
 
-  function handheldAction(action, expectedOutput, signature) {
+  function handheldMenuButton(action, screen) {
+    // The compositor emits these events only for a mapped menu on this
+    // output. Resolve the enabled menu, including an older user's clone.
+    const menuId = shell.pluginRegistry.resolveEnabledId("omarchy.menu")
+    const menu = panelLoaders[menuId]?.item
+    if (!menu?.opened || (menu.isOpenOn && !menu.isOpenOn(screen))) return false
+    if (typeof menu.handheldButton === "function") return menu.handheldButton(action)
+    if (menuId === "omarchy.menu" || typeof menu.activateIndex !== "function"
+        || typeof menu.goBack !== "function" || typeof menu.cancel !== "function") return false
+
+    // Older Omarchy menu clones expose the same navigation used by their
+    // keyboard handler. Leave their implementation and theme in place.
+    if (menu.deleteConfirmOpen) {
+      if (action === "menu-back" && typeof menu.cancelDelete === "function") menu.cancelDelete()
+      else return false
+    } else if (action === "menu-select") {
+      if (menu.dmenuActive || menu.cursorActive)
+        menu.activateIndex(menu.cursorActive ? menu.selectedIndex : 0)
+      else if (typeof menu.settleCursor === "function") menu.settleCursor()
+    } else if (menu.filterText && typeof menu.setFilter === "function") {
+      menu.setFilter("")
+    } else if (menu.dmenuActive || !menu.goBack()) {
+      menu.cancel()
+    }
+    return true
+  }
+
+  function handheldAction(action, expectedOutput, signature, fromMenuLayer) {
     if (!signature || signature !== Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")) return ""
     if (IpcRegistry.call("lock", "isLocked", []).output !== "false") return ""
     var screens = Quickshell.screens.filter(function(screen) { return shell.isHandheldScreen(screen) })
@@ -1313,6 +1340,8 @@ ShellRoot {
     var screen = screens[0]
     if (Hyprland.focusedMonitor?.name !== screen.name) return ""
     if (expectedOutput !== "current" && expectedOutput !== screen.name) return ""
+    if (fromMenuLayer === true)
+      return shell.handheldMenuButton(action, screen) ? screen.name : ""
     if (!shell.bar?.permitsHandheldPopout(screen)) return ""
 
     var menu = panelLoaders["omarchy.menu"]?.item
@@ -1325,9 +1354,6 @@ ShellRoot {
         else if (typeof menu.openHandheld === "function") menu.openHandheld(screen)
         else return ""
         return screen.name
-      case "menu-select":
-      case "menu-back":
-        return menu.handheldButton?.(action) === true ? screen.name : ""
       case "power-prepare":
         if (menu.opened) shell.hide("omarchy.menu")
         return screen.name
@@ -1346,7 +1372,7 @@ ShellRoot {
     function onRawEvent(event) {
       if (event.name !== "custom" || !event.data.startsWith("omarchy-ally-menu-")) return
       const match = /^omarchy-ally-(menu-select|menu-back):(eDP-[0-9]+)$/.exec(event.data)
-      if (match) shell.handheldAction(match[1], match[2], Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE"))
+      if (match) shell.handheldAction(match[1], match[2], Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE"), true)
     }
   }
 
