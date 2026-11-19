@@ -41,7 +41,7 @@ On integration `8c06425db`, an installed RC71L guest passed the CLI, 440 of 442 
 
 ## First release gates
 
-The first upstream review is `3cbd9a5c9`, which identifies the original RC71L and skips the laptop package, mixer and microphone workarounds. The exact detector matched the original physical Ally. The broader `a9f1e65e1` installer supplied the physical install evidence. Fresh RC71L and Strix G16 guests on Rune qualify the exact narrow package set separately.
+The first upstream review is `3cbd9a5c9`, which identifies the original RC71L and skips the laptop package, mixer and microphone workarounds. The exact detector matched the original physical Ally. The broader `a9f1e65e1` installer supplied the physical install evidence. Rune separately completed fresh encrypted installs and first graphical login on RC71L and Strix G16 guests using the exact narrow ISO, SHA-256 `44b8ee304c94363419e5004294aa0ebee46aab9cc21cd99cc89c4790fd0d7bd8`. The installed hardware files matched source. The Ally skipped asusctl and the laptop mixer. The Strix kept both.
 
 First-login desktop support is a separate review. The independent Rune pointer trial at `6159ffc55` used a real stock SDDM/PAM/UWSM stack with synthetic controller input, offline and without Steam or the Gaming companion. The stick focused the greeter password field, and the right stick and RT worked in the desktop. The profile consumes mapped gamepad events in the desktop, so desktop Steam needs a clean profile handoff. In isolated Hyprland at `a14964d80`, the native Keyboard bar button opened stock wvkbd on eDP, typed into a real app and stayed unavailable with an extended or mirrored display. The fresh combined guest, physical stock sign-in and signed package availability remain open.
 
