@@ -1,0 +1,34 @@
+#!/bin/bash
+
+set -euo pipefail
+export LC_ALL=C
+
+if (( $# != 1 )); then
+  printf 'Usage: %s SETTINGS_ARCHIVE\n' "${0##*/}" >&2
+  exit 2
+fi
+
+archive=$1
+unit=usr/lib/systemd/user/omarchy-lock-host.service
+template=usr/share/omarchy/default/systemd/user/omarchy-lock-host.service
+manifest=$(bsdtar --numeric-owner -tvf "$archive")
+
+for path in "$unit" "$template"; do
+  if ! awk -v path="$path" '
+    $NF == path {
+      matches++
+      if ($1 == "-rw-r--r--" && $3 == "0" && $4 == "0") valid++
+    }
+    END { exit !(matches == 1 && valid == 1) }
+  ' <<< "$manifest"; then
+    printf '%s must contain one root-owned regular 0644 file at %s\n' "$archive" "$path" >&2
+    exit 1
+  fi
+done
+
+unit_hash=$(bsdtar -xOf "$archive" "$unit" | sha256sum)
+template_hash=$(bsdtar -xOf "$archive" "$template" | sha256sum)
+if [[ $unit_hash != "$template_hash" ]]; then
+  printf '%s: installed lock-host unit differs from its template\n' "$archive" >&2
+  exit 1
+fi

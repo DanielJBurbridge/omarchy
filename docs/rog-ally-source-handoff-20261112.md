@@ -44,6 +44,8 @@ Use `omacom/omarchy-pkgs` at **`c271f571be7fa43fa97133da626379d048400d68`** and 
 
 In private build copies, label both packages `dev.<published-release-short-sha>-1` and build both with `OMARCHY_SRC` pointing at the same clean, pinned release source. Retain the final recipes, package archives, metadata, hashes and payload manifests before installing either. `omarchy-dev-pkg-test` installs after each build; use separate build-only `makepkg --cleanbuild` operations and an explicit matching-pair transaction for this handoff. Do not reuse a stale recipe version/source pin or bypass dependency checks. The dependency resolver and final archive/scriptlet review belong to rollout.
 
+For the later RC71L installer preview recipe, apply [the preview settings overlay](../packaging/rog-ally-release/preview-lock-host.patch) to the staged recipe tree before building. The preview based on `42fb2c857cb1` shipped the template while omitting the fixed unit path. The pinned recipe above already installs the unit. For either recipe, run `packaging/rog-ally-release/verify-settings-package PATH_TO_SETTINGS_ARCHIVE` on the final archive before indexing the installer or starting a package transaction. It checks both copies for root ownership, mode 0644 and identical bytes. Leave service activation to the explicit next-session setup.
+
 Matching runtime/settings are mandatory in **both generic and trusted-host modes**. Generic launch/lock/restart already call the settings-owned Python helper. A runtime-only update or dev link cannot deliver this migration safely. Host opt-in is not required to install the matching pair.
 
 | Payload | Owner and fixed destination |

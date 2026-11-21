@@ -1,0 +1,6 @@
+--- a/pkgbuilds/omarchy-settings-dev/PKGBUILD
++++ b/pkgbuilds/omarchy-settings-dev/PKGBUILD
+@@ -203,2 +203,3 @@
+   install -Dm644 default/systemd/user/omarchy-sleep-lock.service "$pkgdir/usr/lib/systemd/user/omarchy-sleep-lock.service"
++  install -Dm644 default/systemd/user/omarchy-lock-host.service "$pkgdir/usr/lib/systemd/user/omarchy-lock-host.service"
+   install -Dm644 default/systemd/user/omarchy-recover-internal-monitor.service "$pkgdir/usr/lib/systemd/user/omarchy-recover-internal-monitor.service"
