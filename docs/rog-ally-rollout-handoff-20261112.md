@@ -12,6 +12,14 @@ Daniel requested that this owner finish up and relinquish the Ally to his grok-b
 - Latest physical acceptance: "About 30 seconds; wake and touch unlock worked." This closes the five-second lock-screen fade issue. The native lock idle and resume intervals are now 30 seconds.
 - PAM passwords and existing enrolled print were preserved. No fingerprint re-enrolment is needed. Separate real SDDM sign-in, suspend/resume and special display/layout acceptance should not be inferred from lock-screen acceptance.
 
+## Acceptance for a fresh RC71L image
+
+Record the exact installer source, runtime and settings package hashes, kernel and firmware, and whether each result came from the physical Ally or a guest. Run the [settings archive verifier](../packaging/rog-ally-release/verify-settings-package) before publishing the image. On real hardware:
+
+- **Encrypted cold boot:** Start from powered off with the installer removed. For passphrase boot, record the physical input used at the disk prompt. Claim keyboard-free boot only after a complete power-off and boot with no external keyboard. For an automatic-unlock build, also demonstrate the recovery passphrase and selectable known-good boot entry before making it the default.
+- **Sign-in and lock:** Sign in through SDDM with touch, then use the lock screen's own keyboard for a rejected and a successful password attempt. Enrol and verify the fingerprint on the fresh install, then unlock a separate secure lock with it. Retain a real recovery keyboard and check that the handheld's internal events do not satisfy the keyboard detector.
+- **Suspend and wake:** Save work and keep a recovery keyboard available. Verify a secure lock, actual suspend entry, Power-button wake and successful unlock on both battery and AC. Compare the kernel journal and user-observed wake source. A charger-triggered resume verifies that wake path only. Record post-resume input, audio and network. Follow the separate [boot and rollback checks](rog-ally-source-handoff-20261112.md#required-live-gates-and-rollback) before changing the boot image.
+
 ## Cold boot is unfinished and inactive
 
 No touch-decryption package is installed, no candidate is published to the ESP or boot menu, no one-shot/default was armed, and no encryption/signing/enrolment configuration was changed. Known-good UKI/menu/loader hashes were unchanged at the last completed privileged check. Another agent's subsequent reboot/work must be reconciled before any further action.
