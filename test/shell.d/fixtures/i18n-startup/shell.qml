@@ -27,6 +27,7 @@ ShellRoot {
   property string pluginBase: remember("pluginBase", strings.t("test.baseOnly"))
   property string pluginFallback: remember("pluginFallback", strings.t("test.englishOnly"))
   property string pluginUnknown: remember("pluginUnknown", strings.t("test.unknown", "plugin fallback"))
+  property string lockText: remember("lockText", Commons.I18n.t("lock.enterPassword"))
 
   function snapshot() {
     return {
@@ -34,7 +35,8 @@ ShellRoot {
       shellText: shellText, shellPlural: shellPlural, shellFallback: shellFallback,
       unknown: unknown, unknownPlural: unknownPlural,
       pluginText: pluginText, pluginPlural: pluginPlural, pluginBase: pluginBase,
-      pluginFallback: pluginFallback, pluginUnknown: pluginUnknown
+      pluginFallback: pluginFallback, pluginUnknown: pluginUnknown,
+      lockText: lockText
     }
   }
 
@@ -53,6 +55,7 @@ ShellRoot {
   onPluginPluralChanged: Qt.callLater(report)
   onPluginBaseChanged: Qt.callLater(report)
   onPluginFallbackChanged: Qt.callLater(report)
+  onLockTextChanged: Qt.callLater(report)
   Component.onCompleted: report()
 
   Commons.Translations {

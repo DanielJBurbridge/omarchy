@@ -74,13 +74,21 @@ QtObject {
     return root.directoryPath !== "" ? root.directoryPath + "/" + code + ".json" : ""
   }
 
+  // Same joined-read window as I18n.reloadWatched: finish the read already
+  // running for this path, then read it again.
+  function reloadWatched(view) {
+    view.reload()
+    view.waitForJob()
+    view.reload()
+  }
+
   property FileView englishFile: FileView {
     path: root.catalogPath("en")
     watchChanges: true
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 
   // Only read for a regional code; for "da" the language file covers it.
@@ -90,7 +98,7 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 
   property FileView languageFile: FileView {
@@ -99,6 +107,6 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 }

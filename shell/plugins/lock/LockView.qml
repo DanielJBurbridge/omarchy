@@ -161,6 +161,9 @@ Item {
   Component.onCompleted: {
     syncPasswordText()
     if (inputEnabled) Qt.callLater(forcePasswordFocus)
+    // The trusted host is the only surface with a touch keyboard. Show it
+    // as the lock appears so a keyboard-less Ally can type the password.
+    if (keyboardAvailable) Qt.callLater(showKeyboard)
   }
 
   // Measures the masked password at full size; passwordDotScale compares this

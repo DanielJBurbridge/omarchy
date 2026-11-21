@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# omarchy:summary=Exit 0 when a physical keyboard is attached.
+
+source "$OMARCHY_PATH/default/gaming/keyboard.sh"
+gaming_physical_keyboard_in /sys/class/input

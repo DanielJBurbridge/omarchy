@@ -18,6 +18,24 @@ if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   [[ -n $hypr_dir ]] && export HYPRLAND_INSTANCE_SIGNATURE=${hypr_dir##*/}
 fi
 
+# A TTY or SSH caller has the signature above and no WAYLAND_DISPLAY.
+# context() binds that display to the same compositor; recover the socket
+# first so the check is not a missing variable.
+if [[ -z ${WAYLAND_DISPLAY:-} ]]; then
+  runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$UID}
+  socket=''
+  for candidate in "$runtime_dir"/wayland-[0-9]*; do
+    [[ -S $candidate ]] || continue
+    name=${candidate##*/}
+    # wayland-7.lock and wayland-7.away are not the display Hyprland exported.
+    [[ $name =~ ^wayland-[0-9]+$ ]] || continue
+    if [[ -z $socket || $candidate -nt $socket ]]; then
+      socket=$candidate
+    fi
+  done
+  [[ -n $socket ]] && export WAYLAND_DISPLAY=${socket##*/}
+fi
+
 # Restarting a live lock client would kill the lock screen and strand the
 # session behind Hyprland's failsafe. But a LOCK session without an active
 # locker — the shell died, or its crash handler re-execed a fresh instance

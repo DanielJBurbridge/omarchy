@@ -22,7 +22,7 @@ plymouth_theme_assets=(
   progress_box.png
 )
 plymouth_default_assets=("${plymouth_theme_assets[@]}" logos/oma.png)
-sddm_theme_assets=(Main.qml bullet.png entry-failed.png entry.png lock-failed.png lock.png logo.png)
+sddm_theme_assets=(Main.qml LoginForm.qml bullet.png entry-failed.png entry.png lock-failed.png lock.png logo.png)
 sddm_default_assets=("${sddm_theme_assets[@]}" metadata.desktop theme.conf)
 
 # Keep the refresh allowlist synchronized with every packaged Plymouth asset.

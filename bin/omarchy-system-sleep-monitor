@@ -4,14 +4,39 @@
 # omarchy:group=system
 # omarchy:hidden=true
 
+# Exit 0 is a confirmed lock. Exit 10 is the handheld skip (no keyboard, and
+# desktop-lock is not on). Both may suspend. Anything else, including a
+# timeout and any other non-zero, must not: this process holds the delay
+# inhibitor, and returning would release it so logind suspends an unlocked
+# desktop. The broker that replaces this decision is a later change.
+suspend_allowed() {
+  local status=$1
+  (( status == 0 || status == 10 ))
+}
+
+hold_sleep() {
+  local held
+  # Stay in this process. Exiting is what lets logind continue the suspend.
+  sleep infinity &
+  held=$!
+  trap 'kill "$held" 2>/dev/null || true; exit 1' TERM INT HUP
+  wait "$held"
+}
+
 consume_sleep_events() {
-  local line sleep_lock
+  local line sleep_lock status
   sleep_lock="$OMARCHY_PATH/bin/omarchy-system-sleep-lock"
+  local lock_timeout=${OMARCHY_SLEEP_LOCK_TIMEOUT:-15}
 
   while IFS= read -r line; do
     if [[ $line == *"boolean true"* ]]; then
-      "$sleep_lock"
-      return 0
+      timeout --kill-after=1s "${lock_timeout}s" "$sleep_lock"
+      status=$?
+      if suspend_allowed "$status"; then
+        return 0
+      fi
+      hold_sleep
+      return "$status"
     fi
   done
 }

@@ -35,13 +35,69 @@ class HostControlTests(unittest.TestCase):
     self.temp.cleanup()
 
   def test_status_cannot_select_or_start_an_owner(self):
-    with self.assertRaises(FileNotFoundError):
-      control.mode()
+    # A missing mode file is the pre-selection launcher. The shell owns the
+    # lock; reading it must not create the file or start the host.
+    self.assertEqual(control.mode(), "shell")
+    self.assertFalse(control.session_path("mode").exists())
     with patch.object(control.subprocess, "run") as process:
-      with self.assertRaises(FileNotFoundError):
+      with self.assertRaises(ValueError):
         control.request("status")
       process.assert_not_called()
     self.assertFalse(control.session_path("mode").exists())
+
+  def test_missing_mode_file_keeps_shell_lock_for_the_old_launcher(self):
+    replies = [222, 222]
+    def resolve(path, **kwargs):
+      return Path("/usr/bin/Hyprland") if str(path).startswith("/proc/") else path
+    display = self.runtime / "wayland-1"
+    with socket.socket(socket.AF_UNIX) as bound:
+      try:
+        bound.bind(str(display))
+      except PermissionError:
+        self.skipTest("AF_UNIX unavailable in this sandbox")
+    with patch.dict(os.environ, {"WAYLAND_DISPLAY": "wayland-1"}), \
+         patch.object(Path, "resolve", resolve), patch.object(control.socket, "socket") as socket_factory:
+      connection = socket_factory.return_value.__enter__.return_value
+      connection.getsockopt.side_effect = [struct.pack("3i", pid, os.getuid(), 0) for pid in replies]
+      self.assertEqual(control.context(), "shell")
+      self.assertFalse(control.session_path("mode").exists())
+
+  def test_context_recovers_a_tty_display_from_the_session_socket(self):
+    display = self.runtime / "wayland-4"
+    with socket.socket(socket.AF_UNIX) as bound:
+      try:
+        bound.bind(str(display))
+      except PermissionError:
+        self.skipTest("AF_UNIX unavailable in this sandbox")
+    os.utime(display, (1, 10))
+    replies = [222, 222]
+    def resolve(path, **kwargs):
+      return Path("/usr/bin/Hyprland") if str(path).startswith("/proc/") else path
+    env = os.environ.copy()
+    env.pop("WAYLAND_DISPLAY", None)
+    with patch.dict(os.environ, env, clear=True), \
+         patch.object(Path, "resolve", resolve), patch.object(control.socket, "socket") as socket_factory:
+      connection = socket_factory.return_value.__enter__.return_value
+      connection.getsockopt.side_effect = [struct.pack("3i", pid, os.getuid(), 0) for pid in replies]
+      self.assertEqual(control.context(), "shell")
+    with self.assertRaises(ValueError):
+      gone = os.environ.copy()
+      gone.pop("WAYLAND_DISPLAY", None)
+      with patch.dict(os.environ, gone, clear=True):
+        display.unlink()
+        control.wayland_display(self.runtime)
+
+  def test_failed_exec_closes_the_owner_lease(self):
+    control.mode(initialize=True)
+    before = {fd for fd in os.listdir("/proc/self/fd")}
+    with patch.object(control.os, "execvpe", side_effect=OSError("exec failed")):
+      with self.assertRaises(OSError):
+        control.run("shell", ["quickshell", "-p", str(ROOT / "shell")])
+    after = {fd for fd in os.listdir("/proc/self/fd")}
+    self.assertEqual(before, after)
+    lease = control.session_path("owner.lock")
+    with lease.open("a+") as taken:
+      fcntl.flock(taken, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
   def test_lock_context_requires_matching_live_owner_and_compositor_peers(self):
     owner_env = b"HYPRLAND_INSTANCE_SIGNATURE=fixture\0WAYLAND_DISPLAY=wayland-1\0"

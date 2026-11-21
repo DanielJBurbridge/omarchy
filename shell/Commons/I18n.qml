@@ -83,9 +83,15 @@ QtObject {
   // The catalogs are small local files, read synchronously so the first
   // binding to call t() already gets the string rather than the raw key.
   // Every read is synchronous, not just the first (blockAllReads with no
-  // preload): FileView's reload() joins a background read already running
-  // for the same path, so a file deleted or replaced while that read is
-  // open would keep the old contents until the next change.
+  // preload). FileView's reload() joins a background read already running
+  // for the same path. Finish that read, then read again, so a file replaced
+  // while the first read is open does not keep the old text.
+  function reloadWatched(view) {
+    view.reload()
+    view.waitForJob()
+    view.reload()
+  }
+
   property FileView languageFile: FileView {
     // OMARCHY_LANGUAGE_FILE overrides the location, as it does for
     // omarchy-i18n, so tests can pin a language whatever the machine uses.
@@ -94,7 +100,7 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 
   property FileView englishCatalogFile: FileView {
@@ -103,7 +109,7 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 
   property FileView languageCatalogFile: FileView {
@@ -112,7 +118,7 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 
   property FileView registryFile: FileView {
@@ -121,6 +127,6 @@ QtObject {
     printErrors: false
     preload: false
     blockAllReads: true
-    onFileChanged: reload()
+    onFileChanged: root.reloadWatched(this)
   }
 }

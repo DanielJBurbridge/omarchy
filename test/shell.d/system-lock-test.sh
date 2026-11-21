@@ -11,7 +11,7 @@ mock_bin="$tmpdir/bin"
 call_log="$tmpdir/calls"
 mkdir -p "$mock_bin"
 
-for command in omarchy-shell hyprctl pkill; do
+for command in omarchy-shell hyprctl pkill omarchy-toggle-desktop-keyboard; do
   cat >"$mock_bin/$command" <<'SH'
 #!/bin/bash
 printf '%s %s\n' "$(basename "$0")" "$*" >>"$CALL_LOG"
@@ -42,7 +42,12 @@ mapfile -t shutdown < <(rg '^(pkill|timeout) ' "$call_log")
   fail "system lock force-stops a stuck native screensaver" "calls: ${shutdown[*]}"
 rg -A1 '^pkill -KILL ' "$call_log" | rg -q 'invisible = false' ||
   fail "system lock shows the cursor a killed screensaver left hidden" "$(<"$call_log")"
+stop_line=$(rg -n 'omarchy-toggle-desktop-keyboard stop' "$call_log" | head -n 1 | cut -d: -f1)
+lock_line=$(rg -n '^omarchy-shell lock lock$' "$call_log" | head -n 1 | cut -d: -f1)
+[[ -n $stop_line && -n $lock_line && $stop_line -lt $lock_line ]] ||
+  fail "system lock hides the desktop keyboard before the lock" "$(<"$call_log")"
 pass "system lock gives the screensaver a second to restore the cursor before killing it, then restores it itself"
+pass "system lock hides the desktop keyboard before locking"
 
 # A trusted owner must be compositor-secure before the proactive lock caller
 # can proceed. Test the caller's failure propagation; sleep-lock-test exercises
@@ -62,7 +67,7 @@ chmod +x "$tmpdir/root/bin/"*
 if PATH="$mock_bin:$PATH" CALL_LOG="$call_log" SECURE_RESULT=1 HYPRLAND_INSTANCE_SIGNATURE=fixture OMARCHY_PATH="$tmpdir/root" "$ROOT/bin/omarchy-system-lock"; then
   fail "unready trusted lock must fail the proactive caller"
 fi
-[[ $(<"$call_log") == "secure-check" ]] || fail "failed secure acquisition must stop proactive lock completion"
+[[ $(<"$call_log") == $'omarchy-toggle-desktop-keyboard stop\nsecure-check' ]] || fail "failed secure acquisition must stop proactive lock completion" "$(<"$call_log")"
 PATH="$mock_bin:$PATH" CALL_LOG="$call_log" SECURE_RESULT=0 HYPRLAND_INSTANCE_SIGNATURE=fixture OMARCHY_PATH="$tmpdir/root" "$ROOT/bin/omarchy-system-lock"
 rg -q '^hyprctl ' "$call_log" || fail "secure trusted lock can complete normal display handling"
 pass "trusted lock acquisition failure propagates before proactive lock completion"

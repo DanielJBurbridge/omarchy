@@ -4,6 +4,12 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+en_lock=$(python3 -c 'import json,os; print(json.load(open(os.environ["ROOT"] + "/default/i18n/en/shell.json"))["lock.enterPassword"])')
+da_lock=$(python3 -c 'import json,os; print(json.load(open(os.environ["ROOT"] + "/default/i18n/da/shell.json"))["lock.enterPassword"])')
+[[ $en_lock == "Enter Password" ]] || fail "lock screen English prompt" "$en_lock"
+[[ $da_lock == "Indtast adgangskode" ]] || fail "lock screen Danish prompt" "$da_lock"
+pass "lock screen password prompt is translated"
+
 if ! command -v quickshell >/dev/null 2>&1; then
   skip "quickshell not installed; skipping initial translation lookups"
   exit 0
@@ -25,8 +31,12 @@ en_catalog = {
     'test.hello': 'Hello %1',
     'test.items': {'one': '%1 item', 'other': '%1 items'},
     'test.englishOnly': 'English fallback',
+    'lock.enterPassword': 'Enter Password',
 }
-da_catalog = {'test.hello': 'Hej %1', 'test.items': {'one': '%1 ting', 'other': '%1 ting'}}
+da_catalog = {
+    'test.hello': 'Hej %1', 'test.items': {'one': '%1 ting', 'other': '%1 ting'},
+    'lock.enterPassword': 'Indtast adgangskode',
+}
 pt_catalog = {'test.hello': 'Olá %1', 'test.items': {'one': '%1 item', 'other': '%1 itens'}}
 fa_catalog = {'test.hello': 'سلام %1', 'test.items': {'one': '%1 مورد', 'other': '%1 مورد'}}
 registry = {
@@ -42,9 +52,11 @@ english = {
     'unknown': 'explicit fallback', 'unknownPlural': 'plural fallback',
     'pluginText': 'Hello Ada', 'pluginPlural': '2 items', 'pluginBase': 'English base',
     'pluginFallback': 'English fallback', 'pluginUnknown': 'plugin fallback',
+    'lockText': 'Enter Password',
 }
 danish = dict(english, language='da', locale='da-DK', number='13,5', shellText='Hej Ada',
-              shellPlural='2 ting', pluginText='Hej Ada', pluginPlural='2 ting')
+              shellPlural='2 ting', pluginText='Hej Ada', pluginPlural='2 ting',
+              lockText='Indtast adgangskode')
 portuguese = dict(english, language='pt-BR', locale='pt-BR', number='13,5', shellText='Olá Ada',
                   shellPlural='2 itens', pluginText='Olá Ada', pluginPlural='2 itens', pluginBase='Portuguese base')
 persian = dict(english, language='fa', locale='fa-IR', number='۱۳٫۵', rtl=True,

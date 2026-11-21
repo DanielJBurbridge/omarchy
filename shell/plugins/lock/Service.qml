@@ -253,6 +253,10 @@ Item {
       root.refreshFingerprintStatus()
     })
 
+    // wvkbd's overlay sits above this surface and keeps a Shift latched
+    // before the lock. Hide it once a lock is actually taken.
+    desktopKeyboardStop.running = true
+
     return true
   }
 
@@ -750,6 +754,11 @@ Item {
     interval: FingerprintModel.REACH_TIMEOUT_MS
     repeat: false
     onTriggered: root.timeoutFingerprintReach()
+  }
+
+  Process {
+    id: desktopKeyboardStop
+    command: ["bash", "-c", "omarchy-toggle-desktop-keyboard stop >/dev/null 2>&1 || true"]
   }
 
   Process {
