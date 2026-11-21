@@ -24,6 +24,8 @@ gaming_device_is_physical_keyboard() {
   done <<< "$props"
   [[ $keyboard == true ]] || return 1
   [[ $devpath == /devices/virtual/* ]] && return 1
+  # The RC71L exposes an i8042 keyboard event even without an attached keyboard.
+  [[ $devpath == /devices/platform/i8042/serio0/input/* ]] && omarchy-hw-rog-ally && return 1
   vendor=${vendor,,}
   model=${model,,}
   [[ $vendor == 0b05 && $model == 1abe ]] && return 1

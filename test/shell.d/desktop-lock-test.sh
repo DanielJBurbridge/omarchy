@@ -152,23 +152,27 @@ nkey=$'ID_INPUT_KEYBOARD=1\nID_VENDOR_ID=0b05\nID_MODEL_ID=1abe\nNAME="N-KEY Dev
 gaming_device_is_physical_keyboard "$nkey" && fail "the Ally N-KEY keyboard interface counts as a physical keyboard"
 virtual_keys=$'ID_INPUT_KEYBOARD=1\nNAME="py-evdev-uinput"\nDEVPATH=/devices/virtual/input/input9/event9'
 gaming_device_is_physical_keyboard "$virtual_keys" && fail "a virtual uinput keyboard counts as a physical keyboard"
+i8042=$'ID_INPUT_KEYBOARD=1\nID_PATH=platform-i8042-serio-0\nDEVPATH=/devices/platform/i8042/serio0/input/input2/event2'
+gaming_device_is_physical_keyboard "$i8042" && fail "the Ally i8042 event counts as an attached keyboard"
+LOCK_HW=other gaming_device_is_physical_keyboard "$i8042" || fail "a PS/2 keyboard on another machine is ignored"
 usb_keys=$'ID_INPUT_KEYBOARD=1\nID_VENDOR_ID=046d\nID_MODEL_ID=c31c\nID_BUS=usb\nNAME="Logitech USB Keyboard"\nDEVPATH=/devices/pci0000:00/usb2/2-1/2-1:1.0/input/input8/event8'
 gaming_device_is_physical_keyboard "$usb_keys" || fail "a USB keyboard counts as a physical keyboard"
 kb=$work/kb
-mkdir -p "$kb/event0" "$kb/event1" "$kb/bin"
+mkdir -p "$kb/event0" "$kb/event1" "$kb/event2" "$kb/bin"
 printf '%s\n' "$nkey" > "$kb/event0/props"
 printf '%s\n' "$virtual_keys" > "$kb/event1/props"
+printf '%s\n' "$i8042" > "$kb/event2/props"
 cat > "$kb/bin/udevadm" <<'EOF'
 #!/bin/bash
 event=${!#}
 cat "$event/props"
 EOF
 chmod +x "$kb/bin/udevadm"
-(PATH="$kb/bin:$PATH" gaming_physical_keyboard_in "$kb") && fail "only the Ally interface and a virtual keyboard means no physical keyboard"
-mkdir -p "$kb/event2"
-printf '%s\n' "$usb_keys" > "$kb/event2/props"
+(PATH="$kb/bin:$PATH" gaming_physical_keyboard_in "$kb") && fail "the Ally internal and virtual events count as a physical keyboard"
+mkdir -p "$kb/event3"
+printf '%s\n' "$usb_keys" > "$kb/event3/props"
 (PATH="$kb/bin:$PATH" gaming_physical_keyboard_in "$kb") || fail "a USB keyboard beside the Ally interface counts"
-pass "the Ally's internal keyboard interface is not a physical keyboard"
+pass "only a real keyboard passes the Ally recovery check"
 
 # Before K07, the handheld locks on suspend only with a physical keyboard.
 # Other machines still lock when desktop-lock is off. That is the case-4
