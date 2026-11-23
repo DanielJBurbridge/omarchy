@@ -1,16 +1,26 @@
 #!/bin/bash
-# Drop handheld SDDM autologin when omarchy-dev is no longer a .handheld or
-# dev.* build. Those packages omit the session pieces, and Relogin=true in
-# zz-omarchy-handheld.conf then loops. Bazzite leaves the greeter by removing
-# zz-holo-autologin.conf; this removes the drop-in apply already writes.
-# User=, the sudoers grant and TPM config stay. SDDM is not restarted.
+# Drop handheld SDDM autologin when omarchy-dev is not a handheld build.
+# A handheld build matches one pattern: dev.*, *.handheld.*, or
+# *.allypreview.*. The other packages omit the session pieces, and
+# Relogin=true in zz-omarchy-handheld.conf then loops. Bazzite leaves the
+# greeter by removing zz-holo-autologin.conf; this removes the drop-in
+# apply already writes. User=, the sudoers grant and TPM config stay.
+# SDDM is not restarted.
 # OMARCHY_HANDHELD_AUTOLOGIN_ROOT is the test root. Pacman does not set it.
 #
 # A PostTransaction hook runs while pacman holds db.lck. A nested pacman -Q
 # waits on that lock, so the hook reads the local database instead.
+# --status prints keep, drop, or unknown and does not change files.
+# omarchy-handheld-autologin apply uses that, so a later apply cannot put
+# the drop-in back.
 
 set -u
 trap 'exit 0' EXIT
+
+status_only=0
+if [[ ${1:-} == "--status" ]]; then
+  status_only=1
+fi
 
 root=${OMARCHY_HANDHELD_AUTOLOGIN_ROOT:-}
 dropin=${root}/etc/sddm.conf.d/zz-omarchy-handheld.conf
@@ -19,21 +29,47 @@ log() {
   logger -t omarchy-handheld-autologin-guard -- "$1" 2>/dev/null || true
 }
 
+# dev.* at the start, or .handheld. / .allypreview. anywhere in the version.
+# A trailing pkgrel (-1) still matches. Extend this list and the test together.
+keeps_handheld_autologin() {
+  case $1 in
+    dev.*|*.handheld.*|*.allypreview.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The local database names a package pkgname-pkgver-pkgrel. pkgver and pkgrel
+# contain no hyphen, so the name is what remains after those two fields.
+# omarchy-dev-[0-9d]* skips names that do not start like a version or dev.*.
 local_version() {
-  local db=$1 entry name found=""
+  local db=$1 entry base rest pkgname candidate found=""
   [[ -d $db && ! -L $db ]] || return 0
-  for entry in "$db"/omarchy-dev-*; do
+  for entry in "$db"/omarchy-dev-[0-9d]*; do
     [[ -d $entry && ! -L $entry ]] || continue
-    name=${entry##*/}
-    name=${name#omarchy-dev-}
-    [[ -n $name ]] || continue
+    base=${entry##*/}
+    rest=${base%-*}
+    pkgname=${rest%-*}
+    [[ $pkgname == "omarchy-dev" ]] || continue
+    candidate=${base#omarchy-dev-}
+    [[ -n $candidate ]] || continue
     if [[ -n $found ]]; then
       log "more than one omarchy-dev in the local database; leaving handheld autologin"
       return 0
     fi
-    found=$name
+    found=$candidate
   done
   printf '%s\n' "$found"
+}
+
+decide() {
+  local version=$1
+  if [[ -z $version ]]; then
+    printf 'unknown\n'
+  elif keeps_handheld_autologin "$version"; then
+    printf 'keep\n'
+  else
+    printf 'drop\n'
+  fi
 }
 
 version=""
@@ -46,19 +82,30 @@ if [[ -z $version ]]; then
   version=$(local_version "${root}/var/lib/pacman/local")
 fi
 
-if [[ -z $version ]]; then
-  log "could not read omarchy-dev; leaving handheld autologin"
-elif [[ $version == dev.* || $version == *".handheld"* ]]; then
-  log "omarchy-dev $version keeps handheld autologin"
-elif [[ -L $dropin ]]; then
-  log "refusing a symlink at $dropin; leaving handheld autologin"
-elif [[ -f $dropin ]]; then
-  rm -f -- "$dropin"
-  if [[ -e $dropin ]]; then
-    log "could not remove $dropin; handheld autologin stays"
-  else
-    log "omarchy-dev $version is not a handheld build; removed $dropin so the next login uses the greeter. Reinstall a .handheld build, then: sudo omarchy-handheld-autologin apply"
-  fi
+outcome=$(decide "$version")
+if (( status_only )); then
+  printf '%s\n' "$outcome"
 else
-  log "omarchy-dev $version is not a handheld build; $dropin is already absent"
+  case $outcome in
+    keep)
+      log "omarchy-dev $version keeps handheld autologin"
+      ;;
+    drop)
+      if [[ -L $dropin ]]; then
+        log "refusing a symlink at $dropin; leaving handheld autologin"
+      elif [[ -f $dropin ]]; then
+        rm -f -- "$dropin"
+        if [[ -e $dropin ]]; then
+          log "could not remove $dropin; handheld autologin stays"
+        else
+          log "omarchy-dev $version is not a handheld build; removed $dropin so the next login uses the greeter. Reinstall a dev, .handheld or .allypreview build, then: sudo omarchy-handheld-autologin apply"
+        fi
+      else
+        log "omarchy-dev $version is not a handheld build; $dropin is already absent"
+      fi
+      ;;
+    *)
+      log "could not read omarchy-dev; leaving handheld autologin"
+      ;;
+  esac
 fi

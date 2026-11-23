@@ -59,6 +59,30 @@ grep -q 'objectName: "greeterKeyboard"' "$ROOT/default/sddm/omarchy/Main.qml" ||
   fail "the greeter has an on-screen keyboard"
 pass "handheld drop-in autologins into gaming with Relogin=true"
 
+cat > "$work/bin/pacman" <<'EOF'
+#!/bin/bash
+if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
+  printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$work/bin/pacman"
+printf '[Autologin]\nUser=daniel\n' > "$work/sddm/omarchy-handheld-user.conf"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.r8045.gd54cde7 run_guard apply
+[[ ! -e $dropin ]] || fail "apply writes autologin for an upstream omarchy-dev" "$(cat "$dropin" 2>/dev/null)"
+grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply drops User= for an upstream omarchy-dev"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12 run_guard apply
+grep -q '^Session=omarchy-handheld.desktop$' "$dropin" ||
+  fail "apply leaves autologin off for an allypreview build" "$(cat "$dropin" 2>/dev/null)"
+grep -q '^Relogin=true$' "$dropin" || fail "apply leaves Relogin off for an allypreview build"
+grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply rewrites User= for an allypreview build"
+rm -f "$work/bin/pacman" "$work/sddm/omarchy-handheld-user.conf"
+unset FAKE_OMARCHY_DEV_VERSION
+pass "apply follows the guard for an upstream build and an allypreview build"
+
 export XDG_STATE_HOME=$work/state HOME=$work/home PATH="$work/bin:$ROOT/bin:$PATH"
 # shellcheck source=/dev/null
 source "$ROOT/default/gaming/session.sh"
