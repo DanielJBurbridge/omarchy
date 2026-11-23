@@ -148,3 +148,25 @@ omarchy-pkg-drop omarchy-gaming-session
 ```
 
 Reboot. Autologin is gone, so the greeter is up. A USB keyboard's Enter submits the password. There is no session picker. That leaves Steam's games and saves. `omarchy-gaming-session` installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, the passwordless `fail` / `reset` / `apply` grant. The base tree does not ship it. `/var/lib/omarchy/handheld/desktop-lock` is the lock value.
+
+## Lows at this tip
+
+The ledger is [alpha-followups.md](alpha-followups.md). L300–L309 are this batch. `omarchy-gaming-session` pkgrel is 13.
+
+Fixed:
+
+- L301. Handheld commands default `OMARCHY_PATH` to `/usr/share/omarchy` so a non-login ssh command does not die under `set -u`. The pointer service already did this in `omarchy-inputplumber-profile`.
+- L302. The autologin guard drops the session drop-in when `omarchy-settings-dev` alone is not a handheld build (L247). `User=` stays.
+- L303. The locked-database path reports the same `keep` as `pacman -Q` for `dev.*` and `.allypreview.`.
+
+Documented, no behaviour change:
+
+- L304. `omarchy-session-start` copies the user units and writes the same gaming-target link the package ships. It does not enable those units into the desktop session. The package's `enable --now` is the system profile service.
+
+Deferred:
+
+- L305. Nothing in the repo checks `pgrep gamescope`, so `gamescope-wl` is not added. This session starts Gamescope with `--backend drm`.
+- L306. L246. Removing the leftover `User=` drop-in would throw away the name a later `apply` needs. Checking the file on this Ally needs the device.
+- L307. The root fallback to a checkout guard stays. Dropping it would make `apply` skip the version check when the packaged guard is absent.
+- L308. L230 is a hardware re-run. L251–L259, L261–L269, L282–L289 and L291–L299 are empty. L243, L244 and L245 are already fixed.
+- L309. L221's hook already shipped as L250.

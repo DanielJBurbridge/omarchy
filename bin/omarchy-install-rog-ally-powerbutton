@@ -12,6 +12,9 @@
 # The daemon itself starts only inside the gamescope session.
 
 set -euo pipefail
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 
 if ! omarchy-hw-rog-ally; then
   exit 0

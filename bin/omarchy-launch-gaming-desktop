@@ -8,6 +8,9 @@ if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
   exit 0
 fi
 (( $# == 0 )) || exit 2
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 source "$OMARCHY_PATH/default/gaming/session.sh"
 gaming_runtime_init
 [[ -p $gaming_runtime/return && -f $gaming_runtime/active && $(cat "$gaming_runtime/active") == "gaming" ]] || {

@@ -9,6 +9,9 @@ if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
   echo 'Display settings affect game rendering, not physical output modes. FPS: 0,30,40,45,60,90,120.'
   exit 0
 fi
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 source "$OMARCHY_PATH/default/gaming/session.sh"
 omarchy-hw-rog-ally || { gaming_fail 'this setup supports the original RC71L only.'; exit 1; }
 # Online retry. A fresh install marks the migration before the build can run,

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Drop handheld SDDM autologin when omarchy-dev is not a handheld build.
-# A handheld build matches one pattern: dev.*, *.handheld.*, or
-# *.allypreview.*. The other packages omit the session pieces, and
-# Relogin=true in zz-omarchy-handheld.conf then loops. Bazzite leaves the
-# greeter by removing zz-holo-autologin.conf; this removes the drop-in
-# apply already writes. User=, the sudoers grant and TPM config stay.
+# Drop handheld SDDM autologin when omarchy-dev or omarchy-settings-dev is
+# not a handheld build. A handheld build matches one pattern: dev.*,
+# *.handheld.*, or *.allypreview.*. The other packages omit the session
+# pieces, and Relogin=true in zz-omarchy-handheld.conf then loops. Bazzite
+# leaves the greeter by removing zz-holo-autologin.conf; this removes the
+# drop-in apply already writes. User=, the sudoers grant and TPM config stay.
 # SDDM is not restarted.
 # OMARCHY_HANDHELD_AUTOLOGIN_ROOT is the test root. Pacman does not set it.
 #
@@ -40,20 +40,22 @@ keeps_handheld_autologin() {
 
 # The local database names a package pkgname-pkgver-pkgrel. pkgver and pkgrel
 # contain no hyphen, so the name is what remains after those two fields.
-# omarchy-dev-[0-9d]* skips names that do not start like a version or dev.*.
+# <name>-[0-9d]* skips names that do not start like a version or dev.*.
+# omarchy-dev and omarchy-settings-dev are read the same way. A settings-dev
+# swap on its own is still a non-handheld build (L247).
 local_version() {
-  local db=$1 entry base rest pkgname candidate found=""
+  local db=$1 name=$2 entry base rest pkgname candidate found=""
   [[ -d $db && ! -L $db ]] || return 0
-  for entry in "$db"/omarchy-dev-[0-9d]*; do
+  for entry in "$db/$name"-[0-9d]*; do
     [[ -d $entry && ! -L $entry ]] || continue
     base=${entry##*/}
     rest=${base%-*}
     pkgname=${rest%-*}
-    [[ $pkgname == "omarchy-dev" ]] || continue
-    candidate=${base#omarchy-dev-}
+    [[ $pkgname == $name ]] || continue
+    candidate=${base#"$name"-}
     [[ -n $candidate ]] || continue
     if [[ -n $found ]]; then
-      log "more than one omarchy-dev in the local database; leaving handheld autologin"
+      log "more than one $name in the local database; leaving handheld autologin"
       return 0
     fi
     found=$candidate
@@ -61,10 +63,26 @@ local_version() {
   printf '%s\n' "$found"
 }
 
-decide() {
+# Empty when the package is not installed. The db.lck path and pacman -Q
+# share keeps_handheld_autologin, so dev.*, .handheld. and .allypreview
+# classify the same on both.
+package_version() {
+  local name=$1 query version=""
+  if [[ ! -e ${root}/var/lib/pacman/db.lck ]]; then
+    query=$(pacman -Q "$name" 2>/dev/null) || query=""
+    version=${query#"$name "}
+    version=${version%%[[:space:]]*}
+  fi
+  if [[ -z $version ]]; then
+    version=$(local_version "${root}/var/lib/pacman/local" "$name")
+  fi
+  printf '%s\n' "$version"
+}
+
+classify() {
   local version=$1
   if [[ -z $version ]]; then
-    printf 'unknown\n'
+    printf 'absent\n'
   elif keeps_handheld_autologin "$version"; then
     printf 'keep\n'
   else
@@ -72,23 +90,47 @@ decide() {
   fi
 }
 
-version=""
-if [[ ! -e ${root}/var/lib/pacman/db.lck ]]; then
-  query=$(pacman -Q omarchy-dev 2>/dev/null) || query=""
-  version=${query#omarchy-dev }
-  version=${version%%[[:space:]]*}
-fi
-if [[ -z $version ]]; then
-  version=$(local_version "${root}/var/lib/pacman/local")
+dev_version=$(package_version omarchy-dev)
+settings_version=$(package_version omarchy-settings-dev)
+dev_class=$(classify "$dev_version")
+settings_class=$(classify "$settings_version")
+if [[ $dev_class == "drop" || $settings_class == "drop" ]]; then
+  outcome=drop
+elif [[ $dev_class == "keep" || $settings_class == "keep" ]]; then
+  outcome=keep
+else
+  outcome=unknown
 fi
 
-outcome=$(decide "$version")
+reason=""
+if [[ $dev_class == "drop" ]]; then
+  reason="omarchy-dev $dev_version"
+fi
+if [[ $settings_class == "drop" ]]; then
+  if [[ -n $reason ]]; then
+    reason="$reason and omarchy-settings-dev $settings_version"
+  else
+    reason="omarchy-settings-dev $settings_version"
+  fi
+fi
+kept=""
+if [[ $dev_class == "keep" ]]; then
+  kept="omarchy-dev $dev_version"
+fi
+if [[ $settings_class == "keep" ]]; then
+  if [[ -n $kept ]]; then
+    kept="$kept and omarchy-settings-dev $settings_version"
+  else
+    kept="omarchy-settings-dev $settings_version"
+  fi
+fi
+
 if (( status_only )); then
   printf '%s\n' "$outcome"
 else
   case $outcome in
     keep)
-      log "omarchy-dev $version keeps handheld autologin"
+      log "$kept keeps handheld autologin"
       ;;
     drop)
       if [[ -L $dropin ]]; then
@@ -98,14 +140,14 @@ else
         if [[ -e $dropin ]]; then
           log "could not remove $dropin; handheld autologin stays"
         else
-          log "omarchy-dev $version is not a handheld build; removed $dropin so the next login uses the greeter. Reinstall a dev, .handheld or .allypreview build, then: sudo omarchy-handheld-autologin apply"
+          log "$reason is not a handheld build; removed $dropin so the next login uses the greeter. Reinstall a dev, .handheld or .allypreview build, then: sudo omarchy-handheld-autologin apply"
         fi
       else
-        log "omarchy-dev $version is not a handheld build; $dropin is already absent"
+        log "$reason is not a handheld build; $dropin is already absent"
       fi
       ;;
     *)
-      log "could not read omarchy-dev; leaving handheld autologin"
+      log "could not read omarchy-dev or omarchy-settings-dev; leaving handheld autologin"
       ;;
   esac
 fi

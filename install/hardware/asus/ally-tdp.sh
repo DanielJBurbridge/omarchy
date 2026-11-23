@@ -4,6 +4,8 @@
 # first boot before systemd will take the unit. The leaf warns and continues.
 # A fresh install marks the migration before the script can run, so that
 # marker is not a retry (L161).
+# A non-login shell can source this under set -u with OMARCHY_PATH unset.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 if omarchy-hw-rog-ally; then
   if ! sudo "$OMARCHY_PATH/bin/omarchy-ally-tdp-install" hardware; then
     printf 'warning: Ally TDP hardware install failed; re-run: sudo %s hardware\n' \

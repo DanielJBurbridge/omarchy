@@ -10,6 +10,9 @@
 # the one constant in default/gaming/session.sh.
 
 set -euo pipefail
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 
 if (( EUID != 0 )); then
   echo 'omarchy-setup-handheld-dirs must run as root.' >&2

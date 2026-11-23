@@ -127,9 +127,9 @@ install_user() {
 }
 
 # The gaming-session guard owns the version list. --status is keep, drop,
-# or unknown, and it does not change files. drop means this omarchy-dev is
-# not a handheld build, so apply must not write the drop-in back. unknown
-# (no pacman answer) keeps the write below.
+# or unknown, and it does not change files. drop means omarchy-dev or
+# omarchy-settings-dev is not a handheld build, so apply must not write
+# the drop-in back. unknown (no pacman answer) keeps the write below.
 handheld_dev_status() {
   local guard command_path
   guard=/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard

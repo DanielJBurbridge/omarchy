@@ -6,6 +6,8 @@
 # Enable can fail on an image's first boot before systemd will take the
 # unit; the migration retries it. The failure stays non-fatal and names
 # the command to re-run.
+# A non-login shell can source this under set -u with OMARCHY_PATH unset.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 if omarchy-hw-rog-ally; then
   omarchy-pkg-add inputplumber
   if ! sudo "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" install-greeter; then

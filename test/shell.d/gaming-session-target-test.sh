@@ -74,6 +74,29 @@ fi
 OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
 pass "profile load is before the bridge, and both follow the gaming session target"
 
+# A non-login ssh command does not export OMARCHY_PATH. set -u must not abort.
+assert_path_default() {
+  local label=$1 note
+  shift
+  note=$(timeout 5 env -u OMARCHY_PATH "$@" 2>&1) || true
+  [[ $note != *unbound* ]] || fail "$label aborts when OMARCHY_PATH is unset" "$note"
+}
+assert_path_default "omarchy-launch-gaming-session" "$ROOT/bin/omarchy-launch-gaming-session"
+assert_path_default "omarchy-launch-gaming-desktop" "$ROOT/bin/omarchy-launch-gaming-desktop"
+assert_path_default "omarchy-setup-gaming-session" "$ROOT/bin/omarchy-setup-gaming-session" status
+assert_path_default "omarchy-session-start" "$ROOT/bin/omarchy-session-start"
+steam_stub=$(mktemp -d)
+printf '#!/bin/bash\nexit 0\n' >"$steam_stub/steam"
+printf '#!/bin/bash\nexit 1\n' >"$steam_stub/omarchy-cmd-present"
+cp "$steam_stub/omarchy-cmd-present" "$steam_stub/omarchy-pkg-present"
+chmod +x "$steam_stub/steam" "$steam_stub/omarchy-cmd-present" "$steam_stub/omarchy-pkg-present"
+assert_path_default "omarchy-gaming-steam" \
+  env OMARCHY_GAMING_RUNTIME="${TMPDIR:-/tmp}" DISPLAY=:0 OMARCHY_GAMING_READY_TIMEOUT=1 \
+  PATH="$steam_stub:/usr/bin:/bin" \
+  "$ROOT/bin/omarchy-gaming-steam"
+rm -rf "$steam_stub"
+pass "handheld session commands default an unset OMARCHY_PATH"
+
 work=$(mktemp -d)
 session_pid=
 cleanup() {

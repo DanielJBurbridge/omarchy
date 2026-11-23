@@ -5,7 +5,7 @@
 # Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=12
+pkgrel=13
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -33,8 +33,8 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             '69f0d54d4aff96d5f275b080386405e1cbd35b3447f336c76b86517462ed5e98'
             'a93a3ff413f17a2fd66aef4c98395335c41b50c478ee34bb41b868b40a899e05'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
-            '8ab2e319f1cf01f387fad0c36ad806bab6903ab2ece3fd7beb4d3e8ef241abb0'
-            '3457b821b30501f7213c0978520acb00b6cdf6cd0900d0ee558a2d16c0f55f69'
+            '1135ff5dbbc58b15bd57d256a1850bddc5e98ead53d24ded7b8b775c9edd4146'
+            '4899c0cac210463b8eaea941461ee6761043f3b75320b62c29f9e0e1d0d5d4e3'
             '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2'
             'a10c59d21030638f862c1b28a1b7d806fcfdca296578587b3874228c6569508b'
             'f69ce16c70cc1414a61ab36fa898d3900d31dd4be46ce5fe1075c9d22152b3a2'
