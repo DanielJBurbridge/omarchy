@@ -1,7 +1,8 @@
 #!/bin/bash
 # An upstream omarchy-dev, once the base moves past the handheld pkgver,
-# must drop the gaming autologin drop-in. A .handheld or dev.* build must
-# leave it, and User=, the sudoers grant and the TPM config stay either way.
+# must drop the gaming autologin drop-in. A dev.*, .handheld. or
+# .allypreview. build must leave it. User=, the sudoers grant and the TPM
+# config stay either way. --status reports that choice and does not write.
 
 set -uo pipefail
 
@@ -71,6 +72,15 @@ seed() {
   : > "$log"
 }
 
+read_status() {
+  status_rc=0
+  status_word=$(FAKE_OMARCHY_DEV_VERSION=$1 \
+    OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+    OMARCHY_TEST_LOGGER_LOG=$log \
+    PATH="$work/bin:$PATH" \
+    "$script" --status) || status_rc=$?
+}
+
 run_guard() {
   local status=0
   FAKE_OMARCHY_DEV_VERSION=$1 \
@@ -89,6 +99,10 @@ secrets_unchanged() {
 
 expect_disabled() {
   seed
+  read_status "$1"
+  (( status_rc == 0 )) || fail "--status exits 0 for $1" "$status_rc"
+  [[ $status_word == drop ]] || fail "--status is drop for $1" "$status_word"
+  cmp -s "$dropin" "$work/dropin.orig" || fail "--status removes autologin for $1"
   run_guard "$1"
   secrets_unchanged "$1"
   [[ ! -e $dropin ]] || fail "autologin stays enabled for $1" "$(cat "$dropin")"
@@ -102,6 +116,10 @@ expect_disabled() {
 
 expect_kept() {
   seed
+  read_status "$1"
+  (( status_rc == 0 )) || fail "--status exits 0 for $1" "$status_rc"
+  [[ $status_word == keep ]] || fail "--status is keep for $1" "$status_word"
+  cmp -s "$dropin" "$work/dropin.orig" || fail "--status changes autologin for $1"
   run_guard "$1"
   secrets_unchanged "$1"
   cmp -s "$dropin" "$work/dropin.orig" || fail "autologin changed for $1" "$(cat "$dropin" 2>/dev/null)"
@@ -111,8 +129,14 @@ expect_kept() {
   pass "autologin is unchanged for $1"
 }
 
+expect_disabled 4.0.0.r8045.gd54cde7
+expect_disabled 4.0.0.r8045.gd54cde7-1
 expect_disabled 4.0.1.r1.g0000000
 expect_disabled 4.0.1.r1.g0000000-1
+expect_kept 4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12
+expect_kept 4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1
+expect_kept 4.0.0.202611170435.r8085.handheld.d0d40b90
+expect_kept 4.0.0.202611170435.r8085.handheld.d0d40b90-1
 expect_kept 4.0.0.202611170222.r8072.handheld.e742281c
 expect_kept 4.0.0.202611170222.r8072.handheld.e742281c-1
 expect_kept dev.202611170222.e742281c
@@ -145,3 +169,45 @@ FAKE_OMARCHY_DEV_VERSION=4.0.1.r1.g0000000 \
   "$script"
 cmp -s "$dropin" "$work/dropin.orig" || fail "a locked handheld database disables autologin"
 pass "a held pacman lock keeps a .handheld build"
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1"
+: > "$root/var/lib/pacman/db.lck"
+FAKE_OMARCHY_DEV_VERSION=4.0.1.r1.g0000000 \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+  OMARCHY_TEST_LOGGER_LOG=$log \
+  PATH="$work/bin:$PATH" \
+  "$script"
+cmp -s "$dropin" "$work/dropin.orig" || fail "a locked allypreview database disables autologin"
+pass "a held pacman lock keeps an .allypreview build"
+
+# A directory whose name merely starts with omarchy-dev- is another package.
+# It must not count as a second omarchy-dev, and it must not be omarchy-dev
+# on its own. debug matches the [0-9d] glob and is still the wrong name.
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.r8045.gd54cde7-1"
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-utils-1.2.3-1"
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-debug-1.0-1"
+: > "$root/var/lib/pacman/db.lck"
+: > "$work/pacman.log"
+FAKE_PACMAN_LOG=$work/pacman.log \
+  FAKE_OMARCHY_DEV_VERSION=dev.202611170222.e742281c \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+  OMARCHY_TEST_LOGGER_LOG=$log \
+  PATH="$work/bin:$PATH" \
+  "$script"
+[[ ! -s $work/pacman.log ]] || fail "a neighbouring package makes the guard call pacman" "$(cat "$work/pacman.log")"
+[[ ! -e $dropin ]] || fail "omarchy-dev-utils or omarchy-dev-debug keeps upstream autologin"
+pass "a neighbouring omarchy-dev-* package is not omarchy-dev"
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-utils-1.2.3-1"
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-debug-1.0-1"
+: > "$root/var/lib/pacman/db.lck"
+FAKE_OMARCHY_DEV_VERSION=4.0.1.r1.g0000000 \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+  OMARCHY_TEST_LOGGER_LOG=$log \
+  PATH="$work/bin:$PATH" \
+  "$script"
+cmp -s "$dropin" "$work/dropin.orig" || fail "a database without omarchy-dev disables autologin"
+pass "omarchy-dev-utils and omarchy-dev-debug are not omarchy-dev"
