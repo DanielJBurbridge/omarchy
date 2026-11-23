@@ -137,9 +137,11 @@ omarchy-setup-gaming-session reset
 systemctl --user stop omarchy-gaming-session.target || true
 rm -f ~/.config/systemd/user/omarchy-gaming-session.target \
   ~/.config/systemd/user/omarchy-gaming-input-profile.service \
+  ~/.config/systemd/user/omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service \
   ~/.config/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf \
   ~/.config/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf
-rmdir ~/.config/systemd/user/omarchy-rog-ally-input.service.d \
+rmdir ~/.config/systemd/user/omarchy-gaming-session.target.wants \
+  ~/.config/systemd/user/omarchy-rog-ally-input.service.d \
   ~/.config/systemd/user/omarchy-ally-tdp-shim.service.d 2>/dev/null || true
 systemctl --user daemon-reload
 omarchy-pkg-drop omarchy-gaming-session
