@@ -47,7 +47,7 @@ Lock-screen and greeter UI stay with AUTH. Disk unlock for a handheld install is
 | View / Menu | Xbox-style Select / Start (`BTN_SELECT` / `BTN_START`). These have a real press and release. CC and AC do not. |
 | M2 / M1 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). Not on the xpad pad; they arrive via the ASUS N-KEY HID interface, and on the stock Omarchy kernel they may not arrive at all. |
 | N-KEY | ASUS USB HID device `0b05:1abe` (driver `hid-asus`); interface 2 carries the OEM buttons and paddles. |
-| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). Controller in the `gaming` profile (DualSense Edge target; spec 01). `gamepad` (Xbox Elite) remains the shipped fallback. |
+| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). Controller in the `gaming` profile (Steam Deck `deck` target, Valve `28de:1205`; spec 01). A load without `vhci_hcd` uses `ds5-edge` for that load. `gamepad` (Xbox Elite) remains the shipped fallback. |
 | Desktop mode | Omarchy Hyprland session. Controller in `desktop` profile (mouse + keyboard targets only). |
 | Controller profile | InputPlumber DeviceProfile loaded on the composite device: `desktop`, `gamepad`, `dualsense` (shipped), `gaming` / `osk` / `swap` / `hand-left` / `hand-right` (proposed). |
 | Bridge | `default/rog-ally-input/bridge.py`: user service that switches profiles on session/lock state and runs desktop actions from D-Bus events. |
