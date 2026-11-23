@@ -53,13 +53,13 @@ Omarchy binds driven by this spec (`default/hypr/bindings/` at `9f8b3572f`). The
 
 | # | Decision |
 |---|---|
-| D1 | **Gaming-session target is `ds5-edge` (DualSense Edge).** Upstream `deck-uhid` (Steam Deck) is the accepted alternative if a press test shows the Edge target still delivers QAM as a Guide+South macro, or if gyro is flaky. Xbox Elite stays the shipped `gamepad` profile and is not the gaming-session target: it has no motion, and it fakes QAM as a Guide+face chord (Guide+South in InputPlumber, Guide+A in HHD). |
+| D1 | **Gaming-session target is `deck` (Valve `28de:1205`).** Steam draws ABXY where the Ally prints them. The target has gyro, L4/R4 and a native Quick Access button. A gaming load whose `vhci_hcd` cannot be loaded, or whose `/sys/module/vhci_hcd` is absent, sends `ds5-edge` for that load and logs it. Xbox Elite stays the shipped `gamepad` profile and is not the gaming-session target: it has no motion, and it fakes QAM as a Guide+face chord (Guide+South in InputPlumber, Guide+A in HHD). |
 | D2 | **Δ3 is the quick-access overlay, not a screenshot.** Armoury long (`KEY_F17` / `QuickAccess2`) in the gaming session opens the Omarchy quick-access overlay (spec 04). Until that overlay exists, the same action falls back to Steam's QAM. It does not change profile and it does not take a screenshot. Screenshot in a game stays on Steam's own path (the QAM menu, or Steam's screenshot shortcut on the Edge target). |
 | D3 | **The overlay has a route that is not a long press.** Spec 04 adds an Omarchy menu row and a QAM entry that run the same action. Until spec 04, Armoury tap (QAM) is that route. |
 | D4 | **On RC71L, `CTRL + ALT + DELETE` always asks before it closes windows.** The confirm is keyed only on `omarchy-hw-rog-ally`. InputPlumber being up, down, killed, or not yet started does not matter. Raw Ctrl+Alt+Delete is always possible on this device. |
 | D5 | **No system action is hold-only.** Steam Input hold-chords are unreliable on the Ally (firmware does not give CC or AC a press/release pair). A firmware-distinct key (Armoury `KEY_F17`, Command Centre Ctrl+Alt+Delete or `KEY_F20`) may be a shortcut. It is never the only route. |
 | D6 | **Keep asusctl off the RC71L.** `asusd` fights `power-profiles-daemon` for the platform profile. The skip in `install/hardware/asus/rog-ally.sh` does not stop a copy that is already installed. |
-| D7 | **Left-stick scroll is notched, not analogue.** Gyro's source exists; Steam only sees it through a `ds5-edge` or Steam Deck target. Both are untested on this unit. |
+| D7 | **Left-stick scroll is notched, not analogue.** Gyro's source exists; Steam sees it through the `deck` target, or through `ds5-edge` when `vhci_hcd` is absent for that load. Both are untested on this unit. |
 
 ## 3. Physical layout
 
@@ -286,7 +286,7 @@ OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above 
 | Scroll | LB/RB vertical. Left stick: notched wheel only (Δ4, OQ-7 closed). | Baseline + Δ4 |
 | Trackpad emulation | None (RC71L has no trackpad). Touchscreen stays direct touch. The pattern file is `default/hypr/rog-ally-touch.lua` on `feat/ally-display-20261111` (early-return unless `omarchy-hw-rog-ally` succeeds). It is not on the parity or input branch. DS5 touchpad is not synthesised. | Statement |
 | Gyro mouse | Optional, **off by default**, desktop only, enabled from the quick-access overlay (spec 04). `bmi323-imu` is on the composite and IP 0.84 accepts a gyro source. OQ-14 closed for capability. Still untested on this unit. | D7 |
-| Gyro in Steam | The gaming target is `ds5-edge` so Steam can see motion. Xbox Elite cannot. Inferred from InputPlumber's targets, not from a test on this Ally. `deck-uhid` is the fallback target if Edge gyro is flaky. | D1, D7 |
+| Gyro in Steam | The gaming target is `deck` so Steam can see motion. Xbox Elite cannot. If `vhci_hcd` is absent, that load uses `ds5-edge`. Inferred from InputPlumber's targets, not from a test on this Ally. | D1, D7 |
 | Steam closed | Pointer, clicks and scroll work with Steam not running | Baseline acceptance |
 
 ## 10. Conflict rules with Steam Input
@@ -295,8 +295,8 @@ OSK profile only (Δ6). X is Space and B is Backspace, so the desktop row above 
 |---|---|
 | C1 | Exactly one input owner: InputPlumber. Setup refuses `hhd`, `handheld-daemon`, `input-remapper`, `xboxdrv`, `chimera`, `opengamepadui` (`bin/omarchy-setup-rog-ally-input`). |
 | C2 | `desktop` has **no gamepad target**, so Steam's Desktop Configuration cannot add a second pointer. |
-| C3 | The gaming profile exposes one virtual pad (`ds5-edge`). Omarchy maps OEM buttons and Armoury long (Δ3) only. Face, sticks, triggers and paddles pass through to Steam Input. |
-| C4 | Choose the target before Gamescope starts. Loading `gaming` (`ds5-edge`) over `gamepad` (`xbox-elite`) reconnects the pad, so session start does it before Gamescope. A later reload with the same `target_devices` must not reconnect. Switching mid-game disconnects the pad. |
+| C3 | The gaming profile exposes one virtual pad (`deck`, or `ds5-edge` when `vhci_hcd` is absent for that load). Omarchy maps OEM buttons and Armoury long (Δ3) only. Face, sticks, triggers and paddles pass through to Steam Input. |
+| C4 | Choose the target before Gamescope starts. Loading `gaming` (`deck`) over `gamepad` (`xbox-elite`) reconnects the pad, so session start does it before Gamescope. A later reload with the same `target_devices` must not reconnect. Switching mid-game disconnects the pad. |
 | C5 | Steam game in the **desktop** session: AC long still toggles to the shipped `gamepad` profile (Xbox Elite), not to `gaming`. The `dualsense` CLI profile remains the manual Edge profile for that session. Auto-switch on a focused fullscreen game → spec 02. |
 | C6 | Never bind raw OEM keys (`F13–F24`, `PROG1–4`) globally in Hyprland. |
 | C7 | Locked / inactive / unknown **Hyprland** session ⇒ `gamepad`, no desktop actions. This rule does not demote an active gaming session (§12). |

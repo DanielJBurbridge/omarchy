@@ -14,4 +14,11 @@ if omarchy-hw-rog-ally; then
     printf 'warning: Ally greeter pointer setup failed; re-run: sudo %s install-greeter\n' \
       "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" >&2
   fi
+  # The deck target is a virtual USB device. This writes the modules-load.d
+  # entry on an Ally only. A failed modprobe stays non-fatal: the next boot
+  # loads the module, and a gaming load falls back to ds5-edge until then.
+  if ! sudo "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" install-vhci; then
+    printf 'warning: Ally vhci_hcd setup failed; re-run: sudo %s install-vhci\n' \
+      "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" >&2
+  fi
 fi

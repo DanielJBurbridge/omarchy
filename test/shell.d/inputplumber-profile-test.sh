@@ -46,7 +46,15 @@ service_migration=$ROOT/migrations/1794988800.sh
 [[ $(stat -c %a -- "$service_migration") == 644 ]] || fail "the service migration is mode 0644"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$service_migration" || fail "the service migration requires the gaming session package"
 grep -q 'install-service$' "$service_migration" || fail "the service migration installs the profile service"
+vhci_migration=$ROOT/migrations/1795442196.sh
+[[ $(stat -c %a -- "$vhci_migration") == 644 ]] || fail "the vhci migration is mode 0644"
+[[ $(head -1 "$vhci_migration") != '#!'* ]] || fail "the vhci migration has no shebang"
+grep -q '^echo "Load vhci_hcd on the ROG Ally' "$vhci_migration" || fail "the vhci migration says what it does"
+grep -q 'omarchy-hw-rog-ally' "$vhci_migration" || fail "the vhci migration is gated on the Ally"
+grep -q 'install-vhci$' "$vhci_migration" || fail "the vhci migration calls install-vhci"
 grep -q 'install-greeter' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf installs the greeter unit"
+grep -q 'install-vhci' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf installs vhci_hcd on the Ally"
+grep -q 'omarchy-hw-rog-ally' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf is gated on the Ally"
 grep -q 'install-service' "$ROOT/install/hardware/asus/inputplumber.sh" && fail "the hardware leaf installs the profile service"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$ROOT/install/hardware/asus/gaming-session.sh" || fail "the gaming session leaf is opt-in"
 grep -q 'install-service' "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install" || fail "the package installs the profile service"
@@ -54,6 +62,9 @@ grep -q 'remove-service' "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-s
 
 if setpriv --reuid=1 --regid=1 --clear-groups "$helper" install-greeter; then
   fail "install as the desktop user is refused"
+fi
+if setpriv --reuid=1 --regid=1 --clear-groups "$helper" install-vhci; then
+  fail "install-vhci as the desktop user is refused"
 fi
 pass "the greeter calls omarchy-inputplumber-profile and install is root-only"
 
@@ -103,6 +114,7 @@ pass "gaming load asks the service for one allowlisted name"
 
 ROOT="$ROOT" WORK="$work" python3 - <<'PY'
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -383,6 +395,102 @@ check(mod.intercept(2) == 0, "intercept 2 is accepted")
 sets = [call for call in bus.calls if call[0] == "set-property"]
 check(len(sets) == 1 and sets[0][2] == c1 and sets[0][4:] == ["InterceptMode", "u", "2"], "intercept sets mode on the RC71L composite")
 
+deck = "/org/shadowblip/InputPlumber/devices/target/deck0"
+prop(deck, "DeviceType", 's "deck"')
+gaming_on_disk = (prefix / "gaming.yaml").read_text()
+probes = []
+modprobe_state = {"ok": False, "appear": False}
+
+def fake_modprobe(module):
+  probes.append(module)
+  if not modprobe_state["ok"]:
+    return cp(1, "", "modprobe failed")
+  if modprobe_state["appear"]:
+    Path(os.environ["OMARCHY_VHCI_SYS"]).mkdir(parents=True, exist_ok=True)
+  return cp(0, "")
+
+mod.run_modprobe = fake_modprobe
+
+def load_logged(name):
+  err = io.StringIO()
+  saved = sys.stderr
+  sys.stderr = err
+  try:
+    code = mod.load(name)
+  finally:
+    sys.stderr = saved
+  return code, err.getvalue()
+
+def sent_yaml():
+  loads = [call for call in bus.calls if len(call) > 4 and call[0] == "call" and call[4] == "LoadProfileFromYaml"]
+  check(len(loads) == 1, f"one profile load, got {len(loads)}")
+  return loads[0][-1] if loads else ""
+
+absent = work / "no-vhci"
+os.environ["OMARCHY_VHCI_SYS"] = str(absent)
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Default"')
+code, err = load_logged("gaming")
+sent = sent_yaml()
+check(code == 0, "gaming loads when vhci_hcd cannot be loaded")
+check("vhci_hcd is not loaded; gaming falls back to ds5-edge for this load" in err, "the ds5-edge fallback is logged")
+check('\n  - "ds5-edge"\n' in sent and '\n  - "deck"\n' not in sent, "that load sends ds5-edge")
+check(probes == ["vhci_hcd"], "the gaming load tries modprobe vhci_hcd")
+check((prefix / "gaming.yaml").read_text() == gaming_on_disk, "the fallback does not rewrite gaming.yaml")
+
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
+prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
+code, err = load_logged("gaming")
+check(code == 0 and bus.methods() == [], "a second fallback load is skipped")
+check("already loaded" in err, "the skip is logged")
+
+modprobe_state["ok"] = True
+modprobe_state["appear"] = False
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Default"')
+code, err = load_logged("gaming")
+sent = sent_yaml()
+check(code == 0 and "falls back to ds5-edge" in err, "a modprobe that leaves sysfs absent still falls back")
+check('\n  - "ds5-edge"\n' in sent, "that load still sends ds5-edge")
+
+appeared = work / "vhci-after"
+os.environ["OMARCHY_VHCI_SYS"] = str(appeared)
+modprobe_state["appear"] = True
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
+prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
+code, err = load_logged("gaming")
+sent = sent_yaml()
+check(code == 0 and "falls back" not in err, "a later load with vhci_hcd sends deck again")
+check(sent == gaming_on_disk, "that load sends the deck profile")
+check(probes == ["vhci_hcd"], "the module is loaded when sysfs was absent")
+
+present = work / "vhci-present"
+present.mkdir()
+os.environ["OMARCHY_VHCI_SYS"] = str(present)
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Default"')
+code, err = load_logged("gaming")
+check(code == 0 and sent_yaml() == gaming_on_disk, "a present vhci_hcd sends deck")
+check(probes == [], "a present module is not modprobed again")
+check("falls back" not in err, "a present module does not log the fallback")
+
+os.environ["OMARCHY_VHCI_SYS"] = str(absent)
+bus.reset()
+probes.clear()
+prop(c1, "ProfileName", 's "Default"')
+prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{xbox}"')
+code, err = load_logged("desktop")
+check(code == 0 and sent_yaml() == desktop_yaml, "desktop still sends its own profile")
+check(probes == [], "desktop does not load vhci_hcd")
+check("falls back" not in err, "desktop does not log a gaming fallback")
+
 mod.ally = lambda: False
 bus.reset()
 check(mod.load("desktop") == 0 and bus.calls == [], "load does nothing off the Ally")
@@ -544,7 +652,25 @@ mod.gaming_session_installed = lambda: True
 system.clear()
 check(mod.install_greeter() == 0 and mod.install_service() == 0, "install does nothing off the Ally")
 check(not laptop.exists(), "a laptop gets no unit, policy or rule")
+vhci_root = work / "vhci-root"
+mod.INSTALL_ROOT = vhci_root
+check(mod.install_vhci() == 0, "install-vhci is a no-op off the Ally")
+check(not (vhci_root / mod.VHCI_CONF).exists(), "off the Ally writes no modules-load.d entry")
 mod.ally = lambda: True
+os.environ["OMARCHY_VHCI_SYS"] = str(absent)
+modprobe_state["ok"] = False
+probes.clear()
+check(mod.install_vhci() == 0, "install-vhci writes the entry when the module does not load")
+conf = vhci_root / mod.VHCI_CONF
+check(conf.read_text() == "vhci_hcd\n", "the modules-load.d entry names vhci_hcd")
+check((conf.stat().st_mode & 0o777) == 0o644, "the modules-load.d entry is mode 0644")
+check(probes == ["vhci_hcd"], "install-vhci tries to load the module")
+conf.unlink()
+conf.symlink_to("/tmp/not-our-modules")
+check(mod.install_vhci_into(vhci_root) == 1, "install-vhci refuses a symlink")
+conf.unlink()
+check(mod.install_vhci_into(vhci_root) == 0, "install-vhci writes again after the symlink is removed")
+check(conf.read_text() == "vhci_hcd\n", "the rewritten entry is still vhci_hcd")
 
 mod.run_pkcheck = lambda args: cp(0 if args[1] == mod.LOAD_ACTION else 1)
 check(mod.polkit_allowed(":1.9", mod.LOAD_ACTION), "pkcheck yes authorizes Load")
@@ -571,6 +697,8 @@ code, log = run_cli("intercept", "00")
 check(code == 1 and log == "", "the CLI rejects intercept 00")
 code, log = run_cli("load", "pointer", hw="laptop")
 check(code == 0 and log == "", "the CLI loads nothing off the Ally")
+code, log = run_cli("install-vhci", hw="laptop")
+check(code == 0 and log == "", "install-vhci does nothing off the Ally")
 code, log = run_cli("load", "pointer")
 check(code == 0 and log == "", "a missing pointer file does not retry the daemon")
 code, _log = run_cli()
