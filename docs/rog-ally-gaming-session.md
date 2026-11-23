@@ -79,17 +79,17 @@ Only the designated Ally rollout owner installs this increment. First build and 
 Build the optional companion locally from the same commit. The install script does not enable a service:
 
 ```bash
-# In the reviewed source checkout. makepkg reads the local sources next to the PKGBUILD.
+# In the reviewed source checkout. Run makepkg from this directory.
 cd packages/omarchy-gaming-session
 makepkg --nodeps --nocheck
-bsdtar -tf omarchy-gaming-session-1.0.0-7-x86_64.pkg.tar.zst
+bsdtar -tf omarchy-gaming-session-1.0.0-10-x86_64.pkg.tar.zst
 # Install dependencies through the normal helpers; main runtime already updated.
 omarchy-pkg-add gamescope
 # Steam and lib32 drivers use Omarchy's existing gaming installer if absent.
-sudo pacman -U omarchy-gaming-session-1.0.0-7-x86_64.pkg.tar.zst
+sudo pacman -U omarchy-gaming-session-1.0.0-10-x86_64.pkg.tar.zst
 ```
 
-`--nodeps` permits an isolated build host without Steam; the installation transaction still enforces dependencies. Arch Extra currently supplies Gamescope 3.17.0-1, checked against its primary package page on 11 November 2026. The companion requires Gamescope ≥3.17.0 and `iproute2` (`ss` in `default/gaming/steam-ready.sh`). The checksums in the PKGBUILD are of those local files. Do not overwrite package files using `cp` or edit installed package trees.
+`--nodeps` permits an isolated build host without Steam; the installation transaction still enforces dependencies. Arch Extra currently supplies Gamescope 3.17.0-1, checked against its primary package page on 11 November 2026. The companion requires Gamescope ≥3.17.0 and `iproute2` (`ss` in `default/gaming/steam-ready.sh`). The checksums in the PKGBUILD are of the files beside it. `package()` reads the session files and the licence from this checkout. Do not overwrite package files using `cp` or edit installed package trees.
 
 The package manifest contains `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop`, `/usr/bin/steamos-polkit-helpers/steamos-update`, `/usr/lib/omarchy-gaming-session/sddm-user.sh`, `/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard`, `/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook`, `/etc/sudoers.d/omarchy-handheld-autologin` and its MIT licence. `steamos-update` is a stub adapted from Pizzarchy (MIT, copyright (c) 2026 Diego Huyke, commit `daa9376`). It updates nothing. Exit 7 tells Steam there is nothing to apply, so first-run setup does not reboot. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker. On an Ally it writes `/etc/sddm.conf.d/omarchy-handheld-user.conf` when that file has no counted `User=`. The name is `[Autologin] User=` from `autologin.conf`, then `[Last] User=` from `/var/lib/sddm/state.conf`. It does not scan the password file and it does not use the account that ran pacman. Removing the package runs `pre_remove` and `post_remove`, which delete that file. An earlier checkout may have copied `steamos-update` into `/usr/bin/steamos-polkit-helpers/` without pacman owning it. If `pacman -Qo /usr/bin/steamos-polkit-helpers/steamos-update` does not name `omarchy-gaming-session`, remove that file before installing this package, or the transaction stops with "exists in filesystem". Core does not delete it. It does not enable a service or change PAM. The package installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, a NOPASSWD grant for `fail`, `reset` and `apply` only. That file is not in the base tree. Runtime updates remain the main package's responsibility.
 
