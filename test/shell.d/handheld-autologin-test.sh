@@ -325,14 +325,29 @@ if grep -q 'SKIP' "$pkgbuild"; then
 fi
 (
   cd "$ROOT/packages/omarchy-gaming-session"
+  # makepkg sets startdir to this directory, then keeps only the basename.
+  startdir=$PWD
   # shellcheck disable=SC1091
   source ./PKGBUILD
   (( ${#source[@]} == ${#sha256sums[@]} )) || exit 1
   for i in "${!source[@]}"; do
+    [[ ${source[$i]} != */* ]] || exit 1
+    [[ -f ${source[$i]} ]] || exit 1
     sum=$(sha256sum "${source[$i]}" | awk '{print $1}')
     [[ ${sha256sums[$i]} == "$sum" ]] || exit 1
   done
-) || fail "a gaming session source checksum does not match its file"
+  for rel in \
+    default/gaming/wayland-sessions/omarchy-gamescope.desktop \
+    default/gaming/wayland-sessions/omarchy-handheld.desktop \
+    'default/gaming/applications/Omarchy Gaming.desktop' \
+    default/gaming/steamos-update \
+    default/gaming/sddm-user.sh \
+    LICENSE
+  do
+    grep -F -q "\$_repo/$rel" PKGBUILD || exit 1
+    [[ -f $_repo/$rel ]] || exit 1
+  done
+) || fail "a gaming session source is not beside the PKGBUILD, or a checkout file it installs is missing"
 grant_rule=$(grep -vE '^[[:space:]]*(#|$)' "$grant")
 [[ $grant_rule == '%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply' ]] ||
   fail "the package grant is not the three autologin verbs" "$grant_rule"
