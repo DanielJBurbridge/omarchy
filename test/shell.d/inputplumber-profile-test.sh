@@ -132,7 +132,7 @@ shipped = {
   "omarchy-ally-pointer.yaml": ("Omarchy Ally pointer", ["xbox-elite", "mouse", "keyboard"]),
   "desktop.yaml": ("Omarchy Ally desktop", ["xbox-elite", "mouse", "keyboard"]),
   "osk.yaml": ("Omarchy Ally osk", ["xbox-elite", "mouse", "keyboard"]),
-  "gaming.yaml": ("Omarchy Ally gaming", ["ds5-edge", "mouse", "keyboard"]),
+  "gaming.yaml": ("Omarchy Ally gaming", ["deck", "mouse", "keyboard"]),
 }
 for filename, expected in shipped.items():
   text = (profiles / filename).read_text()
@@ -142,10 +142,17 @@ for filename, expected in shipped.items():
 
 gaming = (profiles / "gaming.yaml").read_text()
 _, gaming_targets = mod.profile_meta(gaming)
+check(gaming_targets == ["deck", "mouse", "keyboard"], "gaming presents the Steam Deck (28de:1205)")
+check(not any(name in gaming_targets for name in ("ds5-edge", "xbox-elite", "xbox-series", "deck-uhid")), "gaming is not an Edge, Elite, Series or uhid target")
 check(any(target in gamepads for target in gaming_targets), "gaming mode includes a gamepad Steam recognises")
 check(set(gaming_targets) - {"mouse", "keyboard"}, "gaming is not a mouse and keyboard target list")
 check("motion:" not in gaming, "gaming does not map a stick to the pointer")
 check('button: "Guide"' in gaming and 'button: "West"' in gaming, "gaming keeps Guide then West")
+check('button: "QuickAccess"' not in gaming, "Armoury short stays unmapped so QAM passes through")
+check('button: "QuickAccess2"' in gaming and 'dbus: "omarchy_overlay"' in gaming, "Armoury long stays the overlay")
+for filename in ("omarchy-ally-pointer.yaml", "desktop.yaml", "osk.yaml"):
+  other = (profiles / filename).read_text()
+  check("deck" not in other and "ds5-edge" not in other, f"{filename} stays on xbox-elite")
 for filename, (_name, targets) in shipped.items():
   check(targets is not None and any(target in gamepads for target in targets), f"{filename} keeps a gamepad target")
 desktop = (profiles / "desktop.yaml").read_text()

@@ -1,11 +1,14 @@
 # InputPlumber DeviceProfile v1. Omarchy RC71L mapping.
 # Schema: https://raw.githubusercontent.com/ShadowBlip/InputPlumber/v0.84.0/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
 # Capability names are the schema's vocabulary. This file is not a copy of an upstream profile.
+# `deck` is InputPlumber's virtual Steam Deck (Valve 28de:1205, GPL-3.0-or-later).
+# Gyro, L4/R4 and a native Quick Access button are on that target, and Steam
+# draws ABXY where the Ally prints them. xbox-elite and xbox-series have no gyro.
 version: 1
 kind: "DeviceProfile"
 name: "Omarchy Ally gaming"
 target_devices:
-  - "ds5-edge"
+  - "deck"
   - "mouse"
   - "keyboard"
 mapping:
