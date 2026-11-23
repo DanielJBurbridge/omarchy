@@ -4,7 +4,7 @@
 # _repo. Checksums are of the files below. Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=9
+pkgrel=10
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -18,7 +18,7 @@ source=(
   'omarchy-handheld-autologin-guard.hook'
 )
 sha256sums=('b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
-            'ddd92f974d0d0ea45c28100dc1153a6a29fa36b33b9e1125b4be7070d578fb69'
+            '8ab2e319f1cf01f387fad0c36ad806bab6903ab2ece3fd7beb4d3e8ef241abb0'
             '3457b821b30501f7213c0978520acb00b6cdf6cd0900d0ee558a2d16c0f55f69')
 install=omarchy-gaming-session.install
 

@@ -126,12 +126,34 @@ install_user() {
   sddm_install_user "$1"
 }
 
+# The gaming-session guard owns the version list. --status is keep, drop,
+# or unknown, and it does not change files. drop means this omarchy-dev is
+# not a handheld build, so apply must not write the drop-in back. unknown
+# (no pacman answer) keeps the write below.
+handheld_dev_status() {
+  local guard command_path
+  guard=/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard
+  if [[ ! -f $guard || -L $guard ]]; then
+    command_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+    guard=$(dirname -- "$command_path")/../packages/omarchy-gaming-session/omarchy-handheld-autologin-guard
+  fi
+  if [[ ! -f $guard || -L $guard || ! -x $guard ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  "$guard" --status 2>/dev/null || true
+}
+
 apply_dropin() {
   refuse_symlink
   if ! handheld_variant; then
     # A User= left behind with no Session= makes SDDM autologin into the last
     # desktop. Drop both files together.
     rm -f -- "$dropin" "$user_dropin"
+    return 0
+  fi
+  if [[ $(handheld_dev_status) == "drop" ]]; then
+    rm -f -- "$dropin"
     return 0
   fi
   # A crash-loop stop shows the greeter. A boot with no stop file autologins.

@@ -82,11 +82,11 @@ Build the optional companion locally from the same commit. The install script do
 # In the reviewed source checkout. Run makepkg from this directory.
 cd packages/omarchy-gaming-session
 makepkg --nodeps --nocheck
-bsdtar -tf omarchy-gaming-session-1.0.0-9-x86_64.pkg.tar.zst
+bsdtar -tf omarchy-gaming-session-1.0.0-10-x86_64.pkg.tar.zst
 # Install dependencies through the normal helpers; main runtime already updated.
 omarchy-pkg-add gamescope
 # Steam and lib32 drivers use Omarchy's existing gaming installer if absent.
-sudo pacman -U omarchy-gaming-session-1.0.0-9-x86_64.pkg.tar.zst
+sudo pacman -U omarchy-gaming-session-1.0.0-10-x86_64.pkg.tar.zst
 ```
 
 `--nodeps` permits an isolated build host without Steam; the installation transaction still enforces dependencies. Arch Extra currently supplies Gamescope 3.17.0-1, checked against its primary package page on 11 November 2026. The companion requires Gamescope ≥3.17.0 and `iproute2` (`ss` in `default/gaming/steam-ready.sh`). The checksums in the PKGBUILD are of the files beside it. `package()` reads the session files and the licence from this checkout. Do not overwrite package files using `cp` or edit installed package trees.
