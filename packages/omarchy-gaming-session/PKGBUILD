@@ -5,7 +5,7 @@
 # Run makepkg from this directory.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=11
+pkgrel=12
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -22,6 +22,10 @@ source=(
   'omarchy-handheld-autologin-guard'
   'omarchy-handheld-autologin-guard.hook'
   "LICENSE::file://${startdir}/../../LICENSE"
+  "omarchy-gaming-session.target::file://${startdir}/../../default/systemd/user/omarchy-gaming-session.target"
+  "omarchy-gaming-input-profile.service::file://${startdir}/../../default/systemd/user/omarchy-gaming-input-profile.service"
+  "omarchy-rog-ally-input-gaming.conf::file://${startdir}/../../default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+  "omarchy-ally-tdp-shim-gaming.conf::file://${startdir}/../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
 )
 sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             '6a641adab37b03362dd4405684fd7c269cccc647fb96ac863896e79aeb618edb'
@@ -31,7 +35,11 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
             '8ab2e319f1cf01f387fad0c36ad806bab6903ab2ece3fd7beb4d3e8ef241abb0'
             '3457b821b30501f7213c0978520acb00b6cdf6cd0900d0ee558a2d16c0f55f69'
-            '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2')
+            '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2'
+            'a10c59d21030638f862c1b28a1b7d806fcfdca296578587b3874228c6569508b'
+            'f69ce16c70cc1414a61ab36fa898d3900d31dd4be46ce5fe1075c9d22152b3a2'
+            'a3153f79823df7aaf53f3b569026126ef714864ea66f58d0e4d2d28cde16c781'
+            'a0c5e43a2651c66381052e92acfac78ce672041d3ff1a8a292cdb46c3d4bedf7')
 install=omarchy-gaming-session.install
 
 package() {
@@ -60,5 +68,21 @@ package() {
     "$pkgdir/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard"
   install -Dm644 "$srcdir/omarchy-handheld-autologin-guard.hook" \
     "$pkgdir/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook"
+  # User units, so a packaged install does not depend on copying them into
+  # ~/.config. The profile oneshot is linked from the gaming target, the same
+  # shape as Valve's gamescope-session.service.wants (BSD-2-Clause,
+  # steamos-powerbuttond Makefile). The Hyprland session keeps the desktop
+  # pointer profile.
+  install -Dm644 "$srcdir/omarchy-gaming-session.target" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target"
+  install -Dm644 "$srcdir/omarchy-gaming-input-profile.service" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-gaming-input-profile.service"
+  install -Dm644 "$srcdir/omarchy-rog-ally-input-gaming.conf" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+  install -Dm644 "$srcdir/omarchy-ally-tdp-shim-gaming.conf" \
+    "$pkgdir/usr/lib/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
+  install -d "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target.wants"
+  ln -s ../omarchy-gaming-input-profile.service \
+    "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service"
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

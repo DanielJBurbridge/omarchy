@@ -36,10 +36,41 @@ grep -q '^PartOf=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is part of the gaming session target"
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is wanted by the gaming session target"
-grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_dropin" ||
-  fail "the TDP shim is part of the gaming session target"
+grep -q '^After=omarchy-gaming-session.target$' "$shim_dropin" ||
+  fail "the TDP shim is ordered after the gaming session target"
+if grep -q '^PartOf=' "$shim_dropin"; then
+  fail "the TDP shim drop-in stops the shim with the gaming target"
+fi
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$shim_dropin" ||
   fail "the TDP shim is wanted by the gaming session target"
+shim_unit=$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service
+grep -q '^PartOf=graphical-session.target$' "$shim_unit" ||
+  fail "the TDP shim stops with the desktop session"
+if grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_unit"; then
+  fail "the TDP shim unit stops with the gaming target"
+fi
+if grep -E '^(Wants|WantedBy|RequiredBy|BindsTo)=(default\.target|graphical-session\.target)$' \
+  "$unit" "$profile_unit"; then
+  fail "the gaming profile is wanted by a desktop target"
+fi
+pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
+install_script=$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install
+grep -F -q 'usr/lib/systemd/user/omarchy-gaming-session.target"' "$pkgbuild" ||
+  fail "the package ships the gaming session target"
+grep -F -q 'usr/lib/systemd/user/omarchy-gaming-input-profile.service"' "$pkgbuild" ||
+  fail "the package ships the profile oneshot"
+grep -F -q 'omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service' "$pkgbuild" ||
+  fail "the package links the profile oneshot from the gaming target"
+if grep -E 'default\.target\.wants|graphical-session\.target\.wants' "$pkgbuild"; then
+  fail "the package links the profile oneshot from a desktop target"
+fi
+grep -F -q 'systemctl enable --now omarchy-inputplumber-profile.service' "$install_script" ||
+  fail "the install script starts the profile service"
+start_line=$(grep -n 'systemctl enable --now omarchy-inputplumber-profile.service' "$install_script" | head -1 | cut -d: -f1)
+ally_line=$(grep -n '/usr/bin/omarchy-hw-rog-ally' "$install_script" | head -1 | cut -d: -f1)
+if [[ -z $start_line || -z $ally_line ]] || (( ally_line >= start_line )); then
+  fail "enable --now is gated on the Ally"
+fi
 OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
 pass "profile load is before the bridge, and both follow the gaming session target"
 
@@ -85,6 +116,16 @@ if [[ -z $stop_line || -z $desktop_line ]] || (( stop_line <= gamescope_line || 
   fail "switching to the desktop stops omarchy-gaming-session.target first" "$detail"
 fi
 pass "gamescope start pulls in the target and the desktop switch stops it"
+
+profile_link=$HANDHELD_HOME/.config/systemd/user/omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service
+[[ -L $profile_link ]] || fail "the session links the profile oneshot from the gaming target"
+[[ $(readlink -- "$profile_link") == ../omarchy-gaming-input-profile.service ]] ||
+  fail "the profile oneshot link points at the gaming unit" "$(readlink -- "$profile_link" 2>/dev/null)"
+if [[ -e $HANDHELD_HOME/.config/systemd/user/default.target.wants/omarchy-gaming-input-profile.service ||
+      -e $HANDHELD_HOME/.config/systemd/user/graphical-session.target.wants/omarchy-gaming-input-profile.service ]]; then
+  fail "the session links the profile oneshot from a desktop target"
+fi
+pass "the session wants the profile oneshot from the gaming target only"
 
 bridge_line=$(grep -n 'systemctl:--user start omarchy-rog-ally-input.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
 shim_line=$(grep -n 'systemctl:--user restart omarchy-ally-tdp-shim.service' "$HANDHELD_LOG" | head -1 | cut -d: -f1)

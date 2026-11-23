@@ -22,11 +22,20 @@ post_install() {
   if command -v omarchy-ally-tdp-install >/dev/null; then
     warn_profile_step "Ally TDP session install" omarchy-ally-tdp-install session
   fi
-  # Fill an empty User= from the installer record. A counted User= is
-  # left in place. The name is not the account that ran pacman. No second
-  # file, no Session=, no sudoers. The package is present because this
-  # scriptlet is that package. The file itself stays unpackaged.
   if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
+    # install-service enables the switch unit and leaves it stopped, so a
+    # fresh install cannot Load a profile until the next boot. Start it now.
+    # A unit the user disabled or masked stays that way.
+    local profile_state
+    profile_state=$(systemctl is-enabled omarchy-inputplumber-profile.service 2>/dev/null || true)
+    if [[ $profile_state != disabled && $profile_state != masked ]]; then
+      warn_profile_step "InputPlumber profile service start" \
+        systemctl enable --now omarchy-inputplumber-profile.service
+    fi
+    # Fill an empty User= from the installer record. A counted User= is
+    # left in place. The name is not the account that ran pacman. No second
+    # file, no Session=, no sudoers. The package is present because this
+    # scriptlet is that package. The file itself stays unpackaged.
     if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
       OMARCHY_GAMING_PACKAGE_PRESENT=1 /usr/lib/omarchy-gaming-session/sddm-user.sh install-recorded
     fi
