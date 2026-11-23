@@ -347,17 +347,30 @@ grep -q "iproute2" "$pkgbuild" || fail "the gaming session package does not depe
 if grep -q 'SKIP' "$pkgbuild"; then
   fail "the gaming session package skips a source checksum"
 fi
+pkg_fn=$(sed -n '/^package() {/,/^}$/p' "$pkgbuild")
+if [[ $pkg_fn == *startdir* || $pkg_fn == *_repo* ]]; then
+  fail "package() reads a source through startdir"
+fi
 (
   cd "$ROOT/packages/omarchy-gaming-session"
-  # makepkg sets startdir to this directory, then keeps only the basename.
+  # makepkg sets startdir to this directory before sourcing the PKGBUILD.
   startdir=$PWD
   # shellcheck disable=SC1091
   source ./PKGBUILD
   (( ${#source[@]} == ${#sha256sums[@]} )) || exit 1
   for i in "${!source[@]}"; do
-    [[ ${source[$i]} != */* ]] || exit 1
-    [[ -f ${source[$i]} ]] || exit 1
-    sum=$(sha256sum "${source[$i]}" | awk '{print $1}')
+    entry=${source[$i]}
+    if [[ $entry == *::* ]]; then
+      url=${entry#*::}
+      [[ $url == file://* ]] || exit 1
+      path=${url#file://}
+      path=${path//%20/ }
+    else
+      [[ $entry != */* ]] || exit 1
+      path=$entry
+    fi
+    [[ -f $path ]] || exit 1
+    sum=$(sha256sum "$path" | awk '{print $1}')
     [[ ${sha256sums[$i]} == "$sum" ]] || exit 1
   done
   for rel in \
@@ -368,10 +381,10 @@ fi
     default/gaming/sddm-user.sh \
     LICENSE
   do
-    grep -F -q "\$_repo/$rel" PKGBUILD || exit 1
-    [[ -f $_repo/$rel ]] || exit 1
+    grep -F -q "${rel// /%20}" PKGBUILD || exit 1
+    [[ -f $startdir/../../$rel ]] || exit 1
   done
-) || fail "a gaming session source is not beside the PKGBUILD, or a checkout file it installs is missing"
+) || fail "a gaming session source is not declared, or its checksum does not match the checkout file"
 grant_rule=$(grep -vE '^[[:space:]]*(#|$)' "$grant")
 [[ $grant_rule == '%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply' ]] ||
   fail "the package grant is not the three autologin verbs" "$grant_rule"

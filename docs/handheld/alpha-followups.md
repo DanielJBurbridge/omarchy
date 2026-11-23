@@ -417,3 +417,7 @@ From the allypreview autologin guard, 23 Nov 2026. This range is L260–L269. L2
 From the gaming-session package sources, 23 Nov 2026. This range is L270–L279. L270 is that range's fix. L271–L279 are claimed and empty.
 
 - L270. **Fixed.** `makepkg` looks a local source up by its basename in the PKGBUILD directory, so `packages/omarchy-gaming-session` could not build from a clean checkout. `source=()` listed `../../default/...` and `../../LICENSE`, and the box build only worked because a wrapper copied those files in beside the PKGBUILD first. `package()` now installs them from `_repo="$startdir/../.."`. `source=()` keeps the three files that sit next to the PKGBUILD, with their checksums. #86 took pkgrel 9 for the allypreview guard, so this source fix is pkgrel 10. The documented `makepkg` steps in `docs/rog-ally-gaming-session.md` work from a clean checkout. Source: this fix. Owner: packaging.
+
+From the gaming-session clean-chroot sources, 23 Nov 2026. This range is L290–L299. L290 is that range's fix. L291–L299 are claimed and empty.
+
+- L290. **Fixed.** `package()` installed the session files and the licence from `_repo="$startdir/../.."`. A clean chroot (`makechrootpkg` / `extra-x86_64-build`) bind-mounts only the PKGBUILD directory, and `makepkg --allsource` packs only `source=()`, so those files were missing and had no checksum. `source=()` now names them as `file://` URLs under `$startdir`, with sha256sums. `package()` installs from `$srcdir`. pkgrel is 11. Source: PR #85, review 6021180824. Owner: packaging.
