@@ -49,6 +49,10 @@ if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
   printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
   exit 0
 fi
+if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_VERSION:-} ]]; then
+  printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION"
+  exit 0
+fi
 exit 1
 EOF
 cat > "$work/bin/logger" <<'EOF'
@@ -74,7 +78,8 @@ seed() {
 
 read_status() {
   status_rc=0
-  status_word=$(FAKE_OMARCHY_DEV_VERSION=$1 \
+  status_word=$(FAKE_OMARCHY_DEV_VERSION=${1:-} \
+    FAKE_OMARCHY_SETTINGS_DEV_VERSION=${2:-} \
     OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
     OMARCHY_TEST_LOGGER_LOG=$log \
     PATH="$work/bin:$PATH" \
@@ -83,12 +88,13 @@ read_status() {
 
 run_guard() {
   local status=0
-  FAKE_OMARCHY_DEV_VERSION=$1 \
+  FAKE_OMARCHY_DEV_VERSION=${1:-} \
+    FAKE_OMARCHY_SETTINGS_DEV_VERSION=${2:-} \
     OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
     OMARCHY_TEST_LOGGER_LOG=$log \
     PATH="$work/bin:$PATH" \
     "$script" || status=$?
-  (( status == 0 )) || fail "the guard exits 0 for $1" "$status"
+  (( status == 0 )) || fail "the guard exits 0 for $1 ${2:-}" "$status"
 }
 
 secrets_unchanged() {
@@ -99,34 +105,34 @@ secrets_unchanged() {
 
 expect_disabled() {
   seed
-  read_status "$1"
+  read_status "$1" "${2:-}"
   (( status_rc == 0 )) || fail "--status exits 0 for $1" "$status_rc"
   [[ $status_word == drop ]] || fail "--status is drop for $1" "$status_word"
   cmp -s "$dropin" "$work/dropin.orig" || fail "--status removes autologin for $1"
-  run_guard "$1"
+  run_guard "$1" "${2:-}"
   secrets_unchanged "$1"
   [[ ! -e $dropin ]] || fail "autologin stays enabled for $1" "$(cat "$dropin")"
   grep -q 'omarchy-handheld-autologin apply' "$log" ||
     fail "the journal does not say how to turn autologin back on for $1" "$(cat "$log")"
-  run_guard "$1"
+  run_guard "$1" "${2:-}"
   secrets_unchanged "$1"
   [[ ! -e $dropin ]] || fail "a second run restores autologin for $1"
-  pass "autologin is disabled for $1"
+  pass "autologin is disabled for ${1:-<none>}${2:+ / $2}"
 }
 
 expect_kept() {
   seed
-  read_status "$1"
+  read_status "$1" "${2:-}"
   (( status_rc == 0 )) || fail "--status exits 0 for $1" "$status_rc"
   [[ $status_word == keep ]] || fail "--status is keep for $1" "$status_word"
   cmp -s "$dropin" "$work/dropin.orig" || fail "--status changes autologin for $1"
-  run_guard "$1"
+  run_guard "$1" "${2:-}"
   secrets_unchanged "$1"
   cmp -s "$dropin" "$work/dropin.orig" || fail "autologin changed for $1" "$(cat "$dropin" 2>/dev/null)"
   if grep -q 'removed' "$log"; then
     fail "a kept build removes the drop-in for $1" "$(cat "$log")"
   fi
-  pass "autologin is unchanged for $1"
+  pass "autologin is unchanged for ${1:-<none>}${2:+ / $2}"
 }
 
 expect_disabled 4.0.0.r8045.gd54cde7
@@ -211,3 +217,62 @@ FAKE_OMARCHY_DEV_VERSION=4.0.1.r1.g0000000 \
   "$script"
 cmp -s "$dropin" "$work/dropin.orig" || fail "a database without omarchy-dev disables autologin"
 pass "omarchy-dev-utils and omarchy-dev-debug are not omarchy-dev"
+
+# The db.lck read is the same keep list as pacman -Q. --status, not only the
+# file, has to say keep for dev.* and .allypreview.
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-dev.202611170222.e742281c-1"
+: > "$root/var/lib/pacman/db.lck"
+read_status 4.0.1.r1.g0000000
+(( status_rc == 0 )) || fail "--status exits 0 for a locked dev database" "$status_rc"
+[[ $status_word == keep ]] || fail "--status is keep for a locked dev database" "$status_word"
+cmp -s "$dropin" "$work/dropin.orig" || fail "--status removes autologin for a locked dev database"
+pass "a held pacman lock keeps a dev.* build"
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1"
+: > "$root/var/lib/pacman/db.lck"
+read_status 4.0.1.r1.g0000000
+[[ $status_word == keep ]] || fail "--status is keep for a locked allypreview database" "$status_word"
+pass "a held pacman lock reports keep for an .allypreview build"
+
+# Replacing omarchy-settings-dev alone is the same decision as omarchy-dev.
+expect_disabled "" 4.0.1.r1.g0000000
+expect_kept "" 4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1
+expect_kept "" dev.202611170222.e742281c-1
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-settings-dev-4.0.1.r1.g0000000-1"
+: > "$root/var/lib/pacman/db.lck"
+: > "$work/pacman.log"
+FAKE_PACMAN_LOG=$work/pacman.log \
+  FAKE_OMARCHY_DEV_VERSION=dev.202611170222.e742281c \
+  FAKE_OMARCHY_SETTINGS_DEV_VERSION=dev.202611170222.e742281c \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+  OMARCHY_TEST_LOGGER_LOG=$log \
+  PATH="$work/bin:$PATH" \
+  "$script"
+[[ ! -s $work/pacman.log ]] || fail "the guard calls pacman while db.lck is held for settings-dev" "$(cat "$work/pacman.log")"
+[[ ! -e $dropin ]] || fail "a locked upstream settings-dev leaves autologin enabled"
+cmp -s "$user" "$work/user.orig" || fail "User= changed for an upstream settings-dev"
+pass "a held pacman lock disables autologin for settings-dev alone"
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.202611170222.r8072.handheld.e742281c-1"
+mkdir -p "$root/var/lib/pacman/local/omarchy-settings-dev-4.0.1.r1.g0000000-1"
+: > "$root/var/lib/pacman/db.lck"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.202611170222.r8072.handheld.e742281c \
+  FAKE_OMARCHY_SETTINGS_DEV_VERSION=4.0.0.202611170222.r8072.handheld.e742281c \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$root \
+  OMARCHY_TEST_LOGGER_LOG=$log \
+  PATH="$work/bin:$PATH" \
+  "$script"
+[[ ! -e $dropin ]] || fail "a handheld omarchy-dev keeps autologin when settings-dev is upstream"
+pass "a handheld omarchy-dev does not keep autologin for an upstream settings-dev"
+
+seed
+mkdir -p "$root/var/lib/pacman/local/omarchy-settings-dev-dev.202611170222.e742281c-1"
+: > "$root/var/lib/pacman/db.lck"
+read_status "" ""
+[[ $status_word == keep ]] || fail "--status is keep for a locked settings-dev dev database" "$status_word"
+pass "a held pacman lock keeps a dev.* settings-dev build"

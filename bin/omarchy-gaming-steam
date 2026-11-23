@@ -4,6 +4,9 @@
 
 set -uo pipefail
 [[ -n ${OMARCHY_GAMING_RUNTIME:-} && -n ${DISPLAY:-} ]] || exit 1
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 export PATH="$OMARCHY_PATH/default/gaming/bin:$PATH"
 # Upstream CachyOS steam-launcher contract; use the installed Steam/library.
 export XDG_SESSION_TYPE=x11 SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
