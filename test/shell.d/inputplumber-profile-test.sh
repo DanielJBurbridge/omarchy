@@ -112,6 +112,7 @@ import io
 import os
 import subprocess
 import sys
+import time
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -221,7 +222,7 @@ class Bus:
   def methods(self):
     return [call[4] for call in self.calls if call[0] in {"call", "set-property"}]
 
-  def __call__(self, args):
+  def __call__(self, args, deadline=None):
     self.calls.append(list(args))
     if args[0] == "tree":
       if self.tree_codes:
@@ -434,10 +435,14 @@ def load_logged(name):
     sys.stderr = saved
   return code, err.getvalue()
 
-def sent_yaml():
+def sent_profiles():
   loads = [call for call in bus.calls if len(call) > 4 and call[0] == "call" and call[4] == "LoadProfileFromYaml"]
-  check(len(loads) == 1, f"one profile load, got {len(loads)}")
-  return loads[0][-1] if loads else ""
+  return [call[-1] for call in loads]
+
+def sent_yaml():
+  profiles = sent_profiles()
+  check(len(profiles) == 1, f"one profile load, got {len(profiles)}")
+  return profiles[0] if profiles else ""
 
 absent = work / "no-vhci"
 os.environ["OMARCHY_VHCI_SYS"] = str(absent)
@@ -456,6 +461,11 @@ bus.reset()
 probes.clear()
 prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
 prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
+
+def attach_deck(_seconds):
+  prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{deck}"')
+
+mod.pause = attach_deck
 code, err = load_logged("gaming")
 check(code == 0 and bus.methods() == [], "a second fallback load is skipped")
 check("already loaded" in err, "the skip is logged")
@@ -482,6 +492,8 @@ sent = sent_yaml()
 check(code == 0 and "falls back" not in err, "a later load with vhci_hcd sends deck again")
 check(sent == gaming_on_disk, "that load sends the deck profile")
 check(probes == ["vhci_hcd"], "the module is loaded when sysfs was absent")
+check(bus.calls.count(["get-property", mod.IP_BUS, c1, mod.COMPOSITE_IFACE, "TargetDevices"]) >= 3,
+      "a load waits for Deck to appear after checking the previous targets")
 
 present = work / "vhci-present"
 present.mkdir()
@@ -493,6 +505,17 @@ code, err = load_logged("gaming")
 check(code == 0 and sent_yaml() == gaming_on_disk, "a present vhci_hcd sends deck")
 check(probes == [], "a present module is not modprobed again")
 check("falls back" not in err, "a present module does not log the fallback")
+
+bus.reset()
+prop(c1, "TargetDevices", f'as 2 "{mouse}" "{keyboard}"')
+mod.pause = time.sleep
+code, err = load_logged("gaming")
+mod.pause = lambda _seconds: None
+fallback_yaml = gaming_on_disk.replace('\n  - "deck"\n', '\n  - "ds5-edge"\n')
+check(code == 0 and sent_profiles() == [gaming_on_disk, fallback_yaml],
+      "a Deck that never attaches is replaced by ds5-edge")
+check("the deck target did not attach; gaming falls back to ds5-edge" in err, "the attach failure is logged")
+check((prefix / "gaming.yaml").read_text() == gaming_on_disk, "the attach fallback leaves gaming.yaml intact")
 
 os.environ["OMARCHY_VHCI_SYS"] = str(absent)
 bus.reset()
@@ -521,7 +544,7 @@ def fake_systemctl(args):
 
 systemctl_state = {"value": "not-found"}
 mod.run_systemctl = fake_systemctl
-mod.run_busctl = lambda args: cp(0, "")
+mod.run_busctl = lambda args, deadline=None: cp(0, "")
 dest = work / "root"
 user_conf = dest / "etc/sddm.conf.d/omarchy-handheld-user.conf"
 user_conf.parent.mkdir(parents=True)
@@ -601,7 +624,7 @@ hook_stub.write_text(
   "hooked = module_from_spec(spec)\n"
   "loader.exec_module(hooked)\n"
   "hooked.run_systemctl = lambda args: subprocess.CompletedProcess(['systemctl'], 0, 'not-found\\n' if args[0] == 'is-enabled' else '', '')\n"
-  "hooked.run_busctl = lambda args: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
+  "hooked.run_busctl = lambda args, deadline=None: subprocess.CompletedProcess(['busctl'], 0, '', '')\n"
   "dest = Path(os.environ['HOOK_ROOT'])\n"
   "if sys.argv[1] == 'install-greeter':\n"
   "    raise SystemExit(0)\n"

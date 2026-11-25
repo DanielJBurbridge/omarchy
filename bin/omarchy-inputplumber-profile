@@ -111,8 +111,15 @@ def pause(seconds: float) -> None:
   time.sleep(seconds)
 
 
-def run_busctl(args: list[str]) -> subprocess.CompletedProcess[str]:
-  return subprocess.run(["busctl", *args], check=False, capture_output=True, text=True)
+def run_busctl(args: list[str], deadline: float | None = None) -> subprocess.CompletedProcess[str]:
+  command = ["busctl", *args]
+  timeout = None if deadline is None else deadline - time.monotonic()
+  if timeout is None or timeout > 0:
+    try:
+      return subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+      pass
+  return subprocess.CompletedProcess(command, 124, "", "D-Bus query timed out")
 
 
 # The deck target is a virtual USB device. The module name matches
@@ -145,14 +152,10 @@ def ensure_vhci() -> bool:
   return vhci_present()
 
 
-def gaming_pad_for_load(name: str, yaml: str, targets: list[str] | None) -> tuple[str | None, list[str] | None]:
-  """Keep deck when vhci_hcd is live. Otherwise send ds5-edge for this load only."""
-  if name != "gaming" or not targets or "deck" not in targets:
-    return yaml, targets
-  if ensure_vhci():
-    return yaml, targets
+def gaming_pad_fallback(yaml: str, targets: list[str], reason: str) -> tuple[str | None, list[str] | None]:
+  """Substitute ds5-edge in the YAML sent to InputPlumber for this load."""
   print(
-    "omarchy-inputplumber-profile: vhci_hcd is not loaded; gaming falls back to ds5-edge for this load",
+    f"omarchy-inputplumber-profile: {reason}; gaming falls back to ds5-edge for this load",
     file=sys.stderr,
   )
   needle = '\n  - "deck"\n'
@@ -298,8 +301,8 @@ def parse_bus_strings(output: str) -> list[str]:
   return items
 
 
-def bus_property(path: str, interface: str, prop: str) -> str | None:
-  proc = run_busctl(["get-property", IP_BUS, path, interface, prop])
+def bus_property(path: str, interface: str, prop: str, deadline: float | None = None) -> str | None:
+  proc = run_busctl(["get-property", IP_BUS, path, interface, prop], deadline)
   if proc.returncode != 0:
     return None
   try:
@@ -308,8 +311,8 @@ def bus_property(path: str, interface: str, prop: str) -> str | None:
     return None
 
 
-def bus_paths(path: str, prop: str) -> list[str] | None:
-  proc = run_busctl(["get-property", IP_BUS, path, COMPOSITE_IFACE, prop])
+def bus_paths(path: str, prop: str, deadline: float | None = None) -> list[str] | None:
+  proc = run_busctl(["get-property", IP_BUS, path, COMPOSITE_IFACE, prop], deadline)
   if proc.returncode != 0:
     return None
   try:
@@ -372,16 +375,27 @@ def ally_composites() -> list[str] | None:
   return matches
 
 
-def live_types(composite: str) -> list[str] | None:
-  paths = bus_paths(composite, "TargetDevices")
+def live_types(composite: str, deadline: float | None = None) -> list[str] | None:
+  paths = bus_paths(composite, "TargetDevices", deadline)
   if paths is None:
     return None
   kinds: list[str] = []
   for path in paths:
-    kind = bus_property(path, TARGET_IFACE, "DeviceType")
+    kind = bus_property(path, TARGET_IFACE, "DeviceType", deadline)
     if kind:
       kinds.append(kind)
   return kinds
+
+
+def wait_for_deck(composite: str) -> bool:
+  deadline = time.monotonic() + 2
+  while True:
+    if "deck" in (live_types(composite, deadline) or ()):
+      return True
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+      return False
+    pause(min(0.1, remaining))
 
 
 def already_loaded(composite: str, profile_name: str, targets: list[str] | None) -> bool:
@@ -420,6 +434,15 @@ def select_composite(wait: bool) -> tuple[str | None, bool]:
   return None, False
 
 
+def load_profile_yaml(composite: str, yaml: str) -> bool:
+  proc = run_busctl(["call", IP_BUS, composite, COMPOSITE_IFACE, "LoadProfileFromYaml", "s", yaml])
+  if proc.returncode != 0:
+    detail = (proc.stderr or proc.stdout or "").strip()
+    print(f"omarchy-inputplumber-profile: load failed: {detail}", file=sys.stderr)
+    return False
+  return True
+
+
 def load(name: str, wait: bool = False) -> int:
   if not ally():
     return 0
@@ -440,17 +463,19 @@ def load(name: str, wait: bool = False) -> int:
       print("omarchy-inputplumber-profile: no RC71L composite; not loading", file=sys.stderr)
     # The greeter proceeds when no single composite is ready after the wait.
     return 0 if wait else 1
-  yaml, targets = gaming_pad_for_load(name, yaml, targets)
-  if yaml is None:
-    return 1
+  if name == "gaming" and targets and "deck" in targets and not ensure_vhci():
+    yaml, targets = gaming_pad_fallback(yaml, targets, "vhci_hcd is not loaded")
+    if yaml is None:
+      return 1
   if already_loaded(composite, profile_name, targets):
     print(f"omarchy-inputplumber-profile: {name} already loaded", file=sys.stderr)
     return 0
-  proc = run_busctl(["call", IP_BUS, composite, COMPOSITE_IFACE, "LoadProfileFromYaml", "s", yaml])
-  if proc.returncode != 0:
-    detail = (proc.stderr or proc.stdout or "").strip()
-    print(f"omarchy-inputplumber-profile: load failed: {detail}", file=sys.stderr)
+  if not load_profile_yaml(composite, yaml):
     return 0 if wait else 1
+  if name == "gaming" and targets and "deck" in targets and not wait_for_deck(composite):
+    yaml, _ = gaming_pad_fallback(yaml, targets, "the deck target did not attach")
+    if yaml is None or not load_profile_yaml(composite, yaml):
+      return 0 if wait else 1
   return 0
 
 
