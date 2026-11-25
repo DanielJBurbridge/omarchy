@@ -162,12 +162,15 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     run(env, selector, 'preferred')
     assert not (state(directory) / 'next').exists()
     assert 'gamescope:' not in (directory / 'actions').read_text()
-    run(env, selector, 'preferred')
+    # 0.2s runs out on a loaded runner while the units are copied, before
+    # Steam logs. The return cases keep the same longer waiter.
+    env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
+    run(env, selector, 'preferred', timeout=25)
     actions = (directory / 'actions').read_text()
     assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in actions, (actions, (state(directory) / 'session.log').read_text())
     assert '--xwayland-count 2' in actions, actions
     run(env, setup, 'display', '720p', '40', 'fsr')
-    run(env, selector, 'gaming')
+    run(env, selector, 'gaming', timeout=25)
     assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in (directory / 'actions').read_text()
     run(env, setup, 'display', 'bad', status=2)
     assert (state(directory) / 'display').read_text() == '720p 40 fsr\n'
