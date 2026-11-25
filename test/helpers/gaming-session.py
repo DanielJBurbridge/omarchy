@@ -111,6 +111,12 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     command('steam', '''#!/bin/bash
         echo "steam:$*:DISPLAY=$DISPLAY" >> "$TEST_ROOT/actions"
         if [[ $MODE == return || $MODE == return-up ]]; then
+          timeout 2 bash -c 'printf "started\\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || true
+          last=$XDG_STATE_HOME/omarchy/gaming-session/last
+          for _ in $(seq 1 80); do
+            [[ -f $last ]] && break
+            sleep 0.05
+          done
           steamos-session-select plasma
           exec sleep 10
         fi
@@ -128,6 +134,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
                    XDG_RUNTIME_DIR=str(directory / 'runtime'), XDG_SESSION_ID='c71',
                    OMARCHY_PATH=str(repo), TEST_ROOT=str(directory), MODE='normal',
                    OMARCHY_GAMING_READY_TIMEOUT='0.2', OMARCHY_GAMING_RETRY_GAP='0',
+                   OMARCHY_GAMING_NETWORK_TIMEOUT='0',
                    PATH=f'{bindir}:{repo / "bin"}:/usr/bin:/bin')
         for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE'):
             env.pop(key, None)
@@ -174,10 +181,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
             run(env, setup, 'default', 'desktop')
             run(env, selector, 'preferred')
         elif mode in ('return', 'return-up'):
-            # Steam switches at startup. The default 0.2s ready timeout can
-            # win that race under a loaded CI runner and stop the scope
-            # before the return FIFO is read. Give the explicit return time
-            # to land, which is what writes next=desktop.
+            # Switch to Desktop after the ready marker. A request before that
+            # marker relaunches Gaming and does not write next=desktop. The
+            # longer waiter keeps the marker from losing the race on a loaded runner.
             env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
             run(env, selector, 'preferred', timeout=25)
         else:

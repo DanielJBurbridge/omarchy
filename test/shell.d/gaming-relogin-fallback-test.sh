@@ -162,6 +162,12 @@ printf '1\n' > "$failures"
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
 printf 'steam\n' >> "$HANDHELD_ACTIONS"
+timeout 2 bash -c 'printf "started\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || true
+last=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/last
+for _ in $(seq 1 80); do
+  [[ -f $last ]] && break
+  sleep 0.05
+done
 steamos-session-select plasma
 exit 0
 EOF
