@@ -29,6 +29,8 @@ if omarchy-cmd-present omarchy-launch-gaming-powerbutton && omarchy-pkg-present 
   omarchy-launch-gaming-powerbutton &
   power_pid=$!
 fi
+# Full connectivity, or the timeout. A missing NetworkManager client skips it.
+gaming_wait_for_steam_network
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
 proc_root=${OMARCHY_STEAM_PROC_ROOT:-/proc}
