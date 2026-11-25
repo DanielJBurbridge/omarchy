@@ -22,7 +22,7 @@ Gaming does not start `graphical-session.target`; desktop layer-shell panels and
 
 ## Controller setup on a stock install
 
-Installing or upgrading the optional `omarchy-gaming-session` companion to `1.0.0-14` pulls in `inputplumber` through pacman. On an RC71L the companion installs the greeter pointer unit and the profile broker. The broker authorises the active local account recorded in `/etc/sddm.conf.d/omarchy-handheld-user.conf`. Managed desktop, gaming, and the return to the greeter use the integrated profiles. The historical `omarchy-rog-ally-input` companion is separate.
+The optional `omarchy-gaming-session` companion depends on `inputplumber`. On an RC71L the companion installs the greeter pointer unit and the profile broker. The broker authorises the active local account recorded in `/etc/sddm.conf.d/omarchy-handheld-user.conf`. Managed desktop, gaming, and the return to the greeter use the integrated profiles. The historical `omarchy-rog-ally-input` companion is separate.
 
 When pacman first installs InputPlumber alongside the companion on an RC71L, a post-transaction hook enables the daemon for the next boot. This puts it in the same systemd transaction as the greeter pointer unit, which waits for it. The hook skips masked units and only runs on installation of InputPlumber. If InputPlumber is already installed, its enablement remains the administrator's choice. Its own udev rules can still activate a disabled daemon on board `RC71L`; a mask blocks device activation. After boot, check `systemctl is-active inputplumber.service omarchy-inputplumber-profile.service`. Companion upgrades also preserve existing disables and masks on the Omarchy pointer and broker units.
 
@@ -129,7 +129,7 @@ Uninstall deletes the User= file in both `pre_remove` and `post_remove`. Desktop
 
 ## Rollback and physical acceptance
 
-The alpha guide covers [returning from a stuck Gaming session](handheld/ALPHA.md#return-from-a-stuck-gaming-session) and [removing the optional companion](handheld/ALPHA.md#rollback). Removing version `1.0.0-14` with the documented transaction retains Steam and the owner’s preferences. The base helper clears the remaining handheld session setting. Other SDDM configuration determines whether the next login shows the greeter or starts the desktop automatically.
+The alpha guide covers [returning from a stuck Gaming session](handheld/ALPHA.md#return-from-a-stuck-gaming-session) and [removing the optional companion](handheld/ALPHA.md#rollback). The documented removal transaction retains Steam and the owner’s preferences. The base helper clears the remaining handheld session setting. Other SDDM configuration determines whether the next login shows the greeter or starts the desktop automatically.
 
 The rollout owner must record the exact runtime and companion packages, installed file manifest, source SHA and logs, then exercise:
 

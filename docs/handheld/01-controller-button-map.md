@@ -405,7 +405,7 @@ Spec 06 can replace these with a fuller accessibility pass. The names and the "o
 
 `gaming.yaml` is `gamepad.yaml` plus the target decision (D1) and the Δ3 mapping. Nothing else. Profile name `Omarchy Ally gaming`. Session start loads it instead of `gamepad`, before Gamescope.
 
-The shipped file's `QuickAccess2` target is `dbus: omarchy_mode`. The gaming file changes that one target to `dbus: omarchy_overlay`. Guide, QuickAccess and the paddles stay unmapped, as they are in `gamepad.yaml` (passthrough). The Keyboard → Guide+West mapping is copied unchanged.
+The older `gamepad.yaml` profile sends `dbus: omarchy_mode` for `QuickAccess2`. The gaming profile sends `dbus: omarchy_overlay`. Guide, QuickAccess and the paddles pass through to the virtual pad. Keyboard still sends Guide+West.
 
 `dualsense.yaml`'s paddle remap (`LeftPaddle1`→`LeftPaddle2`, `RightPaddle1`→`RightPaddle2`) is **not** in this delta. If the press test shows Edge paddles missing, add those two lines as part of D1, and do not add anything else.
 
@@ -419,7 +419,7 @@ Diff against `default/rog-ally-input/profiles/gamepad.yaml`:
 +  name: "Omarchy Ally gaming"
    target_devices:
 -    - "xbox-elite"
-+    - "ds5-edge"
++    - "deck"
      - "mouse"
      - "keyboard"
    mapping:
@@ -434,9 +434,7 @@ Diff against `default/rog-ally-input/profiles/gamepad.yaml`:
      - name: "Steam keyboard"
 ```
 
-A source test asserts that those are the only differences, and that the Keyboard mapping is byte-for-byte the same. Loading this file when the composite is already on `ds5-edge` with the same target list must not reconnect the pad (C4). The first load, from Xbox Elite to Edge, happens only in `run_gaming` before Gamescope.
-
-`deck-uhid` is the alternative target if D1's press test rejects `ds5-edge`. It is an upstream name. Omarchy does not ship it today. Switching to it is a one-line target change, not a new button map.
+The gaming session loads the profile before Gamescope. If `vhci_hcd` is unavailable, the broker substitutes `ds5-edge` for that load. An identical profile and target list leaves the existing pad connected (C4).
 
 ### 12.2 Bridge watcher
 
@@ -487,7 +485,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 9. In Desktop, CC long shows and hides wvkbd; with it visible B = Backspace and X = Space (Δ6). Killing wvkbd, and `omarchy-toggle-desktop-keyboard stop`, both restore the profile from before OSK without a further button press. B right-clicks again.
 10. Δ7 and Δ8 apply only after OQ-17 confirms the grips work. Then M1 + D-pad focuses windows; M1 + LB/RB changes workspace in the §8.2 direction; M1 + A drags; M1 + X polite-closes the focused window (Δ8) with no Omarchy confirmation; M1 + Y opens a terminal. A bare M1 tap does nothing. Without confirmed paddles there is no grip-Super: those chords do nothing, and closing a window uses the Omarchy menu or the quick-access overlay, not M1+X.
 11. Releasing a held grip, trigger or mouse button across a transition leaves no stuck Super, Ctrl or click. Cover: AC long, lock, unlock, suspend, resume, OSK show, OSK hide, wvkbd killed, bridge restarted. After each, A is left click, not a window move, and X is not a close. Separately: with Δ7 on, hold M1 so Super is down, then kill InputPlumber and mask the unit so it does not return. Within 2 s Super is up on the bridge's uinput keyboard (`hyprctl devices` shows that keyboard with no modifiers). Touch, or a USB mouse, then produces a normal key or click: A is left click, not a window move. If InputPlumber is allowed to restart instead, the same key-ups are sent again before the new grab.
-12. `omarchy-hw-rog-ally-input status` shows exactly one virtual gamepad in `gaming` / `gamepad` and none in `desktop`. The gaming target is `ds5-edge` (or `deck-uhid` if D1 was switched).
+12. The integrated `gaming` profile presents one virtual gamepad, `deck` or `ds5-edge` when `vhci_hcd` is unavailable. The managed `desktop` profile presents one Xbox Elite pad alongside its virtual mouse and keyboard.
 13. Locking a Hyprland session moves the profile to `gamepad` within 1 s after the key-ups; no Omarchy action fires from AC/CC while locked; unlock restores the previous profile. Locking during a gaming session does **not** replace `gaming` with `gamepad`.
 14. On RC71L a Command Centre long that arrives as Ctrl+Alt+Delete does not close windows unless the confirmation is accepted. Cover all of: InputPlumber never enabled; `omarchy-setup-rog-ally-input disable` then the chord; InputPlumber killed mid-session; boot race (Hyprland up, N-KEY not yet grabbed). Dismissing the prompt closes nothing. This holds whether or not the companion is installed.
 15. Paddles, **if the press test shows they arrive**: Steam Input sees them on the gaming target and can bind them per game. If they do not arrive on the stock kernel, record that against OQ-17 instead of failing the rest of the map.
@@ -514,7 +512,7 @@ Each is testable on the RC71L. "TBC" items wait on the open questions.
 | OQ-11 | A desktop screenshot chord on the pad, or menu only? | §7 | dev-ux/dev-lead | Open. Not a hold-only route either way. |
 | OQ-12 | Is Steam menu → Exit game enough for a frozen game? | §7 | Hardware test | Open. A kill macro is not in this spec. |
 | OQ-13 | Swap window and full screen | §8.2 | dev-lead | **Resolved.** Menu only: the quick-access overlay (spec 04) or the Omarchy menu. No extra Ally binds. Paddles stay free for games. |
-| OQ-14 | Gyro source and Steam visibility? | §9 | dev-research | **Resolved for capability.** `bmi323-imu` is present and is a legal IP 0.84 source. Steam sees motion only on `ds5-edge` / DualSense / `deck-uhid`, not on Xbox Elite. Mount matrix and a real Steam client are untested. |
+| OQ-14 | Gyro source and Steam visibility? | §9 | dev-research | **Resolved for capability.** `bmi323-imu` is present and is a legal IP 0.84 source. The `deck` and `ds5-edge` targets expose motion. Mount matrix and a real Steam client are untested. |
 | OQ-15 | Why is `asusd` running? | Power ownership | dev-research | **Resolved.** asusctl was installed on this unit; its udev rule starts `asusd` on ROG DMI. The `rog-ally.sh` skip does not stop that. It writes the platform profile. Recommendation: keep asusctl off the RC71L (D6, C11). |
 | OQ-16 | Ally X / Legion Go / Deck / Claw role mapping | Secondary devices | Later | Open |
 | OQ-17 | Can InputPlumber distinguish M1 and M2 on this RC71L? | Δ7, Δ8, AC 10, AC 15 | Press test | Open. **Gates Δ7.** Stock `7.2.15-2-omarchy` reports the same F15 event for both paddles. The one-off Deckify install, module load and return to stock passed in QEMU. Physical testing is described in §5.3. |
