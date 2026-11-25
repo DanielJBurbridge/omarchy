@@ -257,6 +257,8 @@ fi
 if ! gaming_state_init; then
   gaming_state_unusable_exit
 fi
+# Pre-ready returns are counted for this login. Ready clears the count too.
+gaming_early_return_reset
 if ! gaming_runtime_init; then
   gaming_failure_record || true
   note_root_failure
@@ -417,7 +419,7 @@ run_gaming() {
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
   local finished='' status=0 started=false steam_ready_at=0 returned=false
-  local premature_desktop=false
+  local premature_desktop=false early_count=0
   mark_steam_ready() {
     started=true
     gaming_autologin_ready=1
@@ -425,6 +427,7 @@ run_gaming() {
       omarchy-handheld-autologin reset || true
     fi
     gaming_failure_reset
+    gaming_early_return_reset
     steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
@@ -446,12 +449,20 @@ run_gaming() {
   fi
   if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
     # Closing the sign-in screen sends the same request as Switch to Desktop.
-    # Before the ready marker that is not the session the user chose.
+    # The first one before the ready marker relaunches Gaming. The second one
+    # in this login opens the desktop, because Steam never became ready.
     if $started; then
       returned=true
     else
-      premature_desktop=true
-      printf '%s\n' 'return to desktop arrived before Steam was ready; relaunching the gaming session.' >> "$gaming_state/fallback.log"
+      early_count=$(gaming_early_return_record) || early_count=1
+      if (( early_count >= 2 )); then
+        returned=true
+        printf '%s\n' 'Steam was not ready; opening the desktop.' >> "$gaming_state/fallback.log"
+        omarchy-notification-send 'Steam was not ready' 'Opening the desktop.' || true
+      else
+        premature_desktop=true
+        printf '%s\n' 'return to desktop arrived before Steam was ready; relaunching the gaming session.' >> "$gaming_state/fallback.log"
+      fi
     fi
   elif [[ $finished == "$ready_pid" ]]; then
     status=1
@@ -460,9 +471,10 @@ run_gaming() {
     status=1
     printf '%s\n' 'Gamescope exited before starting its Steam child.' >> "$gaming_state/fallback.log"
   fi
-  # Explicit Switch to Desktop only, after Steam was marked ready. A request
-  # before that marker relaunches Gaming. Crash, timeout, a missing gamescope
-  # or steam, and a non-zero Steam exit do not write it. The file is the session
+  # Explicit Switch to Desktop after Steam was marked ready, or the second
+  # return before that marker. The first request before the marker relaunches
+  # Gaming. Crash, timeout, a missing gamescope or steam, and a non-zero Steam
+  # exit do not write it. The file is the session
   # user's ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next,
   # mode 0600, in the mode 0700 state directory from gaming_state_init. It is
   # written before the gamescope scope stops. Relogin consumes desktop once.
@@ -472,8 +484,8 @@ run_gaming() {
   if $returned && gaming_save next desktop; then
     gaming_desktop_next=1
   fi
-  # Explicit Switch to Desktop after ready is a success. It clears the
-  # crash counter instead of adding a failure. A request before ready does not.
+  # Explicit Switch to Desktop, and the second pre-ready return, are a
+  # success. Either clears the crash counter. The first pre-ready return does not.
   if $returned; then
     gaming_explicit_desktop=1
     gaming_failure_reset

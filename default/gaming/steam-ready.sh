@@ -267,13 +267,21 @@ steam_tree_has_ui() {
 # First-run waits with nm-online before it treats the link as up
 # (install/user/first-run/wifi.sh). That client also returns for a site-only
 # connection. On the Ally that is the logon race: Wi-Fi is associated, and
-# Steam CM is not. nmcli's "full" is the connectivity check. A missing
-# client skips the wait. A timeout launches Steam anyway.
+# Steam CM is not. nmcli's "full" is the connectivity check. "unknown" means
+# the check has not run, so it is not a reason to spend the budget. limited
+# and portal still wait. A missing client skips the wait. A timeout launches
+# Steam anyway.
 gaming_log_steam_network_timeout() {
   local state_dir=${gaming_state:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session}
   local timeout=$1
   [[ -d $state_dir && ! -L $state_dir ]] || return 0
   printf '%s\n' "network connectivity wait timed out after ${timeout}s; launching Steam anyway." >> "$state_dir/fallback.log"
+}
+
+# nmcli translates its answer. Read it in the C locale, the same way
+# omarchy-network-captive-portal does, and cap the client so it cannot hang.
+gaming_nm_connectivity() {
+  LC_ALL=C timeout 2 nmcli networking connectivity 2>/dev/null || true
 }
 
 gaming_wait_for_steam_network() {
@@ -302,14 +310,14 @@ gaming_wait_for_steam_network() {
   if (( have_nmcli == 0 )); then
     return 0
   fi
-  state=$(LC_ALL=C nmcli networking connectivity 2>/dev/null || true)
-  if [[ $state == full || -z $state ]]; then
+  state=$(gaming_nm_connectivity)
+  if [[ $state == "full" || $state == "unknown" || -z $state ]]; then
     return 0
   fi
   while (( SECONDS - start < timeout )); do
     sleep 1
-    state=$(LC_ALL=C nmcli networking connectivity 2>/dev/null || true)
-    if [[ $state == full || -z $state ]]; then
+    state=$(gaming_nm_connectivity)
+    if [[ $state == "full" || $state == "unknown" || -z $state ]]; then
       return 0
     fi
   done
