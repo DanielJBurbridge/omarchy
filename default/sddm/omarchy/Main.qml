@@ -1,5 +1,4 @@
-import QtQuick 2.0
-import SddmComponents 2.0
+import QtQuick
 
 Rectangle {
   id: root
@@ -27,23 +26,31 @@ Rectangle {
     }
     function onLoginSucceeded() {
       root.loginFailed = false
+      if (keyboard.visible)
+        Qt.inputMethod.hide()
     }
   }
 
   Column {
+    id: form
     anchors.centerIn: parent
-    spacing: 40
+    anchors.verticalCenterOffset: keyboard.visible ? -keyboard.height / 2 : 0
+    spacing: keyboard.visible ? 16 : 40
 
     Image {
       id: logo
       source: "logo.png"
       width: Math.min(sourceSize.width, root.width * 0.8)
-      height: sourceSize.width > 0 ? Math.round(width * sourceSize.height / sourceSize.width) : 0
+      readonly property real scaledHeight: sourceSize.width > 0 ? Math.round(width * sourceSize.height / sourceSize.width) : 0
+      height: keyboard.visible
+        ? Math.max(0, Math.min(scaledHeight, root.height - keyboard.height - entryRow.height - form.spacing))
+        : scaledHeight
       fillMode: Image.PreserveAspectFit
       anchors.horizontalCenter: parent.horizontalCenter
     }
 
     Row {
+      id: entryRow
       anchors.horizontalCenter: parent.horizontalCenter
       spacing: 15
 
@@ -84,6 +91,7 @@ Rectangle {
 
         TextInput {
           id: password
+          objectName: "greeterPassword"
           anchors.fill: parent
           anchors.leftMargin: 20
           anchors.rightMargin: 20
@@ -101,16 +109,48 @@ Rectangle {
 
           onTextChanged: root.loginFailed = false
 
-          Keys.onPressed: {
-            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-              sddm.login(root.currentUser, password.text, root.sessionIndex)
-              event.accepted = true
+          onAccepted: sddm.login(root.currentUser, text, root.sessionIndex)
+
+          TapHandler {
+            acceptedDevices: PointerDevice.TouchScreen | PointerDevice.Stylus
+            enabled: !keyboard.unavailable
+            onTapped: {
+              password.forceActiveFocus()
+              if (keyboard.item)
+                Qt.inputMethod.show()
+              else
+                keyboard.requested = true
             }
           }
         }
       }
     }
+  }
 
+  // SDDM creates a window per screen. Only the active window owns the panel.
+  Loader {
+    id: keyboard
+    objectName: "greeterKeyboard"
+    property bool requested: false
+    property bool unavailable: false
+
+    active: requested && root.Window.active
+    source: "Keyboard.qml"
+    visible: item?.active ?? false
+    anchors.horizontalCenter: parent.horizontalCenter
+    anchors.bottom: parent.bottom
+    width: Math.min(root.width, root.height * 1.4, 1000)
+
+    onLoaded: Qt.inputMethod.show()
+    onStatusChanged: {
+      if (status === Loader.Error)
+        unavailable = true
+    }
+  }
+
+  Window.onActiveChanged: {
+    if (!Window.active)
+      keyboard.requested = false
   }
 
   Component.onCompleted: password.forceActiveFocus()
