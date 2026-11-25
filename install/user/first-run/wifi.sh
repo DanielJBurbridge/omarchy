@@ -40,13 +40,17 @@ announce_network() {
   # once, and only when there is something to set up.
   bash "$OMARCHY_PATH/install/user/first-run/setup-agent.hook"
   bash "$OMARCHY_PATH/install/user/first-run/setup-fingerprint.hook"
-  bash "$OMARCHY_PATH/install/user/first-run/setup-rog-ally.hook"
+  if (( offer_rog_ally )); then
+    bash "$OMARCHY_PATH/install/user/first-run/setup-rog-ally.hook"
+  fi
 }
 
 # Detached, so a slow or absent connection never holds up the rest of first run.
 # Record the offer before detaching. The next graphical session can retry it
 # if this session ends offline or before the notification server accepts it.
+offer_rog_ally=0
 if [[ ${1:-} != "--retry-rog-ally" ]] && omarchy-hw-rog-ally; then
   omarchy-done mark rog-ally-gaming-invitation-scheduled || exit 1
+  offer_rog_ally=1
 fi
 announce_network "${1:-}" &

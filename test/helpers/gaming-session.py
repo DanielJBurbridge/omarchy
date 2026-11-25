@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if [[ $MODE == return-up ]]; then
           sig=$XDG_RUNTIME_DIR/hypr/handoff
           mkdir -p "$sig"
-          python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1)' "$sig/.socket.sock"
+          (cd "$sig" && python3 -c 'import socket; s=socket.socket(socket.AF_UNIX); s.bind(".socket.sock")')
           next=$XDG_STATE_HOME/omarchy/gaming-session/next
           for _ in $(seq 1 40); do
             [[ -f $next ]] || exit 0

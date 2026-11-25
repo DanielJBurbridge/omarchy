@@ -24,6 +24,19 @@ cat > "$work/bin/omarchy-pkg-present" <<'EOF'
 #!/bin/bash
 [[ $1 == omarchy-gaming-session && ${PKG:-present} == present ]]
 EOF
+cat > "$work/bin/pacman" <<'EOF'
+#!/bin/bash
+if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
+  printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
+  exit 0
+fi
+if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_VERSION:-} ]]; then
+  printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$work/bin/pacman"
 chmod +x "$work/bin/"* "$ROOT/bin/omarchy-handheld-autologin"
 mkdir -p "$work/default/gaming"
 cp "$ROOT/default/gaming/sddm-user.sh" "$work/default/gaming/"
@@ -43,6 +56,7 @@ as_user() {
 run_guard() {
   HW=${HW:-ally} PKG=${PKG:-present} \
     OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run \
+    OMARCHY_HANDHELD_AUTOLOGIN_ROOT=$work \
     OMARCHY_SDDM_CONF_DIR=$work/sddm \
     PATH="$work/bin:$ROOT/bin:$PATH" \
     "$work/bin/handheld-autologin-under-test" "$@"
@@ -86,19 +100,6 @@ run_guard apply
 grep -qx 'Relogin=true' "$dropin" || fail "opting out restores relogin" "$(cat "$dropin")"
 rm -f "$work/desktop-lock"
 pass "Relogin follows the stored desktop lock policy"
-cat > "$work/bin/pacman" <<'EOF'
-#!/bin/bash
-if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
-  printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
-  exit 0
-fi
-if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_VERSION:-} ]]; then
-  printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION"
-  exit 0
-fi
-exit 1
-EOF
-chmod +x "$work/bin/pacman"
 printf '[Autologin]\nUser=daniel\n' > "$work/sddm/omarchy-handheld-user.conf"
 FAKE_OMARCHY_DEV_VERSION=4.0.0.r8045.gd54cde7 run_guard apply
 [[ ! -e $dropin ]] || fail "apply writes autologin for an upstream omarchy-dev" "$(cat "$dropin" 2>/dev/null)"
@@ -117,7 +118,7 @@ grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
   fail "apply drops User= for an upstream settings-dev"
 FAKE_OMARCHY_DEV_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12 run_guard apply
 grep -q '^Relogin=true$' "$dropin" || fail "apply restores autologin for an allypreview build" "$(cat "$dropin" 2>/dev/null)"
-rm -f "$work/bin/pacman" "$work/sddm/omarchy-handheld-user.conf"
+rm -f "$work/sddm/omarchy-handheld-user.conf"
 unset FAKE_OMARCHY_SETTINGS_DEV_VERSION
 unset FAKE_OMARCHY_DEV_VERSION
 pass "apply follows the guard for an upstream build, an allypreview build, and a settings-dev-only swap"

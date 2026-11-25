@@ -489,6 +489,7 @@ grep -Fxq 'broker:pointer' "$HANDHELD_LOG" || fail "sign-out restores the greete
 [[ $(cat "$failures") == 3 && -f $work/run/stop && ! -f $work/run/failures ]] || fail "desktop-only login leaves gaming failure accounting alone"
 pass "password sign-in starts the managed desktop with controller input"
 
+handheld_late_desktop_return
 reset_case
 mkdir -p "$state"
 HANDHELD_LOGIN_SERVICE=sddm HANDHELD_AUTH_ROUND_TRIP=1 run_locked_session authenticated-desktop

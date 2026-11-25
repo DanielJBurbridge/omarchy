@@ -71,7 +71,6 @@ ally_line=$(grep -n '/usr/bin/omarchy-hw-rog-ally' "$install_script" | head -1 |
 if [[ -z $start_line || -z $ally_line ]] || (( ally_line >= start_line )); then
   fail "profile service startup is gated on the Ally"
 fi
-OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
 pass "profile load is before the bridge, and both follow the gaming session target"
 
 # A non-login ssh command does not export OMARCHY_PATH. set -u must not abort.

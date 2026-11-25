@@ -46,6 +46,7 @@ EOF
 chmod +x "$work/bin/"*
 
 HOME="$work/home" XDG_RUNTIME_DIR="$work/runtime" PATH="$work/bin:/usr/bin:/bin" \
+  OMARCHY_PATH="$ROOT" OMARCHY_GAMING_NETWORK_TIMEOUT=0 \
   OMARCHY_GAMING_RUNTIME="$work/runtime" OMARCHY_STEAM_PROC_ROOT="$work/proc" \
   OMARCHY_GAMING_READY_TIMEOUT=15 DISPLAY=:77 FIXTURE="$work" \
   setsid timeout --kill-after=2s 20 "$ROOT/bin/omarchy-gaming-steam" > "$work/output" 2>&1 &

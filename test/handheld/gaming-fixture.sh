@@ -159,7 +159,7 @@ handheld_gaming_env() {
   unset OMARCHY_HANDHELD_SESSION
   export XDG_SESSION_ID=redteam
   export HANDHELD_ACTIONS=$HANDHELD_LOG
-  export HANDHELD_SCOPE_PID=$work/scope-pid
+  export HANDHELD_SCOPE_PID
   export OMARCHY_GAMING_READY_TIMEOUT=1
   export OMARCHY_GAMING_RETRY_GAP=0
   # The logon wait has its own test. A host NetworkManager must not hold these.

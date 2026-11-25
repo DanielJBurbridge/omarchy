@@ -92,6 +92,7 @@ cat >"$wifi_bin/omarchy-i18n" <<'SH'
 #!/bin/bash
 printf '%s\n' "$1"
 SH
+printf '#!/bin/bash\nexit 1\n' >"$wifi_bin/omarchy-hw-rog-ally"
 chmod +x "$wifi_bin"/*
 printf 'printf "setup-agent\\n" >>"$WIFI_LOG"\n' >"$wifi_root/install/user/first-run/setup-agent.hook"
 printf 'printf "setup-fingerprint\\n" >>"$WIFI_LOG"\n' >"$wifi_root/install/user/first-run/setup-fingerprint.hook"

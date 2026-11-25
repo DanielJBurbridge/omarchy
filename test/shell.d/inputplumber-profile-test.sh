@@ -753,7 +753,7 @@ pass "a failed profile scriptlet warns and still returns"
 pkg=$work/pkg
 mkdir -p "$pkg/usr/bin" "$pkg/usr/share/omarchy/bin" "$pkg/usr/share/omarchy/default" \
   "$pkg/usr/share/omarchy/install/hardware/asus" "$pkg/etc/systemd/system" \
-  "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules"
+  "$pkg/dbus" "$pkg/polkit-actions" "$pkg/polkit-rules" "$pkg/modules-load.d"
 cp "$ROOT/install/hardware/asus/inputplumber.sh" "$pkg/usr/share/omarchy/install/hardware/asus/"
 cp "$ROOT/bin/omarchy-inputplumber-profile" "$pkg/usr/bin/omarchy-inputplumber-profile"
 chmod 755 "$pkg/usr/bin/omarchy-inputplumber-profile"
@@ -801,8 +801,12 @@ cat > "$pkg/usr/bin/busctl" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
+cat > "$pkg/usr/bin/modprobe" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
 chmod 755 "$pkg/usr/bin/omarchy-hw-rog-ally" "$pkg/usr/bin/omarchy-pkg-present" \
-  "$pkg/usr/bin/systemctl" "$pkg/usr/bin/busctl" "$pkg/usr/bin/omarchy-pkg-missing"
+  "$pkg/usr/bin/systemctl" "$pkg/usr/bin/busctl" "$pkg/usr/bin/modprobe" "$pkg/usr/bin/omarchy-pkg-missing"
 
 pkg_mounts=()
 pkg_cleanup() {
@@ -817,6 +821,8 @@ mount -t tmpfs tmpfs /var/lib
 pkg_mounts+=("/var/lib")
 mount --bind "$pkg/etc/systemd/system" /etc/systemd/system
 pkg_mounts+=("/etc/systemd/system")
+mount --bind "$pkg/modules-load.d" /etc/modules-load.d
+pkg_mounts+=("/etc/modules-load.d")
 mount --bind "$pkg/dbus" /usr/share/dbus-1/system.d
 pkg_mounts+=("/usr/share/dbus-1/system.d")
 mount --bind "$pkg/polkit-actions" /usr/share/polkit-1/actions
@@ -831,6 +837,8 @@ if ! run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter >"
   fail "install-greeter fails on the packaged layout" "$(cat "$pkg/greeter.err")"
 fi
 [[ -L /etc/systemd/system/omarchy-ally-pointer.service ]] || fail "the pointer unit follows package updates"
+grep -Fxq vhci_hcd /etc/modules-load.d/omarchy-rog-ally-vhci.conf ||
+  fail "packaged hardware setup provisions the Deck pad module"
 if ! run_packaged "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile" install-service >"$pkg/service.out" 2>"$pkg/service.err"; then
   fail "install-service fails on the packaged layout" "$(cat "$pkg/service.err")"
 fi

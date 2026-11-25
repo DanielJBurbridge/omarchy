@@ -137,6 +137,12 @@ handheld_prepare_gaming "$work/session"
 sed -i -e "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
   -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock-absent|" \
   "$HANDHELD_TREE/default/gaming/session.sh"
+cat > "$HANDHELD_STUB/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+[[ $* == "omarchy-gaming-session" ]]
+EOF
+printf '#!/bin/bash\nexit 0\n' > "$HANDHELD_STUB/omarchy-handheld-autologin"
+chmod +x "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/omarchy-handheld-autologin"
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
 launches=$(grep -c '^steam$' "$HANDHELD_ACTIONS" 2>/dev/null || true)
