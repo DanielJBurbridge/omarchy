@@ -1,6 +1,6 @@
 # Optional fixed-path registration. Runtime commands ship in omarchy.
-# Run makepkg from this directory. file:// URLs let makepkg collect the
-# checkout files by basename for both a normal build and --allsource.
+# Versioned file:// aliases give each release its own SRCDEST entries
+# and let makepkg collect the checkout files for --allsource.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
 pkgrel=15
@@ -10,22 +10,22 @@ url='https://github.com/DanielJBurbridge/omarchy'
 license=('MIT')
 depends=('omarchy' 'iproute2' 'inputplumber' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
 source=(
-  "omarchy-gamescope.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-gamescope.desktop"
-  "omarchy-handheld.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-handheld.desktop"
-  "omarchy-managed-desktop.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-managed-desktop.desktop"
-  "omarchy-gaming.desktop::file://${startdir}/../../default/gaming/applications/Omarchy%20Gaming.desktop"
-  "steamos-update::file://${startdir}/../../default/gaming/steamos-update"
-  "sddm-user.sh::file://${startdir}/../../default/gaming/sddm-user.sh"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-gamescope.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-gamescope.desktop"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-handheld.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-handheld.desktop"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-managed-desktop.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-managed-desktop.desktop"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-gaming.desktop::file://${startdir}/../../default/gaming/applications/Omarchy%20Gaming.desktop"
+  "${pkgname}-${pkgver}-${pkgrel}-steamos-update::file://${startdir}/../../default/gaming/steamos-update"
+  "${pkgname}-${pkgver}-${pkgrel}-sddm-user.sh::file://${startdir}/../../default/gaming/sddm-user.sh"
   'omarchy-handheld-autologin'
   'omarchy-handheld-autologin-guard'
   'omarchy-handheld-autologin-guard.hook'
-  "omarchy-gaming-session.target::file://${startdir}/../../default/systemd/user/omarchy-gaming-session.target"
-  "omarchy-gaming-input-profile.service::file://${startdir}/../../default/systemd/user/omarchy-gaming-input-profile.service"
-  "rog-ally-input-gaming-session.conf::file://${startdir}/../../default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
-  "ally-tdp-shim-gaming-session.conf::file://${startdir}/../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-gaming-session.target::file://${startdir}/../../default/systemd/user/omarchy-gaming-session.target"
+  "${pkgname}-${pkgver}-${pkgrel}-omarchy-gaming-input-profile.service::file://${startdir}/../../default/systemd/user/omarchy-gaming-input-profile.service"
+  "${pkgname}-${pkgver}-${pkgrel}-rog-ally-input-gaming-session.conf::file://${startdir}/../../default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+  "${pkgname}-${pkgver}-${pkgrel}-ally-tdp-shim-gaming-session.conf::file://${startdir}/../../default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
   'enable-new-inputplumber'
   'omarchy-gaming-inputplumber.hook'
-  "LICENSE::file://${startdir}/../../LICENSE"
+  "${pkgname}-${pkgver}-${pkgrel}-LICENSE::file://${startdir}/../../LICENSE"
 )
 sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             '6a641adab37b03362dd4405684fd7c269cccc647fb96ac863896e79aeb618edb'
@@ -46,17 +46,18 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
 install=omarchy-gaming-session.install
 
 package() {
-  install -Dm644 "$srcdir/omarchy-gamescope.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-gamescope.desktop"
-  install -Dm644 "$srcdir/omarchy-handheld.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-handheld.desktop"
-  install -Dm644 "$srcdir/omarchy-managed-desktop.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-managed-desktop.desktop"
-  install -Dm644 "$srcdir/omarchy-gaming.desktop" "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
-  install -Dm755 "$srcdir/steamos-update" "$pkgdir/usr/bin/steamos-polkit-helpers/steamos-update"
-  install -Dm755 "$srcdir/sddm-user.sh" "$pkgdir/usr/lib/omarchy-gaming-session/sddm-user.sh"
-  install -Dm644 "$srcdir/omarchy-gaming-session.target" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target"
-  install -Dm644 "$srcdir/omarchy-gaming-input-profile.service" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-input-profile.service"
-  install -Dm644 "$srcdir/rog-ally-input-gaming-session.conf" \
+  local checkout_source="$pkgname-$pkgver-$pkgrel"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-gamescope.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-gamescope.desktop"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-handheld.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-handheld.desktop"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-managed-desktop.desktop" "$pkgdir/usr/share/wayland-sessions/omarchy-managed-desktop.desktop"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-gaming.desktop" "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
+  install -Dm755 "$srcdir/$checkout_source-steamos-update" "$pkgdir/usr/bin/steamos-polkit-helpers/steamos-update"
+  install -Dm755 "$srcdir/$checkout_source-sddm-user.sh" "$pkgdir/usr/lib/omarchy-gaming-session/sddm-user.sh"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-gaming-session.target" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target"
+  install -Dm644 "$srcdir/$checkout_source-omarchy-gaming-input-profile.service" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-input-profile.service"
+  install -Dm644 "$srcdir/$checkout_source-rog-ally-input-gaming-session.conf" \
     "$pkgdir/usr/lib/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
-  install -Dm644 "$srcdir/ally-tdp-shim-gaming-session.conf" \
+  install -Dm644 "$srcdir/$checkout_source-ally-tdp-shim-gaming-session.conf" \
     "$pkgdir/usr/lib/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf"
   install -d "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target.wants"
   ln -s ../omarchy-gaming-input-profile.service \
@@ -78,5 +79,5 @@ package() {
     "$pkgdir/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook"
   install -Dm755 "$srcdir/enable-new-inputplumber" "$pkgdir/usr/lib/omarchy-gaming-session/enable-new-inputplumber"
   install -Dm644 "$srcdir/omarchy-gaming-inputplumber.hook" "$pkgdir/usr/share/libalpm/hooks/omarchy-gaming-inputplumber.hook"
-  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$srcdir/$checkout_source-LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
