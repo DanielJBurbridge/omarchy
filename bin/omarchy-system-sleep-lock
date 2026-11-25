@@ -4,17 +4,15 @@
 # omarchy:group=system
 # omarchy:hidden=true
 
-# Before K07 the handheld skips this suspend lock unless a physical keyboard
-# is attached now. Explicit desktop-lock on, with none, returns to gaming
-# instead. The K07 marker restores the ordinary lock. Other machines do not
-# consult the handheld value here.
+# Before K07 a keyboard-less handheld can skip an optional lock. When it
+# needs to return to gaming, secure the desktop before starting logout:
+# UWSM stops the sleep monitor and releases its inhibitor during teardown.
+lock_decision=allow
 if [[ -n ${OMARCHY_PATH:-} && -f $OMARCHY_PATH/default/gaming/session.sh ]]; then
   # shellcheck source=/dev/null
   source "$OMARCHY_PATH/default/gaming/session.sh"
-  gaming_apply_lock_gate
-  gate=$?
-  if (( gate == 10 )); then exit 0; fi
-  if (( gate == 11 )); then exit 1; fi
+  lock_decision=$(gaming_lock_decision)
+  if [[ $lock_decision == "skip" ]]; then exit 0; fi
 fi
 
 # Overrunning the budget is the failure this whole path exists to prevent:
@@ -127,7 +125,16 @@ sync_clamshell
 # inside the reserve derive_budget_ms already held back for logind.
 while (( $(remaining_ms) > 0 )); do
   case $(lock_state) in
-    secure) exit 0 ;;
+    secure)
+      if [[ $lock_decision == "return" ]]; then
+        remaining=$(remaining_ms)
+        (( remaining > 100 )) || exit 0
+        switch_ms=$((remaining > 3100 ? 3000 : remaining - 100))
+        printf -v switch_timeout '%d.%03d' $((switch_ms / 1000)) $((switch_ms % 1000))
+        gaming_switch_for_lock "$switch_timeout" || true
+      fi
+      exit 0
+      ;;
     locking) ;;
     *) request_lock ;;
   esac

@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Switch a managed Hyprland session to standalone gaming
-# omarchy:args=[--help|--confirm|--available]
+# omarchy:args=[--help|--confirm|--available|--wait-for-desktop-exit]
 
 set -euo pipefail
 if (( $# )); then
@@ -10,7 +10,7 @@ if (( $# )); then
       echo 'Save your work and exit Steam, then run omarchy-launch-gaming-session from a managed handheld desktop.'
       exit 0
       ;;
-    --available|--confirm) ;;
+    --available|--confirm|--wait-for-desktop-exit) ;;
     *) exit 2 ;;
   esac
 fi
@@ -31,8 +31,7 @@ if [[ ${1:-} == "--available" ]]; then
   exit $?
 fi
 
-# --confirm is the menu's confirmation. Steam's Switch to Desktop is the other
-# confirmation; neither path prompts again inside gamescope.
+# The menu confirms the switch and the lock gate requests it directly.
 omarchy-hw-rog-ally || { gaming_fail 'this action supports the original RC71L only.'; exit 1; }
 [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] || exit 1
 if ! managed_desktop || ! omarchy-pkg-present omarchy-gaming-session; then
@@ -49,6 +48,16 @@ if ! omarchy-cmd-present gamescope || ! omarchy-cmd-present steam; then
   gaming_fail 'install the optional gaming session dependencies first.'
   exit 1
 fi
+desktop_unit=wayland-wm@hyprland.desktop.service
+desktop_state() {
+  systemctl --user show "$desktop_unit" --property=ActiveState --value
+}
+
+# The lock gate bounds this mode and needs to observe a running compositor
+# before it can use the unit's inactive state as proof of teardown.
+if [[ ${1:-} == "--wait-for-desktop-exit" ]]; then
+  state=$(desktop_state) && [[ $state == "active" ]] || exit 1
+fi
 # Release wvkbd while this desktop still owns its Wayland connection, and
 # before Gamescope is handed the session. A missing helper or keyboard is a
 # no-op, and a stuck helper cannot hold the switch.
@@ -60,3 +69,13 @@ fi
 systemd-run --user --collect --quiet --property=Type=exec --property=RuntimeMaxSec=30s \
   --setenv=PATH --setenv=HYPRLAND_INSTANCE_SIGNATURE --setenv=OMARCHY_PATH \
   "$OMARCHY_PATH/default/gaming/switch.sh" "$gaming_runtime"
+
+if [[ ${1:-} == "--wait-for-desktop-exit" ]]; then
+  for ((poll=0; poll < 60; poll++)); do
+    if state=$(desktop_state) && [[ $state == "inactive" ]]; then
+      exit 0
+    fi
+    sleep 0.05
+  done
+  exit 1
+fi

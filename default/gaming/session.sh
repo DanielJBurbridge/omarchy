@@ -253,7 +253,6 @@ gaming_entry_selection() {
 
 # Before K07 the handheld has no touch keyboard. allow keeps the caller's
 # lock. skip leaves the desktop alone. return ends it and goes back to gaming.
-# 0 allow, 10 skip, 11 return. Callers exit 0 or 1 from those.
 gaming_lock_decision() {
   # A missing detector is not the handheld. Keep its "not found" off the
   # journal: sleep lock records its own stderr as the unlocked-suspend trace.
@@ -276,18 +275,10 @@ gaming_lock_decision() {
   fi
 }
 
-gaming_apply_lock_gate() {
-  case $(gaming_lock_decision) in
-    allow) return 0 ;;
-    skip) return 10 ;;
-    return)
-      if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]]; then
-        omarchy-launch-gaming-session --confirm >/dev/null 2>&1 || true
-      fi
-      return 11
-      ;;
-  esac
-  return 0
+gaming_switch_for_lock() {
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${WAYLAND_DISPLAY:-} ]] &&
+    timeout --kill-after=0.1s "$1" \
+      omarchy-launch-gaming-session --wait-for-desktop-exit >/dev/null 2>&1
 }
 
 gaming_display_args() {

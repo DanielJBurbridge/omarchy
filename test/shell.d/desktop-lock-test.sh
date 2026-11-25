@@ -31,7 +31,7 @@ cat > "$stub/omarchy-pkg-present" <<'EOF'
 [[ $1 == omarchy-gaming-session && ${LOCK_PKG:-yes} == yes ]]
 EOF
 chmod +x "$stub/"*
-export PATH="$stub:$PATH"
+export PATH="$stub:$ROOT/bin:$PATH"
 export HOME=$work/home
 export LOCK_HW=ally LOCK_PKG=yes
 mkdir -p "$HOME/.local/state/omarchy"
@@ -187,11 +187,35 @@ if [[ \$1 == lock && \$2 == status ]]; then
 fi
 exit 0
 EOF
-cat > "$stub/omarchy-launch-gaming-session" <<EOF
+cat > "$stub/omarchy-cmd-present" <<'EOF'
 #!/bin/bash
-printf '%s\n' "launch:\$*" >> "$sleep_log"
+[[ $1 == "gamescope" || $1 == "steam" ]]
+EOF
+cat > "$stub/pgrep" <<'EOF'
+#!/bin/bash
+if [[ $* == "-u $UID -x steam" && ${LOCK_SWITCH:-} == "steam-running" ]]; then
+  echo steam-running >> "$LOCK_LOG"
+  exit 0
+fi
+exit 1
+EOF
+cat > "$stub/systemd-run" <<'EOF'
+#!/bin/bash
+printf '%s\n' switch-submitted >> "$LOCK_LOG"
 exit 0
 EOF
+cat > "$stub/systemctl" <<'EOF'
+#!/bin/bash
+[[ $* == "--user show wayland-wm@hyprland.desktop.service --property=ActiveState --value" ]] || exit 1
+if [[ ${LOCK_SWITCH:-} == "confirmed" ]] && grep -qx switch-submitted "$LOCK_LOG"; then
+  echo inactive
+else
+  echo active
+fi
+EOF
+for command in hyprctl pkill; do
+  printf '#!/bin/bash\nexit 1\n' > "$stub/$command"
+done
 cat > "$stub/omarchy-hw-physical-keyboard" <<'EOF'
 #!/bin/bash
 exit "${LOCK_KEYBOARD:-1}"
@@ -210,6 +234,15 @@ exit 0
 EOF
 chmod +x "$stub/"*
 export LOCK_KEYBOARD=1
+export LOCK_LOG=$sleep_log
+lock_runtime=$work/lock-runtime
+mkdir -p "$lock_runtime/omarchy-gaming-locktest"
+printf '%s\n' desktop > "$lock_runtime/omarchy-gaming-locktest/active"
+run_managed_lock() {
+  XDG_RUNTIME_DIR=$lock_runtime OMARCHY_HANDHELD_SESSION=locktest LOCK_KEYBOARD=1 \
+    HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test "$ROOT/bin/$1" "${@:2}"
+}
+
 write_value() {
   printf '%s\n' "$1" | root_do tee "$value" >/dev/null
   root_do chown root:root "$value"
@@ -251,13 +284,17 @@ pass "pre-K07 handheld suspend locks only while a physical keyboard is attached"
 
 write_value on
 : > "$sleep_log"
-status=0
-LOCK_KEYBOARD=1 HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
-  "$ROOT/bin/omarchy-system-sleep-lock" || status=$?
-[[ $status == 1 ]] || fail "explicit on without a keyboard cancels suspend" "$status"
-assert_unlocked "explicit on without a keyboard still locks on suspend"
-grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on without a keyboard returns to gaming" "$(cat "$sleep_log")"
-pass "explicit on with no keyboard returns to gaming instead of locking"
+LOCK_SWITCH=steam-running run_managed_lock omarchy-system-sleep-lock
+assert_locked "a refused switch still locks before suspend"
+grep -qx steam-running "$sleep_log" || fail "the suspend lock did not check desktop Steam" "$(cat "$sleep_log")"
+if grep -qx switch-submitted "$sleep_log"; then
+  fail "desktop Steam did not refuse the switch" "$(cat "$sleep_log")"
+fi
+: > "$sleep_log"
+LOCK_SWITCH=unconfirmed run_managed_lock omarchy-system-sleep-lock 900
+[[ $(cat "$sleep_log") == $'lock lock\nlock status\nswitch-submitted' ]] ||
+  fail "the desktop must be secure before a suspend switch can be queued" "$(cat "$sleep_log")"
+pass "a required suspend lock secures the desktop before a refused or unconfirmed handoff"
 
 root_do install -o root -g root -m 0644 /dev/null "$marker"
 write_value explicit-off
@@ -282,13 +319,14 @@ root_do rm -f "$value"
 LOCK_KEYBOARD=1 "$ROOT/bin/omarchy-system-lock"
 assert_unlocked "idle locks a keyboard-less handheld before K07"
 : > "$sleep_log"
-status=0
 write_value on
-LOCK_KEYBOARD=1 HYPRLAND_INSTANCE_SIGNATURE=fixture WAYLAND_DISPLAY=wayland-test \
-  "$ROOT/bin/omarchy-system-lock" || status=$?
-[[ $status == 1 ]] || fail "explicit on idle returns to gaming" "$status"
-assert_unlocked "explicit on idle still locks without a keyboard"
-grep -q 'launch:--confirm' "$sleep_log" || fail "explicit on idle does not return to gaming" "$(cat "$sleep_log")"
+LOCK_SWITCH=unconfirmed run_managed_lock omarchy-system-lock
+grep -qx switch-submitted "$sleep_log" || fail "the manual lock did not submit a gaming switch" "$(cat "$sleep_log")"
+assert_locked "a queued switch without desktop teardown still locks"
+: > "$sleep_log"
+LOCK_SWITCH=confirmed run_managed_lock omarchy-system-lock
+grep -qx switch-submitted "$sleep_log" || fail "the manual lock did not submit a gaming switch" "$(cat "$sleep_log")"
+assert_unlocked "a confirmed desktop teardown skips the manual lock"
 : > "$sleep_log"
 LOCK_KEYBOARD=0 "$ROOT/bin/omarchy-system-lock"
 assert_locked "a physical keyboard lets idle and the lock hotkey lock"
