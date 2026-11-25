@@ -121,6 +121,12 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     command('steam', '''#!/bin/bash
         echo "steam:$*:DISPLAY=$DISPLAY" >> "$TEST_ROOT/actions"
         if [[ $MODE == return || $MODE == return-up ]]; then
+          timeout 2 bash -c 'printf "started\\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || true
+          last=$XDG_STATE_HOME/omarchy/gaming-session/last
+          for _ in $(seq 1 80); do
+            [[ -f $last ]] && break
+            sleep 0.05
+          done
           steamos-session-select plasma
           exec sleep 10
         fi
@@ -146,7 +152,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
                    DBUS_SESSION_BUS_ADDRESS=bus, DBUS_SYSTEM_BUS_ADDRESS=bus,
                    OMARCHY_PATH=str(repo), TEST_ROOT=str(directory), MODE='normal',
                    OMARCHY_GAMING_READY_TIMEOUT='3', OMARCHY_GAMING_RETRY_GAP='0',
-                   OMARCHY_STEAM_PROC_ROOT=str(directory / 'proc'),
+                   OMARCHY_GAMING_NETWORK_TIMEOUT='0', OMARCHY_STEAM_PROC_ROOT=str(directory / 'proc'),
                    PATH=f'{bindir}:{repo / "bin"}:/usr/bin:/bin')
         env.update(updates)
         return directory, env
@@ -172,7 +178,10 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     run(env, selector, 'preferred')
     assert not (state(directory) / 'next').exists()
     assert 'gamescope:' not in (directory / 'actions').read_text()
-    run(env, selector, 'preferred')
+    # 0.2s runs out on a loaded runner while the units are copied, before
+    # Steam logs. The return cases keep the same longer waiter.
+    env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
+    run(env, selector, 'preferred', timeout=25)
     actions = (directory / 'actions').read_text()
     assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in actions, (actions, (state(directory) / 'session.log').read_text())
     assert '--xwayland-count 2' in actions, actions
@@ -181,7 +190,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     library = state(directory) / 'library'
     library.write_text('AF04-DC18\n')
     (directory / 'actions').write_text('')
-    run(env, selector, 'gaming')
+    run(env, selector, 'gaming', timeout=25)
     actions = (directory / 'actions').read_text()
     assert 'omarchy-gaming-steam AF04-DC18' in actions and 'steam:-steamos3' in actions
     assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in actions
@@ -200,10 +209,9 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
             run(env, setup, 'default', 'desktop')
             run(env, selector, 'preferred')
         elif mode in ('return', 'return-up'):
-            # Steam switches at startup. The readiness timeout can
-            # win that race under a loaded CI runner and stop the scope
-            # before the return FIFO is read. Give the explicit return time
-            # to land, which is what writes next=desktop.
+            # Switch to Desktop after the ready marker. A request before that
+            # marker relaunches Gaming and does not write next=desktop. The
+            # longer waiter keeps the marker from losing the race on a loaded runner.
             env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
             run(env, selector, 'preferred', timeout=25)
         else:

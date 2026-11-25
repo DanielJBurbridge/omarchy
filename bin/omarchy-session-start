@@ -8,6 +8,11 @@ set -uo pipefail
 gaming_desktop_next=0
 desktop_input_pid=''
 desktop_input_fd=''
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts on the next line when that file is absent. Same fallback as
+# env-bootstrap and omarchy-migrate. The bootstrap still replaces this
+# when it is installed.
+export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 # This is a pre-UWSM login boundary; use the canonical environment bootstrap.
 # shellcheck source=/dev/null
 source /usr/share/omarchy/default/bash/env-bootstrap
@@ -344,6 +349,8 @@ if ! gaming_state_init; then
   fi
   gaming_state_unusable_exit
 fi
+# Pre-ready returns are counted for this login. Ready clears the count too.
+gaming_early_return_reset
 if ! gaming_runtime_init; then
   if [[ -n $desktop_entry ]]; then
     gaming_fail 'The managed desktop runtime directory is not usable.'
@@ -523,8 +530,8 @@ run_gaming() {
     done
   fi
   systemctl --user daemon-reload || true
-  # Starting the target runs the profile oneshot (Wants=). The bridge unit,
-  # when that package is installed, is After= that oneshot.
+  # Starting the target runs the profile oneshot (Wants= and the .wants link).
+  # The bridge unit, when that package is installed, is After= that oneshot.
   systemctl --user start "$gaming_session_target" || return 1
   gaming_target_started=1
   if systemctl --user cat omarchy-rog-ally-input.service >/dev/null 2>&1; then
@@ -551,6 +558,7 @@ run_gaming() {
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
   local finished='' status=0 started=false steam_ready_at=0 returned=false
+  local premature_desktop=false early_count=0
   mark_steam_ready() {
     started=true
     gaming_autologin_ready=1
@@ -558,6 +566,7 @@ run_gaming() {
       omarchy-handheld-autologin reset || true
     fi
     gaming_failure_reset
+    gaming_early_return_reset
     steam_ready_at=$(date +%s)
     ready_pid=''
     gaming_save last gaming
@@ -579,7 +588,26 @@ run_gaming() {
     fi
   fi
   if [[ $finished == "$return_pid" ]] && (( status == 0 )); then
-    returned=true
+    # Closing the sign-in screen sends the same request as Switch to Desktop.
+    # The first one before the ready marker relaunches Gaming. The second one
+    # in this login opens the desktop, because Steam never became ready.
+    if $started; then
+      returned=true
+    else
+      early_count=$(gaming_early_return_record) || early_count=1
+      if (( early_count >= 2 )); then
+        returned=true
+        if [[ $(gaming_desktop_lock_effective) == on ]]; then
+          printf '%s\n' 'Steam was not ready; returning to desktop sign-in.' >> "$gaming_state/fallback.log"
+        else
+          printf '%s\n' 'Steam was not ready; opening the desktop.' >> "$gaming_state/fallback.log"
+          omarchy-notification-send 'Steam was not ready' 'Opening the desktop.' || true
+        fi
+      else
+        premature_desktop=true
+        printf '%s\n' 'return to desktop arrived before Steam was ready; relaunching the gaming session.' >> "$gaming_state/fallback.log"
+      fi
+    fi
   elif [[ $finished == "$ready_pid" ]]; then
     status=1
     printf '%s\n' "Gamescope exited before Steam's UI was ready." >> "$gaming_state/fallback.log"
@@ -587,8 +615,8 @@ run_gaming() {
     status=1
     printf '%s\n' 'Gamescope exited before starting its Steam child.' >> "$gaming_state/fallback.log"
   fi
-  # A passwordless Switch to Desktop only. Crash, timeout, a missing gamescope or
-  # steam, and a non-zero Steam exit do not write it. The file is the session
+  # A passwordless Switch to Desktop after readiness (or the second request
+  # before readiness) writes the one-shot preference. The file is the session
   # user's ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session/next,
   # mode 0600, in the mode 0700 state directory from gaming_state_init. It is
   # written before the gamescope scope stops. Relogin consumes desktop once.
@@ -598,8 +626,8 @@ run_gaming() {
   if $returned && [[ $(gaming_desktop_lock_effective) != on ]] && gaming_save next desktop; then
     gaming_desktop_next=1
   fi
-  # Explicit Switch to Desktop is a success, even when Steam never reached
-  # ready. It clears the crash counter instead of adding a failure.
+  # Explicit Switch to Desktop, and the second pre-ready return, are a
+  # success. Either clears the crash counter. The first pre-ready return does not.
   if $returned; then
     gaming_explicit_desktop=1
     gaming_failure_reset
@@ -613,8 +641,9 @@ run_gaming() {
   # cannot overwrite the return line the desktop switch is recognised by.
   if $returned; then
     echo 'Requested return to desktop.' >> "$gaming_state/session.log"
-    if [[ $(gaming_desktop_lock_effective) == on ]] && return_to_desktop_signin; then
-      exit 0
+    if [[ $(gaming_desktop_lock_effective) == on ]]; then
+      return_to_desktop_signin
+      exit $?
     fi
   fi
   # Gamescope can return zero after its primary child fails. A non-zero Steam
@@ -622,6 +651,8 @@ run_gaming() {
   # An explicit Switch to Desktop is not a failure, whatever Steam's status is.
   if $returned; then
     status=0
+  elif $premature_desktop; then
+    status=3
   elif [[ -f $gaming_runtime/steam-exit && $(cat "$gaming_runtime/steam-exit") != "0" ]]; then
     if $started; then
       local now
@@ -688,6 +719,10 @@ while true; do
     if (( status == 0 )); then
       gaming_fallback=0
       selection=desktop
+    elif (( status == 3 )); then
+      # Do not burn a start failure or the one retry that ends on the desktop.
+      gaming_attempt_recorded=1
+      sleep "$retry_gap"
     elif (( gaming_fallback )); then
       selection=recovery
     elif (( status == 2 || retries >= 1 )); then

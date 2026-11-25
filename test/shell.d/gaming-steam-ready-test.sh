@@ -185,6 +185,7 @@ PATH="$poll/bin:/usr/bin:/bin" \
   OMARCHY_GAMING_RUNTIME="$poll/runtime" \
   OMARCHY_STEAM_PROC_ROOT="$poll/proc" \
   OMARCHY_GAMING_READY_TIMEOUT=1 \
+  OMARCHY_GAMING_NETWORK_TIMEOUT=0 \
   DISPLAY=:9 \
   POLL_LOG="$poll/sleeps" \
   setsid timeout --kill-after=2s 8 "$ROOT/bin/omarchy-gaming-steam" >"$poll/out" 2>"$poll/err" &

@@ -27,7 +27,9 @@ EOF
 chmod +x "$work/bin/"* "$ROOT/bin/omarchy-handheld-autologin"
 mkdir -p "$work/default/gaming"
 cp "$ROOT/default/gaming/sddm-user.sh" "$work/default/gaming/"
-sed "s|/usr/share/omarchy/default/gaming/session.sh|$work/policy.sh|" \
+cp "$ROOT/packages/omarchy-gaming-session/omarchy-handheld-autologin-guard" "$work/bin/"
+sed -e "s|/usr/share/omarchy/default/gaming/session.sh|$work/policy.sh|" \
+  -e "s|/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard|$work/bin/omarchy-handheld-autologin-guard|" \
   "$ROOT/bin/omarchy-handheld-autologin" > "$work/bin/handheld-autologin-under-test"
 chmod +x "$work/bin/handheld-autologin-under-test"
 sed -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock|" \
@@ -84,6 +86,41 @@ run_guard apply
 grep -qx 'Relogin=true' "$dropin" || fail "opting out restores relogin" "$(cat "$dropin")"
 rm -f "$work/desktop-lock"
 pass "Relogin follows the stored desktop lock policy"
+cat > "$work/bin/pacman" <<'EOF'
+#!/bin/bash
+if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
+  printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
+  exit 0
+fi
+if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_VERSION:-} ]]; then
+  printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION"
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$work/bin/pacman"
+printf '[Autologin]\nUser=daniel\n' > "$work/sddm/omarchy-handheld-user.conf"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.r8045.gd54cde7 run_guard apply
+[[ ! -e $dropin ]] || fail "apply writes autologin for an upstream omarchy-dev" "$(cat "$dropin" 2>/dev/null)"
+grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply drops User= for an upstream omarchy-dev"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12 run_guard apply
+grep -q '^Session=omarchy-handheld.desktop$' "$dropin" ||
+  fail "apply leaves autologin off for an allypreview build" "$(cat "$dropin" 2>/dev/null)"
+grep -q '^Relogin=true$' "$dropin" || fail "apply leaves Relogin off for an allypreview build"
+grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply rewrites User= for an allypreview build"
+rm -f "$dropin"
+FAKE_OMARCHY_SETTINGS_DEV_VERSION=4.0.1.r1.g0000000 run_guard apply
+[[ ! -e $dropin ]] || fail "apply leaves autologin on when only settings-dev is upstream" "$(cat "$dropin" 2>/dev/null)"
+grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply drops User= for an upstream settings-dev"
+FAKE_OMARCHY_DEV_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12 run_guard apply
+grep -q '^Relogin=true$' "$dropin" || fail "apply restores autologin for an allypreview build" "$(cat "$dropin" 2>/dev/null)"
+rm -f "$work/bin/pacman" "$work/sddm/omarchy-handheld-user.conf"
+unset FAKE_OMARCHY_SETTINGS_DEV_VERSION
+unset FAKE_OMARCHY_DEV_VERSION
+pass "apply follows the guard for an upstream build, an allypreview build, and a settings-dev-only swap"
 
 export XDG_STATE_HOME=$work/state HOME=$work/home PATH="$work/bin:$ROOT/bin:$PATH"
 # shellcheck source=/dev/null
@@ -360,16 +397,49 @@ grep -q "iproute2" "$pkgbuild" || fail "the gaming session package does not depe
 if grep -q 'SKIP' "$pkgbuild"; then
   fail "the gaming session package skips a source checksum"
 fi
+pkg_fn=$(sed -n '/^package() {/,/^}$/p' "$pkgbuild")
+if [[ $pkg_fn == *startdir* || $pkg_fn == *_repo* ]]; then
+  fail "package() reads a source through startdir"
+fi
 (
   cd "$ROOT/packages/omarchy-gaming-session"
+  # makepkg sets startdir to this directory before sourcing the PKGBUILD.
+  startdir=$PWD
   # shellcheck disable=SC1091
   source ./PKGBUILD
   (( ${#source[@]} == ${#sha256sums[@]} )) || exit 1
   for i in "${!source[@]}"; do
-    sum=$(sha256sum "${source[$i]#*::}" | awk '{print $1}')
+    entry=${source[$i]}
+    if [[ $entry == *::* ]]; then
+      url=${entry#*::}
+      [[ $url == file://* ]] || exit 1
+      path=${url#file://}
+      path=${path//%20/ }
+    else
+      [[ $entry != */* ]] || exit 1
+      path=$entry
+    fi
+    [[ -f $path ]] || exit 1
+    sum=$(sha256sum "$path" | awk '{print $1}')
     [[ ${sha256sums[$i]} == "$sum" ]] || exit 1
   done
-) || fail "a gaming session source checksum does not match its file"
+  for rel in \
+    default/gaming/wayland-sessions/omarchy-gamescope.desktop \
+    default/gaming/wayland-sessions/omarchy-handheld.desktop \
+    default/gaming/wayland-sessions/omarchy-managed-desktop.desktop \
+    'default/gaming/applications/Omarchy Gaming.desktop' \
+    default/gaming/steamos-update \
+    default/gaming/sddm-user.sh \
+    default/systemd/user/omarchy-gaming-session.target \
+    default/systemd/user/omarchy-gaming-input-profile.service \
+    default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf \
+    default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf \
+    LICENSE
+  do
+    grep -F -q "${rel// /%20}" PKGBUILD || exit 1
+    [[ -f $startdir/../../$rel ]] || exit 1
+  done
+) || fail "a gaming session source is not declared, or its checksum does not match the checkout file"
 grant_rule=$(grep -vE '^[[:space:]]*(#|$)' "$grant")
 [[ $grant_rule == '%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-handheld-autologin fail, /usr/bin/omarchy-handheld-autologin reset, /usr/bin/omarchy-handheld-autologin apply' ]] ||
   fail "the package grant is not the three autologin verbs" "$grant_rule"
@@ -380,3 +450,23 @@ else
   pass "the autologin grant ships in the gaming-session package"
   skip "visudo is not installed; skipping the autologin grant parse check"
 fi
+
+sourced=$(env -u OMARCHY_PATH bash -c '
+  set -u
+  omarchy-hw-rog-ally() { return 0; }
+  omarchy-pkg-add() { return 0; }
+  omarchy-pkg-present() { return 0; }
+  sudo() { return 0; }
+  systemctl() { return 0; }
+  source "$1"
+  source "$2"
+  source "$3"
+  source "$4"
+' _ \
+  "$ROOT/install/hardware/handheld-autologin.sh" \
+  "$ROOT/install/hardware/asus/inputplumber.sh" \
+  "$ROOT/install/hardware/asus/gaming-session.sh" \
+  "$ROOT/install/hardware/asus/ally-tdp.sh" 2>&1) || true
+[[ $sourced != *unbound* ]] ||
+  fail "a sourced handheld install leaf aborts when OMARCHY_PATH is unset" "$sourced"
+pass "handheld install leaves default an unset OMARCHY_PATH"

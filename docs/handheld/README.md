@@ -47,7 +47,7 @@ Lock-screen and greeter UI stay with AUTH. Disk unlock for a handheld install is
 | View / Menu | Xbox-style Select / Start (`BTN_SELECT` / `BTN_START`). These have a real press and release. CC and AC do not. |
 | M2 / M1 | Back grips, left / right. InputPlumber names `LeftPaddle1` / `RightPaddle1` are not yet proven to match those sides (spec 01, OQ-1, OQ-17). On the tested stock kernel, both paddles produced the same F15 event on the ASUS N-KEY interface. |
 | N-KEY | ASUS USB HID device `0b05:1abe` (driver `hid-asus`); interface 2 carries the OEM buttons and paddles. |
-| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). The gaming service requests the `gaming` InputPlumber profile, which exposes a DualSense Edge target to Steam. |
+| Game mode | Gamescope session with Steam (Big Picture / Gaming Mode UI). The gaming service requests the `gaming` InputPlumber profile, which exposes a Steam Deck controller (`deck`, Valve `28de:1205`) to Steam. If `vhci_hcd` is unavailable, that load uses DualSense Edge (`ds5-edge`). |
 | Desktop mode | Managed Hyprland session. The `desktop` profile keeps an Xbox Elite target alongside the virtual mouse and keyboard. The right stick moves the pointer, RT left-clicks and LT right-clicks. |
 | Controller profile | The integration contains four InputPlumber profiles for the desktop, Gaming, keyboard recovery and greeter pointer. The greeter uses the left stick and A. |
 | Profile broker and desktop observer | The system service `omarchy-inputplumber-profile` loads the profiles. The managed desktop starts `default/gaming/input-profile-watch.py` to request its profile and handle OEM button events. |

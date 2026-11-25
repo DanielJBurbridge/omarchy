@@ -1,7 +1,6 @@
 [Unit]
 Description=ROG Ally Steam TDP slider
 PartOf=graphical-session.target
-PartOf=omarchy-gaming-session.target
 
 [Service]
 ExecCondition=/usr/bin/omarchy-hw-rog-ally

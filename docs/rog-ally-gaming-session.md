@@ -103,26 +103,21 @@ Focused regression coverage extends `test/shell.d/gaming-setup-test.sh`. It exec
 
 Only the designated Ally rollout owner installs this increment. First build and install the main **omarchy runtime package from this exact reviewed source** through the existing `omarchy-pkgs` workflow. It must contain the five new `bin/omarchy-*` scripts and the complete `default/gaming/` runtime tree, including the executable private shim. `omarchy dev link` alone cannot register SDDM session files. The standalone registration package depends on the matching runtime being installed; an older repository `omarchy` package is insufficient.
 
-Build the companion from the same checkout. Stage its local sources under the filenames makepkg uses for checksum verification.
+Build the companion from the same checkout. The PKGBUILD uses `file://` sources for checkout files, so makepkg verifies the same inputs for a local build and a source archive.
 
 ```bash
 cd packages/omarchy-gaming-session
-stage=$(mktemp -d)
-source PKGBUILD
-cp PKGBUILD "$install" "$stage/"
-for item in "${source[@]}"; do
-  path=${item#*::}
-  name=${item%%::*}
-  if [[ $name == "$item" ]]; then name=${path##*/}; fi
-  cp "$path" "$stage/$name"
-done
-(cd "$stage" && makepkg --nodeps --nocheck)
-sudo pacman -U "$stage/omarchy-gaming-session-1.0.0-14-x86_64.pkg.tar.zst"
+makepkg --nodeps --nocheck
+sudo pacman -U omarchy-gaming-session-1.0.0-15-x86_64.pkg.tar.zst
 ```
 
 The install transaction resolves dependencies from the configured repositories, including InputPlumber, Gamescope ≥3.17.0 and Steam. Steam requires multilib on x86. For an offline install, stage the dependency closure as well as the matched runtime and settings packages.
 
-The package manifest contains `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/applications/omarchy-gaming.desktop`, `/usr/bin/steamos-polkit-helpers/steamos-update`, `/usr/lib/omarchy-gaming-session/sddm-user.sh`, `/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard`, `/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook`, `/etc/sudoers.d/omarchy-handheld-autologin` and its MIT licence. `steamos-update` is a stub adapted from Pizzarchy (MIT, copyright (c) 2026 Diego Huyke, commit `daa9376`). It updates nothing. Exit 7 tells Steam there is nothing to apply, so first-run setup does not reboot. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker. On an Ally it writes `/etc/sddm.conf.d/omarchy-handheld-user.conf` when that file has no counted `User=`. The name is `[Autologin] User=` from `autologin.conf`, then `[Last] User=` from `/var/lib/sddm/state.conf`. It does not scan the password file and it does not use the account that ran pacman. Removing the package runs `pre_remove` and `post_remove`, which delete that file. An earlier checkout may have copied `steamos-update` into `/usr/bin/steamos-polkit-helpers/` without pacman owning it. If `pacman -Qo /usr/bin/steamos-polkit-helpers/steamos-update` does not name `omarchy-gaming-session`, remove that file before installing this package, or the transaction stops with "exists in filesystem". Core does not delete it. The package installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, a NOPASSWD grant for `fail`, `reset` and `apply` only. That file is not in the base tree. Runtime updates remain the main package's responsibility.
+The package manifest contains `/usr/share/wayland-sessions/omarchy-gamescope.desktop`, `/usr/share/wayland-sessions/omarchy-handheld.desktop`, `/usr/share/wayland-sessions/omarchy-managed-desktop.desktop`, `/usr/share/applications/omarchy-gaming.desktop`, `/usr/bin/steamos-polkit-helpers/steamos-update`, `/usr/lib/omarchy-gaming-session/sddm-user.sh`, `/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard`, `/usr/share/libalpm/hooks/omarchy-handheld-autologin-guard.hook`, `/etc/sudoers.d/omarchy-handheld-autologin` and its MIT licence. `steamos-update` is a stub adapted from Pizzarchy (MIT, copyright (c) 2026 Diego Huyke, commit `daa9376`). It updates nothing. Exit 7 tells Steam there is nothing to apply, so first-run setup does not reboot. Its install script creates `/var/lib/omarchy` and `/var/lib/omarchy/handheld` at mode `0755`, root-owned, so the desktop user can see that `/var/lib/omarchy/handheld/k07-landed` is absent. It does not write that marker. On an Ally it writes `/etc/sddm.conf.d/omarchy-handheld-user.conf` when that file has no counted `User=`. The name is `[Autologin] User=` from `autologin.conf`, then `[Last] User=` from `/var/lib/sddm/state.conf`. It does not scan the password file and it does not use the account that ran pacman. Removing the package runs `pre_remove` and `post_remove`, which delete that file. An earlier checkout may have copied `steamos-update` into `/usr/bin/steamos-polkit-helpers/` without pacman owning it. If `pacman -Qo /usr/bin/steamos-polkit-helpers/steamos-update` does not name `omarchy-gaming-session`, remove that file before installing this package, or the transaction stops with "exists in filesystem". Core does not delete it. The package installs `/etc/sudoers.d/omarchy-handheld-autologin` at mode 0440, a NOPASSWD grant for `fail`, `reset` and `apply` only. That file is not in the base tree. Runtime updates remain the main package's responsibility.
+
+The package ships the gaming target, the profile oneshot linked from that target, and the gaming drop-ins for the bridge and TDP shim. On an Ally the scriptlet provisions the system profile service and starts it if enabled. The gaming profile requests the `deck` target and falls back to `ds5-edge` if `vhci_hcd` is unavailable. The managed desktop restores its pointer profile on exit.
+
+Steam waits for NetworkManager connectivity before it starts. Full or unknown connectivity lets it launch, and an unavailable check or a timeout also lets it proceed. A desktop request before Steam is ready retries Gaming once. On the second request, a required desktop lock returns to SDDM for authentication.
 
 ## The installer User= file
 

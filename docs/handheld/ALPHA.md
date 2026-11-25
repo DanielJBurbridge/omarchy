@@ -52,6 +52,10 @@ Check: `omarchy-hw-rog-ally` and `omarchy-pkg-present omarchy-gaming-session` su
 
 Autologin starts Gamescope (`--backend drm -e --xwayland-count 2 --default-touch-mode 4`) and Steam in `omarchy-gamescope-$XDG_SESSION_ID.scope`, and starts `omarchy-gaming-session.target`. One retry, then the desktop. Steam’s explicit desktop request takes precedence on the next login. The log is `~/.local/state/omarchy/gaming-session/session.log`.
 
+Steam waits up to 30 seconds for NetworkManager to report internet connectivity when a check is available. An `unknown` result or a timeout lets Steam start. A return before Steam is ready retries Gaming Mode once. If it happens again, the session follows the desktop lock setting.
+
+InputPlumber presents a Steam Deck controller (`deck`, Valve `28de:1205`) in Gaming Mode. Setup configures `vhci_hcd` to load at boot. When that module is unavailable, the gaming profile uses DualSense Edge (`ds5-edge`) for that load. The desktop, greeter and on-screen keyboard profiles use Xbox Elite.
+
 From the desktop, save your work, exit Steam and choose **Omarchy → System → Switch to Gaming**. To return, choose **Steam → Power → Switch to Desktop**.
 
 With `desktop-lock on`, **Switch to Desktop** takes you to sign-in. Sign in by touch or USB keyboard. With the matched runtime, settings and `omarchy-gaming-session` package, the resulting desktop loads the handheld controller profile and offers **Switch to Gaming**. The next return to Desktop asks you to sign in again.
@@ -146,7 +150,7 @@ If you reconnected, use the saved filename. Your original policy applies on the 
 
 A one-off **Switch to Desktop** keeps Gaming Mode installed. To restore the ordinary desktop login and keep Steam, remove the optional companion.
 
-Start from the desktop with work saved and SSH available. Version `1.0.0-14` deletes `/etc/sddm.conf.d/omarchy-handheld-user.conf` even if it contains administrator settings. The cleanup below also removes `zz-omarchy-handheld.conf`. The profile and power helpers can remove or replace locally edited service and access-policy files. Back up any customisations outside those configuration directories first. On a standard Snapper installation, `omarchy-snapshot create` followed by `sudo snapper -c root list` gives you a numbered system snapshot.
+Start from the desktop with work saved and SSH available. Version `1.0.0-15` deletes `/etc/sddm.conf.d/omarchy-handheld-user.conf` even if it contains administrator settings. The cleanup below also removes `zz-omarchy-handheld.conf`. The profile and power helpers can remove or replace locally edited service and access-policy files. Back up any customisations outside those configuration directories first. On a standard Snapper installation, `omarchy-snapshot create` followed by `sudo snapper -c root list` gives you a numbered system snapshot.
 
 Use the non-recursive Pacman transaction to keep Steam, Gamescope and InputPlumber. Confirm that only `omarchy-gaming-session` is listed for removal. Running the base Omarchy helper afterwards clears the surviving handheld session setting.
 

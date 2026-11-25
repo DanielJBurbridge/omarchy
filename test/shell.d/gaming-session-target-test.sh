@@ -36,11 +36,66 @@ grep -q '^PartOf=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is part of the gaming session target"
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is wanted by the gaming session target"
-grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_dropin" ||
-  fail "the TDP shim is part of the gaming session target"
+grep -q '^After=omarchy-gaming-session.target$' "$shim_dropin" ||
+  fail "the TDP shim is ordered after the gaming session target"
+if grep -q '^PartOf=' "$shim_dropin"; then
+  fail "the TDP shim drop-in stops the shim with the gaming target"
+fi
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$shim_dropin" ||
   fail "the TDP shim is wanted by the gaming session target"
+shim_unit=$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service
+grep -q '^PartOf=graphical-session.target$' "$shim_unit" ||
+  fail "the TDP shim stops with the desktop session"
+if grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_unit"; then
+  fail "the TDP shim unit stops with the gaming target"
+fi
+if grep -E '^(Wants|WantedBy|RequiredBy|BindsTo)=(default\.target|graphical-session\.target)$' \
+  "$unit" "$profile_unit"; then
+  fail "the gaming profile is wanted by a desktop target"
+fi
+pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
+install_script=$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install
+grep -F -q 'usr/lib/systemd/user/omarchy-gaming-session.target"' "$pkgbuild" ||
+  fail "the package ships the gaming session target"
+grep -F -q 'usr/lib/systemd/user/omarchy-gaming-input-profile.service"' "$pkgbuild" ||
+  fail "the package ships the profile oneshot"
+grep -F -q 'omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service' "$pkgbuild" ||
+  fail "the package links the profile oneshot from the gaming target"
+if grep -E 'default\.target\.wants|graphical-session\.target\.wants' "$pkgbuild"; then
+  fail "the package links the profile oneshot from a desktop target"
+fi
+grep -F -q 'systemctl start omarchy-inputplumber-profile.service' "$install_script" ||
+  fail "the install script starts the profile service"
+start_line=$(grep -n 'systemctl start omarchy-inputplumber-profile.service' "$install_script" | head -1 | cut -d: -f1)
+ally_line=$(grep -n '/usr/bin/omarchy-hw-rog-ally' "$install_script" | head -1 | cut -d: -f1)
+if [[ -z $start_line || -z $ally_line ]] || (( ally_line >= start_line )); then
+  fail "profile service startup is gated on the Ally"
+fi
+OMARCHY_PATH=$ROOT "$ROOT/bin/omarchy-gaming-input-profile"
 pass "profile load is before the bridge, and both follow the gaming session target"
+
+# A non-login ssh command does not export OMARCHY_PATH. set -u must not abort.
+assert_path_default() {
+  local label=$1 note
+  shift
+  note=$(timeout 5 env -u OMARCHY_PATH "$@" 2>&1) || true
+  [[ $note != *unbound* ]] || fail "$label aborts when OMARCHY_PATH is unset" "$note"
+}
+assert_path_default "omarchy-launch-gaming-session" "$ROOT/bin/omarchy-launch-gaming-session"
+assert_path_default "omarchy-launch-gaming-desktop" "$ROOT/bin/omarchy-launch-gaming-desktop"
+assert_path_default "omarchy-setup-gaming-session" "$ROOT/bin/omarchy-setup-gaming-session" status
+assert_path_default "omarchy-session-start" "$ROOT/bin/omarchy-session-start"
+steam_stub=$(mktemp -d)
+printf '#!/bin/bash\nexit 0\n' >"$steam_stub/steam"
+printf '#!/bin/bash\nexit 1\n' >"$steam_stub/omarchy-cmd-present"
+cp "$steam_stub/omarchy-cmd-present" "$steam_stub/omarchy-pkg-present"
+chmod +x "$steam_stub/steam" "$steam_stub/omarchy-cmd-present" "$steam_stub/omarchy-pkg-present"
+assert_path_default "omarchy-gaming-steam" \
+  env OMARCHY_GAMING_RUNTIME="${TMPDIR:-/tmp}" DISPLAY=:0 OMARCHY_GAMING_READY_TIMEOUT=1 \
+  PATH="$steam_stub:/usr/bin:/bin" \
+  "$ROOT/bin/omarchy-gaming-steam"
+rm -rf "$steam_stub"
+pass "handheld session commands default an unset OMARCHY_PATH"
 
 work=$(mktemp -d)
 session_pid=
@@ -84,6 +139,12 @@ if [[ $* == '-ifrunning -shutdown' ]]; then
   exit 0
 fi
 printf 'steam:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+timeout 2 bash -c 'printf "started\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || exit 1
+last=$XDG_STATE_HOME/omarchy/gaming-session/last
+for _ in {1..80}; do
+  [[ $(cat "$last" 2>/dev/null) == "gaming" ]] && break
+  sleep 0.05
+done
 steamos-session-select plasma
 if [[ ${WAIT_FOR_STEAM_SHUTDOWN:-0} == 1 ]]; then
   while [[ ! -f $OMARCHY_GAMING_RUNTIME/test-steam-shutdown ]]; do

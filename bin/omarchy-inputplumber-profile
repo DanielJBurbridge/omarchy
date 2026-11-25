@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # omarchy:hidden=true
 # omarchy:summary=Load an allowlisted InputPlumber profile on the ROG Ally
-# omarchy:args=load <name> | intercept <0|2> | install-greeter | install-service | remove-service | serve
+# omarchy:args=load <name> | intercept <0|2> | install-greeter | install-service | install-vhci | remove-service | serve
 """Switch InputPlumber profiles on the RC71L.
 
 One root program talks to InputPlumber. The session never receives polkit for
@@ -113,6 +113,54 @@ def pause(seconds: float) -> None:
 
 def run_busctl(args: list[str]) -> subprocess.CompletedProcess[str]:
   return subprocess.run(["busctl", *args], check=False, capture_output=True, text=True)
+
+
+# The deck target is a virtual USB device. The module name matches
+# /sys/module/vhci_hcd. Tests point OMARCHY_VHCI_SYS at a fixture directory.
+VHCI_MODULE = "vhci_hcd"
+VHCI_SYS = "/sys/module/vhci_hcd"
+VHCI_CONF = "etc/modules-load.d/omarchy-rog-ally-vhci.conf"
+EDGE_FALLBACK = "ds5-edge"
+
+
+def vhci_sys() -> Path:
+  return Path(os.environ.get("OMARCHY_VHCI_SYS") or VHCI_SYS)
+
+
+def vhci_present() -> bool:
+  return vhci_sys().is_dir()
+
+
+def run_modprobe(module: str) -> subprocess.CompletedProcess[str]:
+  return subprocess.run(["modprobe", module], check=False, capture_output=True, text=True)
+
+
+def ensure_vhci() -> bool:
+  """True when vhci_hcd is loaded and its sysfs directory is present."""
+  if vhci_present():
+    return True
+  proc = run_modprobe(VHCI_MODULE)
+  if proc.returncode != 0:
+    return False
+  return vhci_present()
+
+
+def gaming_pad_for_load(name: str, yaml: str, targets: list[str] | None) -> tuple[str | None, list[str] | None]:
+  """Keep deck when vhci_hcd is live. Otherwise send ds5-edge for this load only."""
+  if name != "gaming" or not targets or "deck" not in targets:
+    return yaml, targets
+  if ensure_vhci():
+    return yaml, targets
+  print(
+    "omarchy-inputplumber-profile: vhci_hcd is not loaded; gaming falls back to ds5-edge for this load",
+    file=sys.stderr,
+  )
+  needle = '\n  - "deck"\n'
+  if needle not in yaml:
+    print("omarchy-inputplumber-profile: gaming profile has no deck target to replace", file=sys.stderr)
+    return None, None
+  swapped = yaml.replace(needle, f'\n  - "{EDGE_FALLBACK}"\n', 1)
+  return swapped, [EDGE_FALLBACK if item == "deck" else item for item in targets]
 
 
 def run_systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -392,6 +440,9 @@ def load(name: str, wait: bool = False) -> int:
       print("omarchy-inputplumber-profile: no RC71L composite; not loading", file=sys.stderr)
     # The greeter proceeds when no single composite is ready after the wait.
     return 0 if wait else 1
+  yaml, targets = gaming_pad_for_load(name, yaml, targets)
+  if yaml is None:
+    return 1
   if already_loaded(composite, profile_name, targets):
     print(f"omarchy-inputplumber-profile: {name} already loaded", file=sys.stderr)
     return 0
@@ -626,6 +677,37 @@ def _root_or_exit() -> int | None:
   return None
 
 
+def install_vhci_into(dest: Path) -> int:
+  """Write the Ally modules-load.d entry for vhci_hcd.
+
+  The caller has already decided this is an Ally. The file is one module
+  name, so the next boot loads it after a kernel upgrade.
+  """
+  try:
+    _write_bytes(dest / VHCI_CONF, b"vhci_hcd\n")
+  except ProfileError as exc:
+    print(f"omarchy-inputplumber-profile: {exc}", file=sys.stderr)
+    return 1
+  return 0
+
+
+def install_vhci() -> int:
+  refused = _root_or_exit()
+  if refused is not None:
+    return refused
+  if not ally():
+    return 0
+  code = install_vhci_into(INSTALL_ROOT)
+  if code != 0:
+    return code
+  if not ensure_vhci():
+    print(
+      "omarchy-inputplumber-profile: vhci_hcd did not load; the modules-load.d entry is in place for the next boot",
+      file=sys.stderr,
+    )
+  return 0
+
+
 def install_greeter() -> int:
   refused = _root_or_exit()
   if refused is not None:
@@ -735,6 +817,8 @@ def main(argv: list[str]) -> int:
     return install_greeter()
   if len(argv) == 2 and argv[1] == "install-service":
     return install_service()
+  if len(argv) == 2 and argv[1] == "install-vhci":
+    return install_vhci()
   if len(argv) == 2 and argv[1] == "remove-service":
     return remove_service()
   if len(argv) == 2 and argv[1] == "serve":
@@ -746,7 +830,7 @@ def main(argv: list[str]) -> int:
       print("omarchy-inputplumber-profile: intercept accepts only 0 and 2", file=sys.stderr)
       return 1
     return intercept(int(argv[2]))
-  print("usage: omarchy-inputplumber-profile load <name> | intercept <0|2> | install-greeter | install-service | remove-service | serve", file=sys.stderr)
+  print("usage: omarchy-inputplumber-profile load <name> | intercept <0|2> | install-greeter | install-service | install-vhci | remove-service | serve", file=sys.stderr)
   return 2
 
 

@@ -14,6 +14,7 @@ if (( $# )); then
     *) exit 2 ;;
   esac
 fi
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 source "$OMARCHY_PATH/default/gaming/session.sh"
 
 managed_desktop() {

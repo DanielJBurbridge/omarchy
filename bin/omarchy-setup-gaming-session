@@ -10,6 +10,9 @@ if [[ ${1:-} == "--help" || ${1:-} == "-h" ]]; then
   echo 'Use install-power-button to install or repair the optional gaming power-button companion.'
   exit 0
 fi
+# A non-login ssh command does not source env-bootstrap, and set -u then
+# aborts here. Same fallback as env-bootstrap and omarchy-migrate.
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 source "$OMARCHY_PATH/default/gaming/session.sh"
 omarchy-hw-rog-ally || { gaming_fail 'this setup supports the original RC71L only.'; exit 1; }
 case ${1:-status} in

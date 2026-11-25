@@ -178,6 +178,32 @@ gaming_failure_reset() {
   printf '%s\n' 'cleared the gaming start failures' >> "$gaming_state/fallback.log"
 }
 
+# Pre-ready Switch to Desktop requests in this login. The second one opens
+# the desktop. Ready clears the count, and the next login starts again at zero.
+gaming_early_return_count() {
+  local count=0
+  [[ -n ${gaming_state:-} && -f $gaming_state/early-returns && ! -L $gaming_state/early-returns ]] || {
+    printf '0\n'
+    return 0
+  }
+  IFS= read -r count < "$gaming_state/early-returns" || true
+  [[ $count =~ ^[0-9]+$ ]] || count=0
+  printf '%s\n' "$count"
+}
+
+gaming_early_return_record() {
+  local count
+  count=$(gaming_early_return_count)
+  count=$((count + 1))
+  gaming_save early-returns "$count" || return 1
+  printf '%s\n' "$count"
+}
+
+gaming_early_return_reset() {
+  [[ -n ${gaming_state:-} && -f $gaming_state/early-returns && ! -L $gaming_state/early-returns ]] || return 0
+  rm -f -- "$gaming_state/early-returns"
+}
+
 gaming_fail_limit_reached() {
   local count
   count=$(gaming_failure_count)

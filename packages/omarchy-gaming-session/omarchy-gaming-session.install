@@ -29,6 +29,10 @@ post_install() {
     # install-greeter checks the RC71L and preserves a disabled or masked unit.
     warn_profile_step "Ally greeter pointer install" omarchy-inputplumber-profile install-greeter
     warn_profile_step "InputPlumber profile service install" omarchy-inputplumber-profile install-service
+    if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally &&
+      systemctl is-enabled --quiet omarchy-inputplumber-profile.service; then
+      warn_profile_step "InputPlumber profile service start" systemctl start omarchy-inputplumber-profile.service
+    fi
   fi
   if command -v omarchy-ally-tdp-install >/dev/null; then
     warn_profile_step "Ally TDP session install" omarchy-ally-tdp-install session

@@ -947,6 +947,20 @@ FAKE_GAMING_SESSION=0 run_power_install
 [[ ! -s $pkg_log ]] || fail "the installer does nothing without the gaming session" "$(<"$pkg_log")"
 pass "the power-button installer does nothing without the gaming session"
 
+write_dmi "$vendor" "ROG Ally" "RC71L"
+: >"$pkg_log"
+power_unset=$(env -u OMARCHY_PATH \
+  OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
+  OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+  OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" \
+  PKG_LOG="$pkg_log" \
+  FAKE_GAMING_SESSION=1 \
+  PATH="$build_stub:$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-install-rog-ally-powerbutton" 2>&1) || true
+[[ $power_unset != *unbound* ]] ||
+  fail "the power-button installer aborts when OMARCHY_PATH is unset" "$power_unset"
+pass "the power-button installer defaults an unset OMARCHY_PATH"
+
 for conflict in steamos-powerbuttond steam-powerbuttond steam-powerbuttond-git; do
   : >"$pkg_log"
   if note=$(FAKE_GAMING_SESSION=1 FAKE_CONFLICT="$conflict" run_power_install 2>&1); then

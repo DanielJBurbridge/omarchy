@@ -162,6 +162,8 @@ handheld_gaming_env() {
   export HANDHELD_SCOPE_PID=$work/scope-pid
   export OMARCHY_GAMING_READY_TIMEOUT=1
   export OMARCHY_GAMING_RETRY_GAP=0
+  # The logon wait has its own test. A host NetworkManager must not hold these.
+  export OMARCHY_GAMING_NETWORK_TIMEOUT=0
 }
 
 # Keep Steam alive without a GUI readiness signal, then use its normal menu

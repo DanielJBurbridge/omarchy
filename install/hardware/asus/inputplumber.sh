@@ -1,6 +1,14 @@
 # This package and its dependencies are also in the ISO's offline repository.
 omarchy-hw-rog-ally || return 0
 
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+# The Deck target needs a virtual USB device. If the running kernel cannot
+# load it, the modules-load entry covers the next boot.
+if ! "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" install-vhci; then
+  printf 'warning: Ally vhci_hcd setup failed; re-run: sudo %s install-vhci\n' \
+    "$OMARCHY_PATH/bin/omarchy-inputplumber-profile" >&2
+fi
+
 unit=omarchy-ally-pointer.service
 package_unit="$OMARCHY_PATH/default/systemd/system/$unit"
 admin_unit="/etc/systemd/system/$unit"
