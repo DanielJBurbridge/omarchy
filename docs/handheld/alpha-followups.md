@@ -162,7 +162,7 @@ From the ready-waiter fix, [PR #57](https://github.com/DanielJBurbridge/omarchy/
 
 From dev-red's PASS on [PR #56](https://github.com/DanielJBurbridge/omarchy/pull/56), [review 5920790949](https://github.com/DanielJBurbridge/omarchy/pull/56#pullrequestreview-5920790949), at `4cd0ddbe`. The passwordless desktop is L129, filed with L68–L70. These stay open.
 
-- L123. **Open.** `post_remove` in `packages/omarchy-gaming-session/omarchy-gaming-session.install` deletes `omarchy-handheld-user.conf` and leaves `zz-omarchy-handheld.conf` (`Session=omarchy-handheld.desktop`) pointing at a removed session until the next boot's `apply`. Source: PR #56, review 5920790949. Owner: session.
+- L123. **Fixed.** The gaming session package's `post_remove` deletes both `omarchy-handheld-user.conf` and `zz-omarchy-handheld.conf`, and preserves the installer's `autologin.conf`. Source: PR #56, review 5920790949. Owner: session.
 - L124. **Open.** `warn_profile_step` prints `re-run: omarchy-inputplumber-profile …` and leaves out `sudo`. Source: PR #56, review 5920790949. Owner: session.
 - L125. **Open.** An encrypted Ally keeps upstream `autologin.conf` and the handheld `User=` file, so two `User=` lines. They are the same name today. The handheld file wins on a mismatch. Source: PR #56, review 5920790949. Owner: session.
 - L126. **Open.** The production scriptlet and `default/gaming/sddm-user.sh` honour `OMARCHY_SDDM_CONF_DIR` and `OMARCHY_SDDM_STATE`. Those overrides are for tests. A root shell with them set writes or deletes the wrong path. Ignore them unless a test flag is set. Source: PR #56, review 5920790949. Owner: session.
@@ -191,7 +191,6 @@ These are already filed and are not repeated:
 - The passphrase fallback needs a USB or 2.4 GHz keyboard, and there is no keypad in the initramfs: L40, L68, L71.
 - The rekey deletes TPM slots: L70.
 - TPM no-input unlock plus autologin: L129.
-- After package removal, `zz-omarchy-handheld.conf` still names the removed session: L123.
 - `stop` is cleared only by a reboot: L59.
 - The waiter keeps scanning after it times out: L58, L122.
 - The stop-trigger wording: L18.

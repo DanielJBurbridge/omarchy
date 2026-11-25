@@ -69,4 +69,5 @@ post_remove() {
     warn_profile_step "Ally TDP session removal" omarchy-ally-tdp-install remove-session
   fi
   remove_handheld_user_file
+  rm -f -- "${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}/zz-omarchy-handheld.conf"
 }

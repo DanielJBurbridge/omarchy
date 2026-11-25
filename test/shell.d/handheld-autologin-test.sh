@@ -339,10 +339,14 @@ grep -Rqs 'User=' "$work/sddm" && fail "removing the gaming package leaves User=
 # shellcheck source=/dev/null
 source "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
 printf '[Autologin]\nUser=daniel\nSession=omarchy.desktop\n' > "$user_conf"
+printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
 printf '[Autologin]\nUser=keep\nSession=omarchy.desktop\n' > "$work/sddm/autologin.conf"
+cp "$work/sddm/autologin.conf" "$work/upstream-autologin.conf"
 PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
 [[ ! -e $user_conf ]] || fail "post_remove leaves omarchy-handheld-user.conf"
-grep -q '^User=keep$' "$work/sddm/autologin.conf" || fail "post_remove deletes autologin.conf"
+[[ ! -e $dropin ]] || fail "post_remove leaves a reference to the removed handheld session"
+cmp -s "$work/upstream-autologin.conf" "$work/sddm/autologin.conf" ||
+  fail "post_remove changes the installer's autologin.conf"
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"
 PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm pre_remove
 [[ ! -e $user_conf ]] || fail "pre_remove leaves omarchy-handheld-user.conf"
