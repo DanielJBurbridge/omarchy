@@ -1,8 +1,9 @@
 #!/bin/bash
 # Steam's saved-token logon was starting before Wi-Fi was fully up, and
 # closing the sign-in screen was recorded as Switch to Desktop. The wrapper
-# waits for NetworkManager, and a desktop request before the ready marker
-# relaunches Gaming.
+# waits for NetworkManager. unknown connectivity does not wait. The first
+# desktop request before the ready marker relaunches Gaming; the second opens
+# the desktop. Ready clears that count.
 
 set -uo pipefail
 
@@ -109,6 +110,29 @@ grep -q 'steam:-steamos3 -steampal -steamdeck -gamepadui' "$work/wait.log" ||
   fail "a site-only link was treated as full connectivity" "$(wrap_detail)"
 pass "nm-online success still waits until connectivity is full"
 
+cat > "$stub/nmcli" <<'EOF'
+#!/bin/bash
+printf 'nmcli\n' >> "$WAIT_LOG"
+printf 'unknown\n'
+exit 0
+EOF
+cat > "$stub/timeout" <<'EOF'
+#!/bin/bash
+printf 'timeout:%s\n' "$*" >> "$WAIT_LOG"
+exec /usr/bin/timeout "$@"
+EOF
+chmod +x "$stub/nmcli" "$stub/timeout"
+run_wrapper 5 || fail "Steam did not launch when connectivity was unknown" "$(wrap_detail)"
+nmcli_calls=$(grep -c '^nmcli$' "$work/wait.log" || true)
+(( nmcli_calls == 1 )) || fail "unknown connectivity was polled instead of treated as online" "$(wrap_detail)"
+grep -q '^timeout:2 nmcli networking connectivity$' "$work/wait.log" ||
+  fail "the connectivity read was not capped with timeout" "$(wrap_detail)"
+grep -q 'steam:-steamos3 -steampal -steamdeck -gamepadui' "$work/wait.log" ||
+  fail "Steam did not launch when connectivity was unknown" "$(wrap_detail)"
+[[ ! -e $state_dir/fallback.log ]] ||
+  fail "unknown connectivity waited out the budget" "$(wrap_detail)"
+pass "unknown connectivity launches Steam without waiting"
+
 handheld_prepare_gaming "$work/session"
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
@@ -146,10 +170,14 @@ detail() {
   cat "$state/next" 2>/dev/null || true
   echo '--- fallback ---'
   cat "$state/fallback.log" 2>/dev/null || true
+  echo '--- early-returns ---'
+  cat "$state/early-returns" 2>/dev/null || true
   echo '--- session log ---'
   cat "$state/session.log" 2>/dev/null || true
   echo '--- stderr ---'
   cat "$work/session-err" 2>/dev/null || true
+  echo '--- cap stderr ---'
+  cat "$work/cap-err" 2>/dev/null || true
 }
 
 setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/session-out" 2>"$work/session-err" &
@@ -162,6 +190,8 @@ while (( spins < 80 )); do
 done
 grep -q '^relaunch$' "$HANDHELD_LOG" ||
   fail "a desktop request before Steam was ready did not relaunch Gaming" "$(detail)"
+[[ $(cat "$state/early-returns" 2>/dev/null || true) == 1 ]] ||
+  fail "the first pre-ready desktop request did not count as one" "$(detail)"
 choice=$(cat "$state/last" 2>/dev/null || true)
 [[ $choice != desktop ]] ||
   fail "a desktop request before Steam was ready wrote last=desktop" "$(detail)"
@@ -181,4 +211,43 @@ grep -F 'Requested return to desktop.' "$state/session.log" >/dev/null ||
   fail "Switch to Desktop after Steam was ready did not reach the return path" "$(detail)"
 grep -q '^uwsm:' "$HANDHELD_LOG" ||
   fail "Switch to Desktop after Steam was ready did not start Hyprland" "$(detail)"
+[[ ! -e $state/early-returns ]] ||
+  fail "Steam becoming ready did not clear the early-return count" "$(detail)"
 pass "a desktop request before Steam is ready relaunches Gaming, and one after ready still returns"
+
+: > "$HANDHELD_LOG"
+rm -f "$state/fallback.log" "$state/last" "$state/next" "$state/early-returns" "$state/session.log"
+cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+printf 'steam\n' >> "$HANDHELD_ACTIONS"
+steamos-session-select plasma
+exit 0
+EOF
+cat > "$HANDHELD_STUB/omarchy-notification-send" <<'EOF'
+#!/bin/bash
+printf 'notify:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+exit 0
+EOF
+chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/omarchy-notification-send"
+setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" gaming >"$work/cap-out" 2>"$work/cap-err" &
+session_pid=$!
+wait "$session_pid" || true
+session_pid=
+steam_n=$(grep -c '^steam$' "$HANDHELD_LOG" || true)
+(( steam_n == 2 )) ||
+  fail "the second pre-ready desktop request did not stop relaunching" "$(detail)"
+[[ $(cat "$state/last" 2>/dev/null) == desktop ]] ||
+  fail "the second pre-ready desktop request did not write last=desktop" "$(detail)"
+[[ $(cat "$state/early-returns" 2>/dev/null || true) == 2 ]] ||
+  fail "the second pre-ready desktop request was not counted" "$(detail)"
+grep -q 'relaunching the gaming session' "$state/fallback.log" ||
+  fail "the first pre-ready desktop request did not relaunch" "$(detail)"
+grep -q 'Steam was not ready' "$state/fallback.log" ||
+  fail "the second pre-ready desktop request did not say Steam was not ready" "$(detail)"
+grep -q '^notify:Steam was not ready Opening the desktop.$' "$HANDHELD_LOG" ||
+  fail "the second pre-ready desktop request did not notify" "$(detail)"
+grep -F 'Requested return to desktop.' "$state/session.log" >/dev/null ||
+  fail "the second pre-ready desktop request did not reach the return path" "$(detail)"
+grep -q '^uwsm:' "$HANDHELD_LOG" ||
+  fail "the second pre-ready desktop request did not start Hyprland" "$(detail)"
+pass "the second pre-ready desktop request opens the desktop"

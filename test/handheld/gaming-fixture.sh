@@ -87,10 +87,20 @@ exit 0
 EOF
   cat > "$HANDHELD_STUB/pgrep" <<'EOF'
 #!/bin/bash
-# The supervisor leaves a live Steam up. Report that process, and nothing else.
-if [[ $* == *steam* ]]; then
-  exec /usr/bin/pgrep "$@"
+# The supervisor leaves a live Steam up. Report this test's steam only.
+# The parallel suite runs other processes whose name is also steam.
+if [[ $* != *steam* ]]; then
+  exit 1
 fi
+mine=${HOME:-}
+[[ -n $mine ]] || exit 1
+while read -r pid; do
+  [[ -r /proc/$pid/environ ]] || continue
+  if tr '\0' '\n' < "/proc/$pid/environ" | grep -qxF "HOME=$mine"; then
+    printf '%s\n' "$pid"
+    exit 0
+  fi
+done < <(/usr/bin/pgrep -u "$UID" -x steam || true)
 exit 1
 EOF
   cat > "$HANDHELD_STUB/systemctl" <<'EOF'
