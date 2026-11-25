@@ -358,6 +358,143 @@ run_gaming_invitation guided 1
   fail "the Ally invitation uses Gaming Setup when available"
 pass "first-login invitation is hardware-gated, once-only and independently usable"
 
+# The network waiter is scoped to the first graphical session. If that login
+# ends offline, only the pending Ally offer should wait on the next login.
+ally_root=$test_tmp/ally
+ally_steps=$ally_root/install/user/first-run
+ally_work=$test_tmp/first-run
+ally_done=$ally_work/home/.local/state/omarchy/done
+mock_bin=$ally_work/bin
+mkdir -p "$mock_bin"
+printf '#!/bin/bash\nprintf "%%s\\n" "$1"\n' >"$mock_bin/omarchy-i18n"
+mkdir -p "$ally_steps"
+for script in enable-user-units.sh gnome-theme.sh gtk-primary-paste.sh audio-tuning.sh superwhisper.sh welcome.sh; do
+  printf 'echo ordinary-first-run >>"$OMARCHY_TEST_CALLS"\n' >"$ally_steps/$script"
+done
+for hook in setup-agent.hook setup-fingerprint.hook; do
+  printf 'echo ordinary-online-setup >>"$OMARCHY_TEST_CALLS"\n' >"$ally_steps/$hook"
+done
+ln -s "$ROOT/install/user/first-run/wifi.sh" "$ally_steps/wifi.sh"
+ln -s "$ROOT/install/user/first-run/setup-rog-ally.hook" "$ally_steps/setup-rog-ally.hook"
+ln -sf "$ROOT/bin/omarchy-done" "$mock_bin/omarchy-done"
+
+for helper in omarchy-provision-user omarchy-lifecycle-dispatch omarchy-notification-wait omarchy-hw-rog-ally; do
+  printf '#!/bin/bash\nexit 0\n' >"$mock_bin/$helper"
+done
+printf '#!/bin/bash\nexit 1\n' >"$mock_bin/omarchy-cmd-present"
+cat >"$mock_bin/nm-online" <<'SH'
+#!/bin/bash
+case " $* " in
+  *" -s "*) exit 0 ;;
+  *" -x "*) [[ -f $ALLY_ONLINE ]]; exit $? ;;
+esac
+if [[ ! -f $ALLY_ONLINE ]]; then
+  printf '%s\n' waiting >>"$OMARCHY_TEST_CALLS"
+  exec sleep 30
+fi
+SH
+cat >"$mock_bin/omarchy-notification-send" <<'SH'
+#!/bin/bash
+if [[ $* == *firstRun.rogAllyTitle* ]]; then
+  printf '%s\n' ally-attempted >>"$OMARCHY_TEST_CALLS"
+  [[ ${ALLY_FAIL_NOTIFY:-0} != "1" ]] || exit 1
+  printf '%s\n' ally-delivered >>"$OMARCHY_TEST_CALLS"
+fi
+SH
+chmod +x "$mock_bin/"*
+
+ally_login=(env "HOME=$ally_work/home" "OMARCHY_PATH=$ally_root" "PATH=$mock_bin:$PATH"
+  "OMARCHY_TEST_CALLS=$test_tmp/calls" "ALLY_ONLINE=$test_tmp/online")
+: >"$test_tmp/calls"
+setsid "${ally_login[@]}" "$ROOT/bin/omarchy-provision-first-run" >"$test_tmp/ally-login.log" 2>&1 &
+ally_session=$!
+trap 'kill -- "-$ally_session" 2>/dev/null; rm -rf "$test_tmp"' EXIT
+wait "$ally_session" || fail "first run can finish while the Ally is offline"
+for _ in {1..40}; do
+  grep -Fxq waiting "$test_tmp/calls" && break
+  sleep 0.05
+done
+grep -Fxq waiting "$test_tmp/calls" || fail "the first login was waiting for the network"
+[[ -f $ally_done/first-run-user && ! -e $ally_done/rog-ally-gaming-invitation ]] ||
+  fail "offline first run leaves the gaming invitation undelivered"
+kill -- "-$ally_session" || fail "the logout stops the first session's network waiter"
+trap 'rm -rf "$test_tmp"' EXIT
+touch "$test_tmp/online"
+
+online_ally_login() {
+  (set -o pipefail
+    timeout 5 "${ally_login[@]}" "$@" "$ROOT/bin/omarchy-provision-first-run" |
+      cat >"$test_tmp/ally-login.log")
+}
+
+: >"$test_tmp/calls"
+ALLY_FAIL_NOTIFY=1 online_ally_login || fail "later online Ally login completes"
+[[ $(<"$test_tmp/calls") == "ally-attempted" && ! -e $ally_done/rog-ally-gaming-invitation ]] ||
+  fail "a new online login attempts only the pending Ally offer and a failed send leaves it pending" "$(cat "$test_tmp/calls")"
+online_ally_login || fail "online Ally login completes with notification server recovered"
+online_ally_login || fail "online Ally login completes after invitation delivery"
+[[ $(grep -Fxc ally-attempted "$test_tmp/calls") == "2" && $(grep -Fxc ally-delivered "$test_tmp/calls") == "1" ]] ||
+  fail "the next login retries the failed offer and later logins skip it" "$(cat "$test_tmp/calls")"
+[[ -f $ally_done/rog-ally-gaming-invitation ]] || fail "only a successful delivery marks the offer done"
+
+mkdir -p "$test_tmp/provisioned/.local/state/omarchy/done"
+touch "$test_tmp/provisioned/.local/state/omarchy/done/first-run-user"
+: >"$test_tmp/calls"
+online_ally_login "HOME=$test_tmp/provisioned" || fail "existing provisioned login completes"
+[[ ! -s $test_tmp/calls ]] || fail "existing provisioned users receive no unscheduled first-login offer"
+pass "the pending Ally offer survives logout, retries failed delivery and appears only once"
+
+# The Ally preference follows the EDID on the native card across dock changes.
+drm_path="$test_tmp/drm"
+write_dmi "$vendor" "ROG Ally RC71L" "RC71L"
+gaming_output() {
+  PATH="$ROOT/bin:$PATH" OMARCHY_DRM_PATH="$drm_path" XDG_STATE_HOME="$test_tmp/output-state" \
+    OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" OMARCHY_DMI_PRODUCT_NAME_PATH="$dmi/product_name" \
+    OMARCHY_DMI_BOARD_NAME_PATH="$dmi/board_name" "$ROOT/bin/omarchy-gaming-output" "$@"
+}
+
+for connector in eDP-1 DP-1 HDMI-A-1; do
+  mkdir -p "$drm_path/card0-$connector"
+  printf 'connected\n' >"$drm_path/card0-$connector/status"
+done
+head -c 128 /dev/zero >"$drm_path/card0-DP-1/edid"
+mkdir -p "$drm_path/card1-DP-2"
+cp "$drm_path/card0-DP-1/"{status,edid} "$drm_path/card1-DP-2/"
+if gaming_output DP-2 2>/dev/null; then fail "a USB graphics connector on another card cannot be preferred"; fi
+if gaming_output HDMI-A-1 2>/dev/null; then fail "a connector without an EDID cannot be preferred"; fi
+[[ -z $(gaming_output gamescope-args) ]] || fail "without a preference Gamescope selects its own connector"
+available=$(gaming_output)
+[[ $available == *"Automatic"* && $available == *"DP-1"* && $available != *"DP-2"* &&
+  $available != *"HDMI-A-1"* && ! -e $test_tmp/output-state/omarchy/rog-ally-display/gamescope-output ]] ||
+  fail "inspecting outputs lists selectable native displays without saving a preference" "$available"
+gaming_output DP-1
+mv "$drm_path/card0-DP-1" "$drm_path/card0-DP-3"
+[[ $(gaming_output gamescope-args) == $'--prefer-output\nDP-3,eDP-1' ]] ||
+  fail "an Ally native display follows its EDID after a connector rename, with the panel as fallback"
+[[ $(gaming_output) == *"Next Gaming session: DP-3"* ]] || fail "the reported preference follows the renamed connector"
+
+mkdir -p "$drm_path/card0-DP-4"
+cp "$drm_path/card0-DP-3/"{status,edid} "$drm_path/card0-DP-4/"
+if gaming_output DP-4 2>/dev/null; then fail "a duplicate EDID cannot replace the chosen display"; fi
+available=$(gaming_output)
+[[ $available == *"Next Gaming session: eDP-1"* && $available != *"DP-3"* && $available != *"DP-4"* ]] ||
+  fail "duplicate display identities explain the internal fallback and cannot be selected" "$available"
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] ||
+  fail "an ambiguous EDID safely falls back to the internal panel"
+printf '%s\n' disconnected >"$drm_path/card0-DP-3/status"
+printf '%s\n' disconnected >"$drm_path/card0-DP-4/status"
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] ||
+  fail "unplugging a preferred display favours the panel over other connected outputs"
+
+gaming_output internal
+[[ $(gaming_output gamescope-args) == $'--prefer-output\neDP-1' ]] || fail "the internal panel can be preferred explicitly"
+gaming_output auto
+[[ -z $(gaming_output gamescope-args) ]] || fail "returning to auto removes connector priorities"
+printf '%s\n' 'ROG Ally X RC72LA' >"$dmi/product_name"
+printf '%s\n' RC72LA >"$dmi/board_name"
+if gaming_output internal 2>/dev/null; then fail "the Ally X cannot change this original Ally preference"; fi
+pass "Ally gaming output tracks EDID only on the native card, with a safe internal fallback"
+
 # The Suspend row and power button must share the same lock decision on an
 # RC71L. The existing sleep-lock suite exercises secure-lock IPC.
 power_omarchy="$test_tmp/power-omarchy"

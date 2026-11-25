@@ -79,6 +79,7 @@ for panel in "${panels[@]}"; do
     elapsed=$(open_ms "$panel" "$namespace") || { sed -n '1,120p' "$SCRATCH_LOG" >&2; fail "panel $panel reopen maps its surface"; }
     close_panel "$panel" "$namespace" || fail "panel $panel closes after reopen"
     if [[ -z $reopen ]] || (( elapsed < reopen )); then reopen=$elapsed; fi
+    (( reopen <= REOPEN_BUDGET_MS )) && break
   done
   (( first <= FIRST_BUDGET_MS )) || fail "panel $panel first open within ${FIRST_BUDGET_MS}ms" "First open took ${first}ms."
   (( reopen <= REOPEN_BUDGET_MS )) || fail "panel $panel reopen within ${REOPEN_BUDGET_MS}ms" "Fastest reopen took ${reopen}ms."
