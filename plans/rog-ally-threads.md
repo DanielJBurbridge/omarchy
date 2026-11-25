@@ -1,3 +1,6 @@
+> [!NOTE]
+> Historical snapshot — superseded by [README.md](../docs/handheld/README.md) and [feature-parity.md](../docs/handheld/feature-parity.md).
+
 # ROG Ally feature work threads
 
 Started 11 November 2026. Scope and sourced comparison: [feature inventory](rog-ally-parity.md). All nine source feature threads were launched and read back as running, each in its own prepared worktree based on `f7194066d`. This is launch status, not a claim that features are implemented or hardware verified.

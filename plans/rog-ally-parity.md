@@ -1,3 +1,6 @@
+> [!NOTE]
+> Historical snapshot — superseded by [README.md](../docs/handheld/README.md) and [feature-parity.md](../docs/handheld/feature-parity.md).
+
 # ROG Ally handheld feature inventory and implementation
 
 Research date: 11 November 2026. Target: Daniel's original ASUS ROG Ally RC71L running Omarchy. The goal is controller and touch operation from sign-in through gaming, with useful battery controls and reliable return to the desktop. Preserve Omarchy, existing user configuration and support for ordinary laptops and desktops.

@@ -1,5 +1,22 @@
 # Alpha follow-ups
 
+## Active open blockers & priority follow-ups
+
+Status as of 25 November 2026 on the [unified baseline](feature-parity.md#unified-integration-baseline). The L-numbered review log below retains the original wording and build context.
+
+| Item | Status | Next action |
+|---|---|---|
+| L68–L70 · Disk unlock | Blocks installer TPM enrolment and the switch to `sd-encrypt` | Decide TPM+PIN and Secure Boot policy, prove recovery on the RC71L and preserve the TPM token and recovery keyslot through rekey. The current disk prompt still needs a USB keyboard. |
+| L129 · No-input TPM unlock and autologin | Decision needed | Decide whether enrolment disables desktop autologin, autologin requires TPM+PIN, or desktop entry requires sign-in. |
+| L131 · Unencrypted boot and autologin | Decision needed | Decide whether to require encryption for persistent autologin or present an explicit opt-in. Verify the protected return and behaviour after companion removal. |
+| L145 · Fail-limit recovery | Open when the root grant is missing | A failed fallback can leave SDDM Relogin on and repeat a black-screen login. Exercise the locked path without the grant, including partial upgrades and recovery. |
+| K07 · Trusted lock keyboard and suspend | Blocks the lock-host slice | Fork [#39](https://github.com/DanielJBurbridge/omarchy/pull/39) is failing CI and carries the `InhibitDelayMaxSec=15s` suspend blocker. Account for lock-host archive checks `4fa2e7ed7` and `a7194f15a`, then verify the exact archive, lock, wake and recovery on hardware. |
+| Cold-boot handoff | Held patches pending | Account for the held patches from draft fork [#43](https://github.com/DanielJBurbridge/omarchy/pull/43) before superseding it. Prove the authenticated boot and return path on stock, with recovery available. |
+| L192–L193 · Power-button helper | Packaging follow-ups | Cover recovery after offline or failed installation and runtime/settings package skew. Prove short and long physical presses against the packaged helper. |
+| L311 · Steam keyboard chord | Physical press test pending | On the `deck` target, Guide then West sends Steam+Y. Test Command Centre long on the RC71L before changing the chord to Guide then North for Steam+X. |
+
+## Historical review log
+
 Not part of spec 02. These are the optional notes from [review 5870531064](https://github.com/DanielJBurbridge/omarchy/pull/36#pullrequestreview-5870531064) on PR #36.
 
 - L14. Number the backstop rungs after a failed 5 s lock. That lock leaves 7 s before the 3 s margin: SIGTERM at 5 s, SIGKILL at 7 s, `terminate-session` at 9 s, decision by 12 s. Spec 02 still says only that the rungs are compressed into what remains.
