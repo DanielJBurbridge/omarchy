@@ -423,7 +423,7 @@ rm -f "$work/lock-status"
 mkdir -p "$state" "$work/sddm" "$work/run"
 run_locked_session
 [[ $(cat "$work/lock-status") == 0 ]] || fail "the requested sign-in handoff exits cleanly" "$(detail "$work/lock-err")"
-[[ $(grep -c '^gamescope$' "$HANDHELD_LOG") == 1 ]] || fail "requesting sign-in does not retry Gaming" "$(detail "$work/lock-err")"
+[[ $(grep -c '^gamescope$' "$HANDHELD_LOG") == 2 ]] || fail "the first pre-ready request relaunches Gaming" "$(detail "$work/lock-err")"
 ! grep -q '^uwsm:' "$HANDHELD_LOG" || fail "an autologin never starts Hyprland when desktop sign-in is required"
 grep -qx 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" || fail "SDDM will show sign-in on the next display"
 grep -qx 'broker:pointer' "$HANDHELD_LOG" || fail "the greeter gets the pointer profile before sign-out"
@@ -432,7 +432,7 @@ grep -Fxq 'steam:shutdown' "$HANDHELD_LOG" && grep -Fxq 'gamescope-child-exit:0'
 [[ ! -e $state/next && ! -e $state/recovery && ! -e $failures && ! -e $work/run/stop ]] ||
   fail "sign-in leaves no passwordless desktop request or crash count" "$(detail "$work/lock-err")"
 [[ ! -e $work/run/actions ]] || fail "the sign-in handoff uses the existing SDDM daemon" "$(cat "$work/run/actions")"
-pass "Steam's return after the ready timeout prepares SDDM sign-in and exits without opening Hyprland"
+pass "the second return after a ready timeout prepares SDDM sign-in without opening Hyprland"
 
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
@@ -494,7 +494,7 @@ reset_case
 mkdir -p "$state"
 HANDHELD_LOGIN_SERVICE=sddm HANDHELD_AUTH_ROUND_TRIP=1 run_locked_session authenticated-desktop
 [[ $(cat "$work/lock-status") == 0 ]] || fail "the authenticated desktop can switch to Gaming and request sign-in" "$(detail "$work/lock-err")"
-[[ $(grep -c '^uwsm:' "$HANDHELD_LOG") == 1 && $(grep -c '^gamescope$' "$HANDHELD_LOG") == 1 ]] ||
+[[ $(grep -c '^uwsm:' "$HANDHELD_LOG") == 1 && $(grep -c '^gamescope$' "$HANDHELD_LOG") == 2 ]] ||
   fail "going back to Desktop after Gaming needs a fresh sign-in" "$(detail "$work/lock-err")"
 grep -Fxq 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" || fail "after Gaming the desktop request reaches the greeter"
 pass "the authenticated desktop can switch to Gaming and requires sign-in on return"

@@ -576,14 +576,15 @@ run_gaming() {
   }
   wait -n -p finished "$scope_pid" "$ready_pid" "$return_pid" || status=$?
   if [[ ${finished:-} == "$ready_pid" ]]; then
-    # The fd check can miss a live Steam UI. Once we accept the running
-    # session, only the next event determines how the session ends.
-    if (( status != 0 )) && gaming_scope_alive && pgrep -u "$UID" -x steam >/dev/null; then
-      printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
-      status=0
-    fi
     if (( status == 0 )); then
       mark_steam_ready
+    elif gaming_scope_alive && pgrep -u "$UID" -x steam >/dev/null; then
+      # A live Steam process can still be an updater or sign-in dialog.
+      printf '%s\n' "ready waiter timed out after ${ready_timeout}s; Steam and Gamescope are still running; leaving them up." >> "$gaming_state/fallback.log"
+      ready_pid=''
+    fi
+    if [[ -z $ready_pid ]]; then
+      status=0
       wait -n -p finished "$scope_pid" "$return_pid" || status=$?
     fi
   fi
@@ -613,7 +614,7 @@ run_gaming() {
     printf '%s\n' "Gamescope exited before Steam's UI was ready." >> "$gaming_state/fallback.log"
   elif ! $started; then
     status=1
-    printf '%s\n' 'Gamescope exited before starting its Steam child.' >> "$gaming_state/fallback.log"
+    printf '%s\n' 'Gamescope exited without confirmed Steam readiness.' >> "$gaming_state/fallback.log"
   fi
   # A passwordless Switch to Desktop after readiness (or the second request
   # before readiness) writes the one-shot preference. The file is the session

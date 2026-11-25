@@ -171,13 +171,17 @@ handheld_gaming_env() {
 handheld_late_desktop_return() {
   cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
-finish=$OMARCHY_GAMING_RUNTIME/test-steam-exit
+attempt=$(grep -cx gamescope "$HANDHELD_ACTIONS")
+finish=$OMARCHY_GAMING_RUNTIME/test-steam-exit-$attempt
 if [[ $* == "-ifrunning -shutdown" ]]; then
   printf 'steam:shutdown\n' >> "$HANDHELD_ACTIONS"
   printf 'exit\n' > "$finish"
 else
   mkfifo "$finish" || exit 1
-  while ! grep -qs 'leaving them up' "$XDG_STATE_HOME/omarchy/gaming-session/fallback.log"; do
+  log=$XDG_STATE_HOME/omarchy/gaming-session/fallback.log
+  while :; do
+    timeouts=$(grep -cs 'leaving them up' "$log" || true)
+    (( timeouts >= attempt )) && break
     (( SECONDS < 6 )) || exit 1
     sleep 0.05
   done

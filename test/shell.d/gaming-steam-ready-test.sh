@@ -152,12 +152,14 @@ child=$!
 wait "$child" || fail "the late desktop return completes" "$(hang_detail)"
 child=
 actions=$(< "$HANDHELD_LOG")
-grep -qs 'leaving them up' "$session_state/fallback.log" ||
-  fail "the timeout records that Steam was left up" "$(hang_detail)"
-[[ ! -e $session_state/recovery && $(grep -cx gamescope <<< "$actions") == 1 ]] &&
+[[ $(grep -c 'leaving them up' "$session_state/fallback.log") == 2 ]] ||
+  fail "both readiness timeouts leave Steam running" "$(hang_detail)"
+[[ $(cat "$session_state/early-returns") == 2 && ! -e $session_state/recovery &&
+   $(grep -cx gamescope <<< "$actions") == 2 ]] &&
   grep -Fxq 'steam:shutdown' <<< "$actions" && grep -Fxq 'gamescope-child-exit:0' <<< "$actions" &&
-  grep -q '^uwsm:' <<< "$actions" || fail "switching after the ready timeout closes Steam cleanly and opens Desktop without recovery or retry" "$(hang_detail)"
-pass "a ready timeout leaves Steam running until a later clean Switch to Desktop"
+  grep -q '^uwsm:' <<< "$actions" ||
+  fail "the second pre-ready return closes Steam and opens Desktop after one relaunch" "$(hang_detail)"
+pass "a ready timeout leaves Steam running and keeps the pre-ready return count"
 
 # The scan stops when the waiter's window ends. Steam keeps running; the
 # 0.2s sleep does not continue for the rest of that process.
