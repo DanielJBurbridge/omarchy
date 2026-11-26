@@ -3,9 +3,9 @@ name: Tests
 # Runs ./test/all on a real Omarchy install: the VM image of the current
 # release, booted fresh for each shard, with this checkout's code copied in.
 # The package recipes are checked out beside it, because some tests hold this
-# repository's scripts against them. Same-repo branches and pushes to quattro
-# run on Namespace 16x32 runners (inline, avoiding a separate trust job); fork
-# pull requests run the same sharded suite on GitHub's ubuntu-26.04 runners.
+# repository's scripts against them. In omacom/omarchy, same-repo pull requests
+# and pushes to quattro use Namespace 16x32 runners. All other runs use GitHub's
+# ubuntu-26.04 runners.
 
 on:
   pull_request:
@@ -22,7 +22,7 @@ concurrency:
 jobs:
   test:
     name: test (${{ matrix.shard }})
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'namespace-profile-linux-amd64-16x32' || 'ubuntu-26.04' }}
+    runs-on: ${{ github.repository == 'omacom/omarchy' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'namespace-profile-linux-amd64-16x32' || 'ubuntu-26.04' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
