@@ -36,6 +36,7 @@
 
   // System
   "system.switch-gaming": {"icon":"","label":"Switch to Gaming","handheldScreen":true,"when":"[[ -n ${OMARCHY_HANDHELD_SESSION:-} ]] && omarchy-launch-gaming-session --available","action":"omarchy-launch-gaming-session"},
+  "system.gaming-recovery": {"icon":"","label":"Gaming Recovery","when":"omarchy-hw-rog-ally","action":"omarchy-menu-gaming-recovery"},
   "system.about": {"icon":"","label":"About","aliases":["about"],"action":"omarchy-launch-about"},
   "system.screensaver": {"icon":"󱄄","label":"Screensaver","action":"omarchy-launch-screensaver force"},
   "system.lock": {"icon":"","label":"Lock","action":"omarchy-system-lock"},
