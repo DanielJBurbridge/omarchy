@@ -460,7 +460,8 @@ ln -s "$work/refused-dropin" "$work/sddm/zz-omarchy-handheld.conf"
 run_locked_session
 [[ $(cat "$work/lock-status") == 1 ]] || fail "a refused SDDM update exits with failure" "$(detail "$work/lock-err")"
 grep -q 'Could not prepare desktop sign-in' "$state/session.log" || fail "the refused handoff is logged"
-! grep -Eq '^(uwsm:|broker:pointer)' "$HANDHELD_LOG" || fail "a refused handoff keeps the desktop closed"
+! grep -Eq '^(uwsm:|broker:desktop$)' "$HANDHELD_LOG" ||
+  fail "a refused handoff keeps the desktop closed" "$(detail "$work/lock-err")"
 [[ ! -e $state/next && ! -e $work/refused-dropin ]] || fail "a refused handoff writes no unauthenticated desktop request"
 pass "a refused SDDM update leaves the desktop closed"
 

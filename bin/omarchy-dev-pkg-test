@@ -1,27 +1,32 @@
 #!/bin/bash
 
-# omarchy:summary=Build and install an Omarchy package from a local checkout
+# omarchy:summary=Build and install Omarchy packages from a local checkout
 # omarchy:group=dev
-# omarchy:args=[package-name] [path-to-checkout]
-# omarchy:examples=omarchy dev pkg-test | omarchy dev pkg-test omarchy-dev ~/Work/omarchy/omarchy-installer
+# omarchy:args=[--all|package-name] [path-to-checkout]
+# omarchy:examples=omarchy dev pkg-test --all | omarchy dev pkg-test omarchy-dev ~/Work/omarchy/omarchy-installer
 
 set -euo pipefail
 
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
   cat <<USAGE
-Usage: omarchy dev pkg-test [package-name] [path-to-checkout]
+Usage: omarchy dev pkg-test
+       omarchy dev pkg-test --all [path-to-checkout]
+       omarchy dev pkg-test <package-name> [path-to-checkout] [makepkg options]
 
-Builds and installs an Omarchy package from a local Omarchy source
+Builds and installs Omarchy packages from a local Omarchy source
 checkout. Use when changes need to land at fixed system paths (/etc/,
 /usr/lib/systemd/, udev rule bodies, plymouth) that omarchy-dev-link
 can't shadow.
+
+With --all or no arguments, both packages are installed in one transaction.
+Paired builds require build dependencies to be installed already.
 
 Defaults:
   packages          omarchy-settings-dev omarchy-dev
   path-to-checkout  ~/Work/omarchy/omarchy-installer
 
 Examples:
-  omarchy dev pkg-test
+  omarchy dev pkg-test --all
   omarchy dev pkg-test omarchy-settings-dev
   omarchy dev pkg-test omarchy-dev ~/Work/omarchy/omarchy-installer
 
@@ -128,21 +133,28 @@ if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
   return 0
 fi
 
-if (( $# == 0 )); then
+CHECKOUT="${2:-$HOME/Work/omarchy/omarchy-installer}"
+if (( $# == 0 )) || [[ $1 == "--all" ]]; then
+  if (( $# > 2 )); then
+    echo "Error: --all accepts only an optional checkout path." >&2
+    exit 1
+  fi
   PKGS=(omarchy-settings-dev omarchy-dev)
-  CHECKOUT="$HOME/Work/omarchy/omarchy-installer"
-  MAKEPKG_ARGS=()
+  # makepkg -s could install the repository settings package while building
+  # the runtime package. Resolve runtime dependencies in the final transaction.
+  MAKEPKG_ARGS=(--nodeps)
 else
   PKGS=("$(dev_package_name "$1")")
-  CHECKOUT="${2:-$HOME/Work/omarchy/omarchy-installer}"
-  MAKEPKG_ARGS=("${@:3}")
+  MAKEPKG_ARGS=(-s "${@:3}")
 fi
 PKGBUILDS_ROOT="${OMARCHY_PKGBUILDS_DIR:-$HOME/Work/omarchy/omarchy-pkgs/pkgbuilds}"
 
-if [[ ! -d "$CHECKOUT" ]]; then
+if [[ ! -d $CHECKOUT ]]; then
   echo "Error: checkout not found at $CHECKOUT" >&2
   exit 1
 fi
+CHECKOUT=$(realpath -- "$CHECKOUT")
+
 for PKG in "${PKGS[@]}"; do
   PKGBUILD_DIR="$PKGBUILDS_ROOT/$PKG"
   if [[ ! -f "$PKGBUILD_DIR/PKGBUILD" ]]; then
@@ -154,13 +166,16 @@ done
 
 build_dir=$(mktemp -d -t omarchy-dev-pkg-test.XXXXXX)
 trap 'rm -rf "$build_dir"' EXIT
+build_dir=$(realpath -- "$build_dir")
 
 new_pkgver=$(handheld_pkgver_for_checkout "$CHECKOUT")
+built_packages=()
 
 for PKG in "${PKGS[@]}"; do
   PKGBUILD_DIR="$PKGBUILDS_ROOT/$PKG"
   package_build_dir="$build_dir/$PKG"
-  mkdir -p "$package_build_dir"
+  package_output_dir="$build_dir/archives/$PKG"
+  mkdir -p "$package_build_dir" "$package_output_dir"
   cp -a "$PKGBUILD_DIR/." "$package_build_dir/"
 
   remove_pkgver_function "$package_build_dir/PKGBUILD"
@@ -172,17 +187,42 @@ for PKG in "${PKGS[@]}"; do
   echo
 
   (
-    cd "$package_build_dir"
-    OMARCHY_SRC="$CHECKOUT" makepkg -s --skipchecksums --noconfirm "${MAKEPKG_ARGS[@]}"
-  )
+    cd "$package_build_dir" &&
+      OMARCHY_SRC="$CHECKOUT" PKGDEST="$package_output_dir" \
+        makepkg --skipchecksums --noconfirm "${MAKEPKG_ARGS[@]}"
+  ) || {
+    status=$?
+    if (( status == 13 )); then
+      echo "Error: $PKG build was skipped by makepkg." >&2
+    else
+      echo "Error: $PKG build failed (exit $status)." >&2
+    fi
+    exit "$status"
+  }
 
-  # Install separately so we can pass --overwrite='*' (makepkg -i can't).
-  # Dev builds frequently conflict with files left behind by previous
-  # script-installed Omarchy versions; the build is the authoritative state.
-  built_pkg=$(ls -t "$package_build_dir"/*.pkg.tar.* 2>/dev/null | grep -v '\.sig$' | head -1)
-  if [[ -z $built_pkg ]]; then
-    echo "Error: no built package found in $package_build_dir" >&2
+  package_list=$(
+    cd "$package_build_dir" &&
+      OMARCHY_SRC="$CHECKOUT" PKGDEST="$package_output_dir" makepkg --packagelist "${MAKEPKG_ARGS[@]}"
+  ) || {
+    status=$?
+    echo "Error: could not list the archives for $PKG (exit $status)." >&2
+    exit "$status"
+  }
+
+  # makepkg accounts for pkgrel, architecture and compression. Keep the
+  # requested package at this pkgver, including recipes that set an epoch.
+  matching_packages=()
+  while IFS= read -r archive; do
+    if [[ -f $archive && ${archive##*/} == "$PKG-"?(+([0-9]):)"$new_pkgver-"* ]]; then
+      matching_packages+=("$archive")
+    fi
+  done <<<"$package_list"
+  if (( ${#matching_packages[@]} != 1 )); then
+    echo "Error: $PKG did not produce exactly one $new_pkgver archive." >&2
     exit 1
   fi
-  sudo pacman -U --noconfirm --overwrite='*' "$built_pkg"
+  built_packages+=("${matching_packages[0]}")
 done
+
+# Dev builds can replace files left by earlier script-installed versions.
+sudo pacman -U --noconfirm --overwrite='*' "${built_packages[@]}"

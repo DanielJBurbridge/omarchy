@@ -6,8 +6,8 @@
 set -uo pipefail
 # Set when an explicit Switch to Desktop wrote next=desktop for this process.
 gaming_desktop_next=0
-desktop_input_pid=''
-desktop_input_fd=''
+input_profile_pid=''
+input_profile_fd=''
 # A non-login ssh command does not source env-bootstrap, and set -u then
 # aborts on the next line when that file is absent. Same fallback as
 # env-bootstrap and omarchy-migrate. The bootstrap still replaces this
@@ -88,30 +88,30 @@ start_hyprland() {
   return "$status"
 }
 
-start_desktop_input() {
+start_input_profile_watch() {
   # Keep the observer in the original login, where the broker can check
-  # Polkit's active/local session. Do not hand profile requests to UWSM.
-  coproc DESKTOP_INPUT {
+  # Polkit's active/local session.
+  coproc INPUT_PROFILE {
     exec python3 "$OMARCHY_PATH/default/gaming/input-profile-watch.py" "$1" 9>&-
   }
-  desktop_input_pid=$!
-  desktop_input_fd=${DESKTOP_INPUT[1]:-}
+  input_profile_pid=$!
+  input_profile_fd=${INPUT_PROFILE[1]:-}
   # The observer subscribes before making its first bounded profile request.
-  # If it is unavailable, Hyprland can still start.
-  if [[ -n ${DESKTOP_INPUT[0]:-} ]]; then
-    read -r -t 4 -u "${DESKTOP_INPUT[0]}" _ || true
+  # If it is unavailable, the compositor can still start.
+  if [[ -n ${INPUT_PROFILE[0]:-} ]]; then
+    read -r -t 4 -u "${INPUT_PROFILE[0]}" _ || true
   fi
 }
 
-stop_desktop_input() {
-  [[ -n $desktop_input_pid ]] || return 0
-  if [[ -n $desktop_input_fd ]]; then
-    exec {desktop_input_fd}>&-
+stop_input_profile_watch() {
+  [[ -n $input_profile_pid ]] || return 0
+  if [[ -n $input_profile_fd ]]; then
+    exec {input_profile_fd}>&-
   fi
   # Let the observer finish restoring the greeter before the next session.
-  wait "$desktop_input_pid" || true
-  desktop_input_pid=''
-  desktop_input_fd=''
+  wait "$input_profile_pid" || true
+  input_profile_pid=''
+  input_profile_fd=''
 }
 
 # This supervisor cannot secure the new compositor before it starts. An
@@ -127,10 +127,10 @@ desktop() {
     profile=osk
   fi
   if gaming_handheld_variant; then
-    start_desktop_input "$profile"
+    start_input_profile_watch "$profile"
   fi
   start_hyprland || status=$?
-  stop_desktop_input
+  stop_input_profile_watch
   return "$status"
 }
 
@@ -449,6 +449,7 @@ stop_gaming() {
     systemctl --user stop "$gaming_session_target" || true
     gaming_target_started=0
   fi
+  stop_input_profile_watch
 }
 
 return_to_desktop_signin() {
@@ -466,7 +467,6 @@ return_to_desktop_signin() {
 }
 
 cleanup() {
-  stop_desktop_input
   stop_gaming
   rm -f "$gaming_runtime/active" "$gaming_runtime/switch"
   # A session that exits without Steam becoming ready is a failed gaming
@@ -492,7 +492,7 @@ run_gaming() {
   # These companion integrations are optional; installed backends own their
   # resources and a failed mode switch must not leave a half-switched session.
   # The older input companion shipped the profiles, while its runtime
-  # supplied this helper. Current runtimes load the gaming profile via the target.
+  # supplied this helper. Current runtimes load the gaming profile in this login.
   if omarchy-cmd-present omarchy-hw-rog-ally-input && omarchy-pkg-present omarchy-rog-ally-input; then
     omarchy-hw-rog-ally-input gamepad || return 1
   fi
@@ -502,6 +502,22 @@ run_gaming() {
   if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
     omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
     gamescope_args+=(--mangoapp)
+  fi
+  # Gamescope reads the XKB defaults at startup. An inherited layout or
+  # variant takes precedence over the saved pair, including an empty override.
+  local keyboard_env=()
+  if [[ ! -v XKB_DEFAULT_LAYOUT && ! -v XKB_DEFAULT_VARIANT ]]; then
+    mapfile -t keyboard_env < <(env -u LUA_INIT lua5.1 - "$OMARCHY_PATH" <<'LUA'
+package.path = arg[1] .. "/?.lua"
+local selected = require("default.hypr.keyboard").selected()
+local layout = (selected.XKBLAYOUT or ""):match("^[^,]*")
+local variant = (selected.XKBVARIANT or ""):match("^[^,]*")
+if layout:match("^[%w_]+$") and variant:match("^[%w_-]*$") then
+  print("XKB_DEFAULT_LAYOUT=" .. layout)
+  if variant ~= "" then print("XKB_DEFAULT_VARIANT=" .. variant) end
+end
+LUA
+    )
   fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" || return 1
@@ -521,7 +537,7 @@ run_gaming() {
   if [[ ! -f /usr/lib/systemd/user/$gaming_session_target ]]; then
     local gaming_unit_dir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
     local unit
-    for unit in "$gaming_session_target" omarchy-gaming-input-profile.service \
+    for unit in "$gaming_session_target" \
       omarchy-rog-ally-input.service.d/10-gaming-session.conf \
       omarchy-ally-tdp-shim.service.d/10-gaming-session.conf; do
       if [[ ! -e $gaming_unit_dir/$unit && ! -L $gaming_unit_dir/$unit ]]; then
@@ -530,8 +546,9 @@ run_gaming() {
     done
   fi
   systemctl --user daemon-reload || true
-  # Starting the target runs the profile oneshot (Wants= and the .wants link).
-  # The bridge unit, when that package is installed, is After= that oneshot.
+  # Request the initial map before the bridge and Gamescope start, then keep
+  # watching the controller until this attempt ends.
+  start_input_profile_watch gaming
   systemctl --user start "$gaming_session_target" || return 1
   gaming_target_started=1
   if systemctl --user cat omarchy-rog-ally-input.service >/dev/null 2>&1; then
@@ -553,7 +570,7 @@ run_gaming() {
   fi
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
-    gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
+    env "${keyboard_env[@]}" gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
     "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" "${library_args[@]}" \
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!

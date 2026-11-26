@@ -8,7 +8,16 @@ require_command jq
 require_command python3
 
 test_tmp=$(mktemp -d)
-trap 'rm -rf "$test_tmp"' EXIT
+cancel_add_pid=
+cleanup() {
+  if [[ -n $cancel_add_pid ]]; then
+    # Stop the isolated process group even if the add has already exited.
+    kill -KILL -- "$cancel_add_pid" "-$cancel_add_pid" 2>/dev/null || true
+    wait "$cancel_add_pid" 2>/dev/null || true
+  fi
+  rm -rf "$test_tmp"
+}
+trap cleanup EXIT
 
 mock_bin="$test_tmp/bin"
 notifications="$test_tmp/notifications"
@@ -839,26 +848,42 @@ pass "--reauth signs an existing account in again where it lives"
 
 # Cancelling from the panel stops a login that's waiting on the browser, right
 # away, and leaves no half-made account behind.
-OMARCHY_TEST_LOGIN_HANGS="$test_tmp/login.pid" omarchy-agent-account-add --events claude Slow </dev/null >/dev/null 2>&1 &
-adding=$!
-for _ in {1..40}; do
-  [[ -s $test_tmp/login.pid ]] && break
+login_ready="$test_tmp/login.pid"
+cancel_output="$test_tmp/cancel-output"
+OMARCHY_TEST_LOGIN_HANGS="$login_ready" setsid omarchy-agent-account-add --events claude Slow </dev/null >"$cancel_output" 2>&1 &
+cancel_add_pid=$!
+
+# The stub writes its PID after opening the fake browser. Read a complete
+# line before sending TERM, and give setup its own deadline on slow runners.
+ready_deadline=$(( SECONDS + 15 ))
+until [[ -s $login_ready ]] && read -r login_pid <"$login_ready"; do
+  if ! kill -0 "$cancel_add_pid" 2>/dev/null; then
+    status=0
+    wait "$cancel_add_pid" || status=$?
+    fail "the add exited before the fake login was ready (status $status)" "$(<"$cancel_output")"
+  fi
+  (( SECONDS < ready_deadline )) || fail "timed out waiting for the fake login" "$(<"$cancel_output")"
   sleep 0.05
 done
-started=$(date +%s)
-kill -TERM "$adding"
-wait "$adding" || true
-(( $(date +%s) - started < 3 )) || fail "cancelling stops a waiting login at once"
-login_pid=$(cat "$test_tmp/login.pid")
+[[ $login_pid =~ ^[1-9][0-9]*$ ]] && kill -0 "$login_pid" 2>/dev/null ||
+  fail "the fake login reports a live PID" "$(<"$cancel_output")"
+
+started=$SECONDS
+kill -TERM "$cancel_add_pid" || fail "the add is still running when cancelled" "$(<"$cancel_output")"
+while kill -0 "$cancel_add_pid" 2>/dev/null && (( SECONDS - started < 3 )); do
+  sleep 0.05
+done
+(( SECONDS - started < 3 )) || fail "cancelling stops a waiting login at once" "$(<"$cancel_output")"
+status=0
+wait "$cancel_add_pid" || status=$?
+(( status == 130 )) || fail "the cancelled add exits with status 130 (got $status)" "$(<"$cancel_output")"
 for _ in {1..20}; do
   kill -0 "$login_pid" 2>/dev/null || break
   sleep 0.1
 done
-if kill -0 "$login_pid" 2>/dev/null; then
-  kill "$login_pid"
-  fail "cancelling stops the login itself"
-fi
+! kill -0 "$login_pid" 2>/dev/null || fail "cancelling stops the login itself" "$(<"$cancel_output")"
 [[ -z $(ls -A "$accounts/claude/.pending") ]] || fail "cancelling leaves no half-made account"
+cancel_add_pid=
 pass "cancelling a sign-in stops the login and cleans up"
 
 # ------------------------------------------------------------------ one account

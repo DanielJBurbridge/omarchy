@@ -5,14 +5,77 @@ early compositor exit, timeout, and return/cleanup failures. No compositor runs.
 """
 import os
 import pathlib
+import runpy
 import subprocess
 import tempfile
 import textwrap
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 repo = pathlib.Path(os.environ['OMARCHY_TEST_ROOT'])
 
+
+def check_removable_library(mount_path):
+    watch = runpy.run_path(str(repo / 'default/gaming/removable-library.py'))['watch']
+    from gi.repository import Gio, GLib, UDisks
+
+    client = Mock()
+    manager = client.get_object_manager.return_value
+    manager.get_name_owner.return_value = ':1.1'
+    obj = Mock()
+    manager.get_objects.return_value = [obj]
+    block = obj.get_block.return_value
+    block.props = SimpleNamespace(id_uuid='AF04-DC18', id_usage='filesystem', hint_auto=True,
+                                  hint_system=False, hint_ignore=False, configuration=GLib.Variant('as', []),
+                                  symlinks=['/dev/disk/by-diskseq/1'])
+    client.get_drive_for_block.return_value.props = SimpleNamespace(
+        removable=True, seat=os.getenv('XDG_SEAT', 'seat0'))
+    filesystem = obj.get_filesystem.return_value
+    filesystem.props.mount_points = []
+    mount = filesystem.call_mount_sync
+    interrupted = GLib.Error.new_literal(Gio.dbus_error_quark(), 'udisksd disappeared', Gio.DBusError.NO_REPLY)
+    denied = GLib.Error.new_literal(UDisks.error_quark(), 'access denied', UDisks.Error.NOT_AUTHORIZED)
+    mount.side_effect = [interrupted, str(mount_path), denied, interrupted, interrupted]
+
+    def events():
+        signal, changed = client.connect.call_args.args
+        assert signal == 'changed'
+        changed(client)
+        assert mount.call_count == 1, 'mount job changes must not retry the failed call'
+        manager.get_name_owner.return_value = ':1.2'
+        changed(client)
+        assert mount.call_count == 2, 'a new UDisks owner must retry the interrupted mount'
+
+        filesystem.props.mount_points = [str(mount_path)]
+        changed(client)
+        filesystem.props.mount_points = []
+        manager.get_name_owner.return_value = ':1.3'
+        changed(client)
+        assert mount.call_count == 2, 'an intentional unmount must survive UDisks restarting'
+
+        block.props.symlinks = ['/dev/disk/by-diskseq/2']
+        changed(client)
+        manager.get_name_owner.return_value = ':1.4'
+        changed(client)
+        assert mount.call_count == 3, 'a new insertion may mount, but access denials must not retry'
+
+        block.props.symlinks = ['/dev/disk/by-diskseq/3']
+        changed(client)
+        manager.get_name_owner.return_value = ':1.5'
+        changed(client)
+        assert mount.call_count == 5, 'a second interrupted insertion gets one retry'
+        manager.get_name_owner.return_value = ':1.6'
+        changed(client)
+        assert mount.call_count == 5, 'an interrupted retry must exhaust the retry budget'
+
+    with patch.object(GLib, 'MainLoop', return_value=SimpleNamespace(run=events)), patch.object(os, 'write'):
+        watch(client, block.props.id_uuid)
+    print('PASS removable library retries interrupted mounts once after UDisks restarts')
+
+
 with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     root = pathlib.Path(temporary)
+    check_removable_library(root)
     bindir = root / 'bin'
     bindir.mkdir()
 
@@ -75,7 +138,11 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         while args and args[0].startswith('--'): args.pop(0)
         child = subprocess.Popen(args, start_new_session=True)
         if os.environ['MODE'] == 'logout-fail': sys.exit(0)
-        pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid').write_text(str(child.pid))
+        if '--scope' in sys.argv:
+            pid_path = pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid')
+            pending = pid_path.with_suffix('.new')
+            pending.write_text(str(child.pid))
+            pending.replace(pid_path)
         sys.exit(child.wait())
     ''')
     command('systemctl', '''#!/usr/bin/python3
@@ -98,16 +165,24 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if not sys.argv[-1].endswith('.scope'): sys.exit(0)
         import time
         pid_path = pathlib.Path(os.environ['TEST_ROOT'], 'scope-pid')
-        deadline = time.time() + 2
-        while time.time() < deadline:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
             try:
-                os.killpg(int(pid_path.read_text()), signal.SIGTERM)
-                break
+                pid = int(pid_path.read_text())
             except FileNotFoundError:
                 time.sleep(0.05)
+                continue
+            # Consume this attempt's PID so the next stop waits for its own scope.
+            pid_path.unlink()
+            try:
+                os.killpg(pid, signal.SIGTERM)
             except ProcessLookupError:
-                break
-        sys.exit(0)
+                pass
+            else:
+                with open(os.environ['TEST_ROOT'] + '/actions', 'a') as out:
+                    out.write('scope-terminated:' + sys.argv[-1] + '\\n')
+            sys.exit(0)
+        sys.exit('Fixture Gamescope scope did not register within 2s')
     ''')
     command('gamescope', '''#!/bin/bash
         printf 'gamescope:%s\\n' "$*" >> "$TEST_ROOT/actions"
@@ -207,20 +282,23 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         run(env, setup, 'default', 'gaming')
         if mode == 'switch':
             run(env, setup, 'default', 'desktop')
-            run(env, selector, 'preferred')
         elif mode in ('return', 'return-up'):
             # Switch to Desktop after the ready marker. A request before that
             # marker relaunches Gaming and does not write next=desktop. The
             # longer waiter keeps the marker from losing the race on a loaded runner.
             env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
-            run(env, selector, 'preferred', timeout=25)
-        else:
-            run(env, selector, 'preferred')
+        # A retry and the Desktop fallback can start three real profile
+        # observers, each with a four-second startup wait of its own.
+        run(env, selector, 'preferred', timeout=25)
         actions = (directory / 'actions').read_text()
         assert 'desktop:' in actions, (mode, actions)
         assert 'scope-stop:' in actions, (mode, actions)
         assert not list((directory / 'runtime').rglob('active')), mode
         assert not list((directory / 'runtime').rglob('return')), mode
+        if mode == 'timeout':
+            fallback = (state(directory) / 'fallback.log').read_text()
+            assert fallback.count("Gamescope exited before Steam's UI was ready.") == 2, fallback
+            assert actions.count('scope-terminated:omarchy-gamescope-c71.scope\n') == 2, actions
         if mode in ('crash', 'early', 'timeout', 'steam-fail'):
             assert 'next-at-scope-stop:desktop' not in actions, (mode, actions)
             assert not (state(directory) / 'next').exists(), mode

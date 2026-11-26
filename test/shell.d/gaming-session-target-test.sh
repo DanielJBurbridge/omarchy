@@ -19,19 +19,8 @@ if grep -q '^\[Service\]' "$unit"; then
 fi
 pass "omarchy-gaming-session.target is a plain user target"
 
-profile_unit=$ROOT/default/systemd/user/omarchy-gaming-input-profile.service
 bridge_dropin=$ROOT/default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf
 shim_dropin=$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf
-grep -q '^Wants=omarchy-gaming-input-profile.service$' "$unit" ||
-  fail "the gaming session target wants the profile load"
-grep -q '^Before=omarchy-rog-ally-input.service$' "$profile_unit" ||
-  fail "the profile load is ordered before the gaming bridge"
-grep -q '^PartOf=omarchy-gaming-session.target$' "$profile_unit" ||
-  fail "the profile load is part of the gaming session target"
-grep -q '^WantedBy=omarchy-gaming-session.target$' "$profile_unit" ||
-  fail "the profile load is wanted by the gaming session target"
-grep -q '^After=omarchy-gaming-input-profile.service$' "$bridge_dropin" ||
-  fail "the bridge unit is After= the profile load"
 grep -q '^PartOf=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is part of the gaming session target"
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$bridge_dropin" ||
@@ -49,20 +38,12 @@ grep -q '^PartOf=graphical-session.target$' "$shim_unit" ||
 if grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_unit"; then
   fail "the TDP shim unit stops with the gaming target"
 fi
-if grep -E '^(Wants|WantedBy|RequiredBy|BindsTo)=(default\.target|graphical-session\.target)$' \
-  "$unit" "$profile_unit"; then
-  fail "the gaming profile is wanted by a desktop target"
-fi
 pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
 install_script=$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install
 grep -F -q 'usr/lib/systemd/user/omarchy-gaming-session.target"' "$pkgbuild" ||
   fail "the package ships the gaming session target"
-grep -F -q 'usr/lib/systemd/user/omarchy-gaming-input-profile.service"' "$pkgbuild" ||
-  fail "the package ships the profile oneshot"
-grep -F -q 'omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service' "$pkgbuild" ||
-  fail "the package links the profile oneshot from the gaming target"
 if grep -E 'default\.target\.wants|graphical-session\.target\.wants' "$pkgbuild"; then
-  fail "the package links the profile oneshot from a desktop target"
+  fail "the package links gaming units from a desktop target"
 fi
 grep -F -q 'systemctl start omarchy-inputplumber-profile.service' "$install_script" ||
   fail "the install script starts the profile service"
@@ -71,7 +52,7 @@ ally_line=$(grep -n '/usr/bin/omarchy-hw-rog-ally' "$install_script" | head -1 |
 if [[ -z $start_line || -z $ally_line ]] || (( ally_line >= start_line )); then
   fail "profile service startup is gated on the Ally"
 fi
-pass "profile load is before the bridge, and both follow the gaming session target"
+pass "the bridge and TDP shim are wanted by the gaming session target"
 
 # A non-login ssh command does not export OMARCHY_PATH. set -u must not abort.
 assert_path_default() {
@@ -161,6 +142,7 @@ chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/omarchy-
 handheld_gaming_env
 export XDG_CONFIG_HOME=$work/config
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
+unset XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT
 run_session() {
   local entry=$1 status=0
   : > "$HANDHELD_LOG"
@@ -171,13 +153,28 @@ run_session() {
   (( status == 0 )) ||
     fail "the $entry supervisor exits cleanly" "$(printf 'status=%s\n' "$status"; cat "$HANDHELD_LOG" "$work/err")"
 }
+assert_gamescope_keyboard() {
+  local expected=$1 description=$2
+  grep -Fxq "gamescope-keyboard:$expected" "$HANDHELD_LOG" ||
+    fail "$description" "$(cat "$HANDHELD_LOG" "$work/err")"
+  pass "$description"
+}
 export OMARCHY_DRM_PATH=$work/drm
 mkdir -p "$OMARCHY_DRM_PATH/"{card0-eDP-1,card0-DP-1}
 printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-eDP-1/status"
 printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-DP-1/status"
 head -c 128 /dev/zero >"$OMARCHY_DRM_PATH/card0-DP-1/edid"
 omarchy-gaming-output DP-1 || fail "a connected external output can be preferred"
+mkdir -p "$XDG_CONFIG_HOME/omarchy" "$HANDHELD_TREE/etc"
+keyboard_selection=$XDG_CONFIG_HOME/omarchy/keyboard-layouts
+vconsole=$HANDHELD_TREE/etc/vconsole.conf
+printf 'XKBLAYOUT=gb\n' > "$vconsole"
+printf 'XKBLAYOUT=de,us\nXKBVARIANT=nodeadkeys,dvorak\n' > "$keyboard_selection"
 WAIT_FOR_STEAM_SHUTDOWN=1 run_session gaming
+assert_gamescope_keyboard '[de] [nodeadkeys]' "Gamescope uses the leading saved layout and its paired variant"
+grep -Fxq 'uwsm-keyboard:[<unset>] [<unset>]' "$HANDHELD_LOG" ||
+  fail "the saved layout is scoped to Gamescope" "$(cat "$HANDHELD_LOG")"
+pass "the saved layout stays out of the desktop environment"
 grep -Fxq 'gamescope-output:DP-1,eDP-1' "$HANDHELD_LOG" ||
   fail "the launcher passes the paired output priority to Gamescope" "$(cat "$HANDHELD_LOG")"
 user_units=$XDG_CONFIG_HOME/systemd/user
@@ -208,10 +205,15 @@ mapfile -t shutdown_actions < <(grep -E '^(steam:shutdown:|steam:clean-exit$|gam
   fail "Switch to Desktop lets Steam exit through its own display before the scope receives TERM" "$detail"
 pass "the explicit desktop return lets Steam and Gamescope exit in order"
 
-profile_line=$(grep -n '^profile:desktop:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
-pointer_line=$(grep -n '^profile:pointer:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
-if [[ -z $profile_line || -z $pointer_line ]] || (( profile_line <= stop_line || profile_line >= desktop_line || pointer_line <= desktop_line )); then
-  fail "returning from Gaming loads the desktop profile after Gamescope stops and restores the pointer on logout" "$detail"
+mapfile -t profile_actions < <(grep -n '^profile:' "$HANDHELD_LOG")
+(( ${#profile_actions[@]} == 4 )) &&
+  [[ ${profile_actions[0]#*:} == 'profile:gaming:redteam' && ${profile_actions[1]#*:} == 'profile:pointer:redteam' &&
+  ${profile_actions[2]#*:} == 'profile:desktop:redteam' && ${profile_actions[3]#*:} == 'profile:pointer:redteam' ]] ||
+  fail "the active login loads each session profile and restores the pointer on teardown" "$detail"
+if (( ${profile_actions[0]%%:*} >= start_line || ${profile_actions[1]%%:*} <= stop_line ||
+  ${profile_actions[1]%%:*} >= ${profile_actions[2]%%:*} || ${profile_actions[2]%%:*} >= desktop_line ||
+  ${profile_actions[3]%%:*} <= desktop_line )); then
+  fail "the controller watches bracket Gaming and Desktop in the active login" "$detail"
 fi
 pass "the managed session switches the controller mapping between Gaming, Desktop and the greeter"
 
@@ -226,7 +228,9 @@ fi
 pass "bridge starts after the profile target and the installed TDP shim is restarted"
 
 rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+printf 'XKBLAYOUT=de,us\nXKBVARIANT=,dvorak\n' > "$keyboard_selection"
 WAIT_FOR_STEAM_SHUTDOWN=1 STEAM_IGNORES_SHUTDOWN=1 run_session gaming
+assert_gamescope_keyboard '[de] [<unset>]' "Gamescope keeps the default variant when the next layout has one"
 grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
   grep -Fxq 'systemctl:--user stop omarchy-gamescope-redteam.scope' "$HANDHELD_LOG" &&
   ! grep -q '^systemctl:--user kill ' "$HANDHELD_LOG" &&
@@ -235,7 +239,14 @@ grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
 pass "a stuck Steam shutdown does not prevent the desktop return"
 
 rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+rm "$keyboard_selection"
+cat > "$vconsole" <<'EOF'
+KEYMAP=fr
+ XKBLAYOUT = "fr,us" # Installed layout
+XKBVARIANT='bepo,dvorak'
+EOF
 WAIT_FOR_STEAM_SHUTDOWN=1 GAMESCOPE_STAYS_AFTER_STEAM=1 run_session gaming
+assert_gamescope_keyboard '[fr] [bepo]' "Gamescope falls back to the installed layout and variant"
 mapfile -t stuck_actions < <(grep -E '^(gamescope-child-exit:|systemctl:--user (kill|stop omarchy-gamescope-)|uwsm:)' "$HANDHELD_LOG")
 [[ ${stuck_actions[0]:-} == gamescope-child-exit:0 &&
   ${stuck_actions[1]:-} == 'systemctl:--user kill --kill-whom=all --signal=KILL omarchy-gamescope-redteam.scope' &&
@@ -259,7 +270,8 @@ EOF
 chmod +x "$HANDHELD_STUB/systemctl"
 printf '\n# User override\n' >> "$user_units/$name"
 cp "$user_units/$name" "$work/user-target"
-run_session gaming
+XKB_DEFAULT_LAYOUT=gb PROFILE_LOAD_STATUS=1 run_session gaming
+assert_gamescope_keyboard '[gb] [<unset>]' "an inherited layout keeps its own default variant"
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the legacy unit setup preserves a user's existing target"
 absent=$(cat "$HANDHELD_LOG")
@@ -269,18 +281,27 @@ fi
 grep -q 'start omarchy-rog-ally-input.service' <<<"$absent" &&
   fail "a missing bridge unit is not started" "$absent"
 grep -q '^gamescope$' <<<"$absent" || fail "a missing TDP shim still starts Gamescope" "$absent"
+if ! grep -q '^profile:gaming:redteam$' <<<"$absent" || grep -q '^profile:pointer:' <<<"$absent"; then
+  fail "a refused gaming profile still starts Gamescope and leaves the controller's native map available" "$absent"
+fi
 pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
 
 mkdir -p "$vendor_units"
 cp "$unit" "$vendor_units/$name"
-rm "$user_units/omarchy-gaming-input-profile.service"
+rm "$user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+printf 'KEYMAP=us\n' > "$vconsole"
 run_session gaming
+assert_gamescope_keyboard '[<unset>] [<unset>]' "Gamescope keeps its defaults without an XKB selection"
 grep -q '^gamescope$' "$HANDHELD_LOG" || fail "the installed gaming package still starts Gamescope"
-[[ ! -e $user_units/omarchy-gaming-input-profile.service ]] ||
+[[ ! -e $user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf ]] ||
   fail "the installed gaming package does not recreate per-user units"
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the installed gaming package leaves the user's override in place"
 pass "the gaming-session package supplies units without rewriting user configuration"
+
+printf 'XKBLAYOUT=de\nXKBVARIANT=nodeadkeys\n' > "$keyboard_selection"
+XKB_DEFAULT_VARIANT=dvorak run_session gaming
+assert_gamescope_keyboard '[<unset>] [dvorak]' "a variant-only override keeps its implicit layout"
 
 printf 'desktop\n' > "$XDG_STATE_HOME/omarchy/gaming-session/preference"
 run_session preferred
@@ -346,6 +367,6 @@ pass "the gaming session target stays on the handheld path"
 
 if ! dbus-run-session -- python3 "$here/../handheld/input-profile-watch-test.py" \
   "$ROOT/default/gaming/input-profile-watch.py" > "$work/profile-watch.log" 2>&1; then
-  fail "managed desktop profiles recover when InputPlumber and the Ally composite reappear" "$(cat "$work/profile-watch.log")"
+  fail "managed profiles recover when InputPlumber and the Ally composite reappear" "$(cat "$work/profile-watch.log")"
 fi
-pass "managed desktop profiles recover when InputPlumber and the Ally composite reappear"
+pass "managed profiles recover when InputPlumber and the Ally composite reappear"

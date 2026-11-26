@@ -77,6 +77,10 @@ cat >"$fake_dir/ssh" <<EOF
 [[ \$1 == "-G" ]] && { echo "remotecommand none"; exit 0; }
 n=\$(( \$(cat "$fake_dir/count" 2>/dev/null || echo 0) + 1 ))
 echo "\$n" >"$fake_dir/count"
+if [[ \${SSH_RECONNECT_TEST_INTERRUPT:-} == "1" ]] && (( n == 2 )); then
+  echo 'Retry ready'
+  read -r
+fi
 read -r duration code <<<"\$(sed -n "\${n}p" "$fake_dir/plan")"
 sleep "\$duration"
 exit "\$code"
@@ -140,34 +144,42 @@ EOF
   script -qec "bash '$fake_dir/c5/driver' host </dev/null" /dev/null | tr -d '\r' >"$fake_dir/c5/out"
 ) & worker_pids+=("$!")
 
-# Ctrl-C must stop the loop, not just the in-flight attempt. Only a real
-# interactive shell reproduces the job-control process groups this depends on,
-# so type the command, wait until the first retry attempt starts, then send ^C
-# and read the exit status. With the loop killed, attempts stay low; a surviving
-# loop would drain the whole plan before reporting a different status.
+# Send Ctrl-C through the PTY after the retry is ready, then wait for the
+# interactive shell to report its status before typing anything else.
 cat >"$fake_dir/rcfile" <<EOF
 PATH="$fake_dir:\$PATH"
 source <(sed 's/< 30/< 2/' "$fns")
 sleep() { :; }
-PS1='$ '
+PS1=''
+PROMPT_COMMAND='printf "\nDONE rc=%s\n" "\$?"'
 EOF
 
-plan="2 255"
-for _ in {1..12}; do plan+=$'\n1 255'; done
-printf '%s\n' "$plan" >"$fake_dir/plan"
-rm -f "$fake_dir/count"
-out_ctrlc=$({
-  printf 'ssh host\n'
-  for _ in {1..100}; do
-    (( $(cat "$fake_dir/count" 2>/dev/null || echo 0) >= 2 )) && break
-    command sleep 0.05
+printf '%s\n' $'2 255\n0 255\n0 0' >"$fake_dir/plan"
+# A non-interactive launcher (including this coprocess) can ignore SIGINT.
+# Give the interactive PTY shell the signal disposition it gets in a terminal.
+coproc retry_pty {
+  exec env --default-signal=INT,QUIT SSH_RECONNECT_TEST_INTERRUPT=1 \
+    script -qec "bash --rcfile '$fake_dir/rcfile' --noediting -i" /dev/null
+}
+retry_pid=$retry_pty_PID
+worker_pids+=("$retry_pid")
+out_ctrlc=""
+wait_for_pty_line() {
+  local prefix="$1" line
+  while IFS= read -r -t 5 -u "${retry_pty[0]}" line; do
+    line=${line%$'\r'}
+    out_ctrlc+="$line"$'\n'
+    [[ $line == "$prefix"* ]] && return 0
   done
-  printf '\003'
-  command sleep 0.3
-  printf 'echo DONE rc=$?\n'
-  command sleep 0.3
-  printf 'exit\n'
-} | script -qec "bash --rcfile '$fake_dir/rcfile' -i" /dev/null | tr -d '\r')
+  fail "interactive shell reached '$prefix'" "$out_ctrlc"
+}
+
+wait_for_pty_line 'DONE rc=0'
+printf 'ssh host\n' >&"${retry_pty[1]}"
+wait_for_pty_line 'Retry ready'
+printf '\003' >&"${retry_pty[1]}"
+wait_for_pty_line 'DONE rc='
+printf 'exit 0\n' >&"${retry_pty[1]}"
 
 for pid in "${worker_pids[@]}"; do
   wait "$pid" || fail "parallel ssh-reconnect worker exited cleanly"
@@ -202,6 +214,6 @@ out=$(cat "$fake_dir/c5/out")
   fail "redirected stdin does not reconnect" "$out"
 pass "redirected stdin does not reconnect"
 
-[[ $out_ctrlc == *"Connection lost"* ]] && [[ $out_ctrlc == *"DONE rc=130"* ]] && (( $(cat "$fake_dir/count") < 10 )) ||
+[[ $out_ctrlc == *"Connection lost"* ]] && [[ $out_ctrlc == *"DONE rc=130"$'\n'* ]] && (( $(cat "$fake_dir/count") == 2 )) ||
   fail "Ctrl-C during a retry attempt stops the reconnect loop" "$out_ctrlc"
 pass "Ctrl-C during a retry attempt stops the reconnect loop"

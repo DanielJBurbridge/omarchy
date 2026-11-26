@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# omarchy:summary=Show Gaming recovery guidance on the original ROG Ally
+
+set -euo pipefail
+
+(( $# == 0 )) || exit 2
+omarchy-hw-rog-ally || exit 1
+source "$OMARCHY_PATH/default/gaming/session.sh"
+
+fallback_status() {
+  local marker=$gaming_state/recovery result
+  if [[ -L $gaming_state || ( -e $gaming_state && ( ! -d $gaming_state || ! -O $gaming_state || ! -x $gaming_state ) ) ]]; then
+    omarchy-i18n gamingRecovery.fallbackUnknown
+  # The session honours the marker's presence. Its text is unnecessary here.
+  elif [[ ! -L $marker && -f $marker && -O $marker && -r $marker && -s $marker ]]; then
+    omarchy-i18n gamingRecovery.fallbackSaved
+  elif ! result=$(LC_ALL=C stat -c '%F' -- "$marker" 2>&1) && [[ $result == *": No such file or directory" ]]; then
+    omarchy-i18n gamingRecovery.fallbackAbsent
+  else
+    omarchy-i18n gamingRecovery.fallbackUnknown
+  fi
+}
+
+if omarchy-pkg-present omarchy-gaming-session; then
+  companion=$(omarchy-i18n gamingRecovery.companionInstalled)
+else
+  companion=$(omarchy-i18n gamingRecovery.companionUndetected)
+fi
+
+if omarchy-cmd-present steam; then
+  guidance=$(omarchy-i18n gamingRecovery.openSteam)
+else
+  guidance=$(omarchy-i18n gamingRecovery.findSteamSetup)
+fi
+
+status=0
+omarchy-menu-select "$(omarchy-i18n gamingRecovery.title)" \
+  ""$'\t'"$companion"$'\t'"$(fallback_status)" \
+  "󰍹"$'\t'"$(omarchy-i18n gamingRecovery.stayOnDesktop)"$'\t'"$guidance" \
+  -- --width 540 >/dev/null || status=$?
+
+# Escape, Back and tapping outside cancel the picker.
+if (( status == 1 )); then
+  exit 0
+else
+  exit "$status"
+fi
