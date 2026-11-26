@@ -9,7 +9,7 @@ from collections import defaultdict
 import gi
 
 gi.require_version("UDisks", "2.0")
-from gi.repository import GLib, UDisks
+from gi.repository import Gio, GLib, UDisks
 
 
 def volumes(client):
@@ -61,33 +61,59 @@ def select(client, saved, title, forget, back):
     print(choices.get(picker.stdout.rstrip("\n"), ""))
 
 
+def mount_interrupted(error):
+  return (error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT)
+          or error.matches(UDisks.error_quark(), UDisks.Error.TIMED_OUT)
+          or any(error.matches(Gio.dbus_error_quark(), code) for code in (
+            Gio.DBusError.NO_REPLY, Gio.DBusError.NAME_HAS_NO_OWNER, Gio.DBusError.SERVICE_UNKNOWN)))
+
+
 def watch(client, uuid):
   # An unmount or UDisks restart retains the kernel disk sequence. Reinserting
   # the medium gives it a fresh sequence, even at the same device path.
-  handled = set()
+  # None marks a handled insertion. After an interrupted Mount, keep the
+  # daemon's D-Bus owner so only a replacement daemon can trigger one retry.
+  insertions = {}
+  manager = client.get_object_manager()
 
   def reconcile(client):
     objects = volumes(client).get(uuid, [])
     if len(objects) > 1:
       sequences = {insertion(obj) for obj in objects}
-      if sequences - handled:
+      if sequences.difference(insertions):
         print("Gaming library: duplicate filesystem UUID; mount skipped.", file=sys.stderr)
-      handled.update(sequences)
-    elif objects and insertion(objects[0]) not in handled and eligible(client, objects[0]):
-      obj = objects[0]
-      handled.add(insertion(obj))
-      fs = obj.get_filesystem()
+      insertions.update(dict.fromkeys(sequences))
+      return
+    if not objects:
+      return
+
+    obj = objects[0]
+    sequence = insertion(obj)
+    if (sequence in insertions and insertions[sequence] is None) or not eligible(client, obj):
+      return
+
+    fs = obj.get_filesystem()
+    paths = fs.props.mount_points
+    if paths:
+      path = paths[0]
+    else:
+      owner = manager.get_name_owner()
+      if not owner or insertions.get(sequence) == owner:
+        return
+      options = GLib.Variant("a{sv}", {"auth.no_user_interaction": GLib.Variant("b", True)})
       try:
-        paths = fs.props.mount_points
-        if paths:
-          path = paths[0]
-        else:
-          options = GLib.Variant("a{sv}", {"auth.no_user_interaction": GLib.Variant("b", True)})
-          path = fs.call_mount_sync(options, None)
-        if os.statvfs(path).f_flag & os.ST_RDONLY:
-          print(f"Gaming library: {path!r} is read-only.", file=sys.stderr)
-      except (GLib.Error, OSError) as error:
+        path = fs.call_mount_sync(options, None)
+      except GLib.Error as error:
+        insertions[sequence] = owner if sequence not in insertions and mount_interrupted(error) else None
         print(f"Gaming library: {str(error)!r}", file=sys.stderr)
+        return
+
+    insertions[sequence] = None
+    try:
+      if os.statvfs(path).f_flag & os.ST_RDONLY:
+        print(f"Gaming library: {path!r} is read-only.", file=sys.stderr)
+    except OSError as error:
+      print(f"Gaming library: {str(error)!r}", file=sys.stderr)
 
   client.connect("changed", reconcile)
   reconcile(client)
