@@ -16,21 +16,21 @@ git -C "$repo" config user.name "pkgver"
 git -C "$repo" config commit.gpgsign false
 printf '4.0.0.alpha\n' >"$repo/version"
 git -C "$repo" add version
-GIT_AUTHOR_DATE='2026-11-17T02:22:00Z' GIT_COMMITTER_DATE='2026-11-17T02:22:00Z' \
+GIT_AUTHOR_DATE='2026-11-26T06:43:59Z' GIT_COMMITTER_DATE='2026-11-26T06:43:59Z' \
   git -C "$repo" commit -q -m 'early'
 early=$(handheld_pkgver_for_checkout "$repo")
 
 printf 'later\n' >"$repo/note"
 git -C "$repo" add note
-GIT_AUTHOR_DATE='2026-11-17T12:00:00Z' GIT_COMMITTER_DATE='2026-11-17T12:00:00Z' \
+GIT_AUTHOR_DATE='2026-11-26T06:44:40Z' GIT_COMMITTER_DATE='2026-11-26T06:44:40Z' \
   git -C "$repo" commit -q -m 'later'
 later=$(handheld_pkgver_for_checkout "$repo")
 
-[[ $early == 4.0.0.202611170222.r1.handheld.* ]] ||
+[[ $early == 4.0.0.20261126064359.r1.handheld.* ]] ||
   fail "handheld pkgver uses the version base, the commit stamp, and the revision" "$early"
 pass "handheld pkgver uses the version base, the commit stamp, and the revision"
 
-[[ $later == 4.0.0.202611171200.r2.handheld.* ]] ||
+[[ $later == 4.0.0.20261126064440.r2.handheld.* ]] ||
   fail "a later commit gets a later stamp" "$later"
 pass "a later commit gets a later stamp"
 
@@ -144,8 +144,10 @@ newer "$early" "4.0.0.r7967.g3b36b9e" "handheld pkgver sorts above upstream omar
 newer "$early" "4.0.0.r12000.gabcdef0" "handheld pkgver sorts above a higher upstream rN"
 newer "$early" "dev.202611170222.e742281c" "handheld pkgver upgrades from dev.<date>.<sha>"
 
-newer "$later" "$early" "two handheld builds sort by commit date"
-rebased=$(handheld_pkgver 4.0.0 202611180900 50 aaaaaaaa)
+newer "$later-1" "4.0.0.20261125074311.r8876.handheld.918cd56c-1" \
+  "a later handheld build sorts above the installed seconds-width version"
+newer "$later" "$early" "handheld builds sort by commit time across a minute boundary"
+rebased=$(handheld_pkgver 4.0.0 20261127090000 50 aaaaaaaa)
 newer "$rebased" "$later" "a newer commit date sorts above an older revision"
 
 cmp=$(vercmp "4.0.1.r1.g0000000" "$later")
