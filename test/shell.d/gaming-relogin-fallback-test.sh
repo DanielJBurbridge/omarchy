@@ -46,8 +46,24 @@ sed -i "s|/usr/share/omarchy/default/gaming/session.sh|$HANDHELD_TREE/default/ga
   "$HANDHELD_TREE/bin/omarchy-handheld-autologin"
 sed -i "s|/etc/sddm.conf.d/zz-omarchy-handheld.conf|$work/sddm/zz-omarchy-handheld.conf|" \
   "$HANDHELD_TREE/bin/omarchy-session-start"
-sed -i "s|exec -c /usr/bin/loginctl|exec \"$HANDHELD_STUB/loginctl\"|" \
-  "$HANDHELD_TREE/bin/omarchy-session-start"
+sed -i -e '/\/usr\/bin\/loginctl/s/exec -c /exec /' \
+  -e "s|/usr/bin/loginctl|$HANDHELD_STUB/loginctl|" \
+  -e "s|/proc/sys/kernel/random/boot_id|$work/boot-id|" "$HANDHELD_TREE/bin/omarchy-session-start"
+sed -i -e "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock|" \
+  -e "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" "$HANDHELD_TREE/default/gaming/session.sh"
+cat > "$HANDHELD_STUB/loginctl" <<'EOF'
+#!/bin/bash
+[[ $1 == --no-pager && $2 == show-session && $3 == self ]] || exit 2
+if [[ ${HANDHELD_LOGIN_SERVICE:-} == unavailable ]]; then exit 1; fi
+if [[ ${HANDHELD_LOGIN_SERVICE:-} == stalled ]]; then exec sleep 30; fi
+printf '%s\n' "Id=${HANDHELD_LOGIN_ID:-automatic}" "Active=${HANDHELD_LOGIN_ACTIVE:-yes}" \
+  'Class=user' "Remote=${HANDHELD_LOGIN_REMOTE:-no}" 'Seat=seat0' 'Type=wayland' \
+  "Service=${HANDHELD_LOGIN_SERVICE:-sddm-autologin}" "State=${HANDHELD_LOGIN_STATE:-active}" "User=${HANDHELD_LOGIN_UID:-$UID}"
+EOF
+chmod +x "$HANDHELD_STUB/loginctl"
+# The companion package installs this desktop file verbatim. Resolve its
+# command in the fixture PATH, with both the wrapper and supervisor intact.
+read -ra sddm_exec <<< "$(sed -n 's/^Exec=//p' "$ROOT/default/gaming/wayland-sessions/omarchy-handheld.desktop")"
 cat > "$HANDHELD_STUB/uwsm" <<'EOF'
 #!/bin/bash
 printf 'uwsm:%s\n' "$*" >> "$HANDHELD_ACTIONS"
@@ -135,20 +151,129 @@ detail() {
   cat "$state/recovery" 2>/dev/null || true
 }
 
-run_session() {
-  local err=$1
+run_entry() {
+  local err=$1 status=0
   shift
   rm -rf "$HANDHELD_RUNTIME/hypr"
   rm -f "$HANDHELD_RUNTIME"/wayland-*
-  setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" "$@" >"$work/out" 2>"$err" &
+  setsid timeout 12 "$@" >"$work/out" 2>"$err" &
   session_pid=$!
-  wait "$session_pid" || true
+  wait "$session_pid" || status=$?
   session_pid=
+  return "$status"
 }
+
+run_session() {
+  run_entry "$1" "$HANDHELD_TREE/bin/omarchy-session-start" "${@:2}"
+}
+
+assert_sddm_route() {
+  local expected=$1 description=$2
+  : > "$HANDHELD_LOG"
+  rm -f "$HANDHELD_SCOPE_PID"
+  run_entry "$work/sddm-err" "${sddm_exec[@]}" || fail "$description" "$(detail "$work/sddm-err")"
+  if [[ $expected == desktop ]]; then
+    if ! grep -q '^uwsm:' "$HANDHELD_LOG" || grep -qx gamescope "$HANDHELD_LOG"; then
+      fail "$description" "$(detail "$work/sddm-err")"
+    fi
+  elif [[ $(grep -cx gamescope "$HANDHELD_LOG") != 1 || -e $failures ]]; then
+    fail "$description" "$(detail "$work/sddm-err")"
+  fi
+}
+
+cat > "$HANDHELD_STUB/steam" <<'EOF'
+#!/bin/bash
+timeout 2 bash -c 'printf "started\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || exit 1
+last=$XDG_STATE_HOME/omarchy/gaming-session/last
+for _ in {1..50}; do
+  [[ -f $last && $(< "$last") == gaming ]] && exit 0
+  sleep 0.05
+done
+exit 1
+EOF
+chmod +x "$HANDHELD_STUB/steam"
+export OMARCHY_DRM_PATH=$work/drm
+connector=$OMARCHY_DRM_PATH/card0-DP-1
+mkdir -p "$connector"
+boot_a=11111111-1111-1111-1111-111111111111
+boot_b=22222222-2222-2222-2222-222222222222
+stamp=$state/sddm-boot-id
+printf '%s\n' "$boot_a" > "$work/boot-id"
+printf 'connected\n' > "$connector/status"
+assert_sddm_route desktop 'the shipped SDDM entry selects Desktop for a docked first autologin'
+[[ $(< "$stamp") == "$boot_a" && $(stat -c '%u:%a' -- "$stamp") == "$UID:600" ]] ||
+  fail 'the boot stamp holds the kernel ID and is private to the session user'
+
+rm -rf "$HANDHELD_RUNTIME/omarchy-gaming-automatic"
+omarchy-setup-gaming-session next gaming || fail 'queue Gaming for the next preferred entry'
+HANDHELD_LOGIN_ID=restarted assert_sddm_route gaming 'an SDDM restart on the same boot ignores the dock'
+[[ $(< "$state/next") == gaming ]] || fail 'same-boot relogin preserves next=gaming'
+omarchy-setup-gaming-session next desktop || fail 'queue a one-shot Desktop relogin'
+assert_sddm_route desktop 'same-boot relogin honours next=desktop'
+[[ ! -e $state/next ]] || fail 'same-boot relogin consumes next=desktop'
+
+omarchy-setup-gaming-session default desktop || fail 'pin the boot preference to Desktop'
+printf 'disconnected\n' > "$connector/status"
+printf '%s\n' "$boot_b" > "$work/boot-id"
+assert_sddm_route desktop 'an undocked new boot honours pinned Desktop'
+[[ $(< "$stamp") == "$boot_b" ]] || fail 'a new boot replaces the previous stamp'
+
+for route in undocked-auto pinned-gaming next-gaming next-desktop; do
+  reset_case
+  case $route in
+    undocked-auto) expected=gaming ;;
+    pinned-gaming)
+      printf 'connected\n' > "$connector/status"
+      omarchy-setup-gaming-session default gaming || fail 'pin the boot preference to Gaming'
+      expected=gaming
+      ;;
+    next-gaming)
+      omarchy-setup-gaming-session default desktop && omarchy-setup-gaming-session next gaming || fail 'queue a Gaming boot'
+      expected=gaming
+      ;;
+    next-desktop)
+      omarchy-setup-gaming-session default gaming && omarchy-setup-gaming-session next desktop || fail 'queue a Desktop boot'
+      expected=desktop
+      ;;
+  esac
+  assert_sddm_route "$expected" "first autologin applies $route"
+  [[ ! -e $state/next ]] || fail 'the first autologin consumes the preferred one-shot'
+done
+pass 'the shipped SDDM entry applies dock, pinned and one-shot choices once per Linux boot'
+
+for property in HANDHELD_LOGIN_SERVICE=sddm HANDHELD_LOGIN_SERVICE=unavailable HANDHELD_LOGIN_SERVICE=stalled \
+  HANDHELD_LOGIN_REMOTE=yes HANDHELD_LOGIN_ACTIVE=no HANDHELD_LOGIN_STATE=closing \
+  HANDHELD_LOGIN_UID=$((UID + 1)) HANDHELD_LOGIN_ID=invalid/id; do
+  reset_case
+  export "$property"
+  PAM_SERVICE=sddm-autologin XDG_SESSION_ID=automatic assert_sddm_route gaming "ineligible logind property $property uses relogin"
+  unset "${property%%=*}"
+  [[ ! -e $stamp ]] || fail 'ineligible login claimed the boot preference'
+done
+pass 'unavailable or ineligible logind sessions keep relogin policy despite the environment'
+
+reset_case
+omarchy-setup-gaming-session default desktop || fail 'pin Desktop for the stamp failure cases'
+printf 'invalid\n' > "$work/boot-id"
+assert_sddm_route gaming 'an invalid boot ID uses relogin'
+[[ ! -e $stamp ]] || fail 'an invalid boot ID was recorded'
+printf '%s\n' "$boot_a" > "$work/boot-id"
+mkfifo -m 600 "$stamp"
+assert_sddm_route gaming 'an unusable stamp uses relogin without blocking'
+[[ -p $stamp ]] || fail 'the boot claim replaced an unexpected stamp file'
+rm -f -- "$stamp"
+(
+  flock -n 8 || exit 1
+  assert_sddm_route gaming 'a busy boot claim uses relogin without blocking'
+) 8< "$state" || fail 'the busy boot claim did not fall back'
+[[ ! -e $stamp ]] || fail 'a busy claim wrote the boot stamp'
+assert_sddm_route desktop 'a later verified login can claim the boot after the lock is released'
+pass 'invalid, unusable and contended boot stamps fall back to relogin'
 
 # shellcheck source=/dev/null
 source "$ROOT/default/gaming/session.sh"
-mkdir -p "$state"
+reset_case
+gaming_state_init
 printf '%s\n' "$latch" > "$state/recovery"
 [[ $(gaming_entry_selection relogin) == desktop ]] ||
   fail "Relogin ignores the fail-limit latch"
@@ -159,20 +284,21 @@ printf 'failed\n' > "$state/recovery"
 pass "Relogin honours only the fail-limit latch"
 
 reset_case
+omarchy-setup-gaming-session default gaming || fail "pin Gaming for the failed starts through SDDM"
 cat > "$HANDHELD_STUB/steam" <<'EOF'
 #!/bin/bash
 printf 'steam\n' >> "$HANDHELD_ACTIONS"
 exit 1
 EOF
 chmod +x "$HANDHELD_STUB/steam"
-run_session "$work/early-err" relogin
+run_entry "$work/early-err" "${sddm_exec[@]}"
 [[ $(cat "$failures" 2>/dev/null) == 2 ]] ||
   fail "an early exit and its retry count as two failed starts" "$(detail "$work/early-err")"
 [[ $(cat "$state/recovery" 2>/dev/null) == 'Steam or Gamescope exited; desktop selected until an explicit gaming choice.' ]] ||
   fail "two failed starts still use the ordinary recovery latch" "$(detail "$work/early-err")"
 grep -q '^gamescope$' "$HANDHELD_LOG" || fail "the first failed starts do not run Gamescope" "$(detail "$work/early-err")"
 : > "$HANDHELD_LOG"
-run_session "$work/limit-err" relogin
+run_entry "$work/limit-err" "${sddm_exec[@]}"
 [[ $(cat "$failures" 2>/dev/null) == 3 ]] ||
   fail "the third failed start is the fail limit" "$(detail "$work/limit-err")"
 if grep -q '^gamescope$' "$HANDHELD_LOG"; then
@@ -345,10 +471,6 @@ exit 1
 EOF
 chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/omarchy-hw-physical-keyboard" \
   "$HANDHELD_STUB/omarchy-pkg-present" "$HANDHELD_STUB/getent"
-sed -i "s|^gaming_desktop_lock_file=.*|gaming_desktop_lock_file=$work/desktop-lock|" \
-  "$HANDHELD_TREE/default/gaming/session.sh"
-sed -i "s|^gaming_k07_marker=.*|gaming_k07_marker=$work/k07-absent|" \
-  "$HANDHELD_TREE/default/gaming/session.sh"
 export SUDO_USER=ally AUTOLOGIN_FAKE_HOME=$HANDHELD_HOME
 cat > "$work/lock-case.sh" <<EOF
 #!/bin/bash
@@ -362,16 +484,42 @@ if [[ \$owner != 0 ]]; then
 fi
 rm -rf "$HANDHELD_RUNTIME/hypr"
 rm -f "$HANDHELD_RUNTIME"/wayland-*
-setsid timeout 12 "$HANDHELD_TREE/bin/omarchy-session-start" "\$@" >"$work/lock-out" 2>"$work/lock-err"
+setsid timeout 12 "\$@" >"$work/lock-out" 2>"$work/lock-err"
 printf '%s\n' "\$?" > "$work/lock-status"
 EOF
-run_locked_session() {
+run_locked_entry() {
   if (( EUID == 0 )); then
-    bash "$work/lock-case.sh" "${1:-relogin}"
+    bash "$work/lock-case.sh" "$@"
   else
-    unshare --user --map-root-user bash "$work/lock-case.sh" "${1:-relogin}"
+    unshare --user --map-root-user bash "$work/lock-case.sh" "$@"
   fi
 }
+
+run_locked_session() {
+  run_locked_entry "$HANDHELD_TREE/bin/omarchy-session-start" "${1:-relogin}"
+}
+
+reset_case
+omarchy-setup-gaming-session default desktop || fail 'pin protected Desktop for the first autologin'
+printf 'gaming\n' > "$state/last"
+run_locked_entry "${sddm_exec[@]}"
+[[ $(< "$work/lock-status") == 0 ]] || fail 'the protected boot preference hands off cleanly to SDDM' "$(detail "$work/lock-err")"
+grep -qx 'Relogin=false' "$work/sddm/zz-omarchy-handheld.conf" && grep -qx 'broker:pointer' "$HANDHELD_LOG" &&
+  ! grep -Eq '^(gamescope$|uwsm:)' "$HANDHELD_LOG" ||
+  fail 'protected Desktop on boot goes straight to the greeter' "$(detail "$work/lock-err")"
+[[ $(< "$state/last") == gaming && ! -e $failures ]] || fail 'the direct handoff leaves the last session and retry budget alone'
+pass 'protected Desktop on first autologin goes directly to SDDM for sign-in'
+
+reset_case
+omarchy-setup-gaming-session default gaming || fail 'pin Gaming despite an existing stop'
+mkdir -p "$work/run"
+printf 'stop\n' > "$work/run/stop"
+run_locked_entry "${sddm_exec[@]}"
+[[ $(< "$work/lock-status") == 0 && $(< "$state/recovery") == "$latch" && -f $work/run/stop ]] &&
+  ! grep -Eq '^(gamescope$|uwsm:)' "$HANDHELD_LOG" ||
+  fail 'the boot preference cannot override the hard stop' "$(detail "$work/lock-err")"
+pass 'the hard stop overrides the first autologin preference'
+
 for keyboard_status in 1 0; do
   reset_case
   rm -f "$work/lock-status"
@@ -463,14 +611,7 @@ grep -q 'Could not prepare desktop sign-in' "$state/session.log" || fail "the re
 [[ ! -e $state/next && ! -e $work/refused-dropin ]] || fail "a refused handoff writes no unauthenticated desktop request"
 pass "a refused SDDM update leaves the desktop closed"
 
-cat > "$HANDHELD_STUB/loginctl" <<'EOF'
-#!/bin/bash
-[[ $1 == --no-pager && $2 == show-session && $3 == self ]] || exit 2
-printf '%s\n' 'Id=authenticated' 'Active=yes' 'Class=user' 'Remote=no' 'Seat=seat0' \
-  "Service=$HANDHELD_LOGIN_SERVICE" 'Type=wayland' "User=$UID"
-EOF
-chmod +x "$HANDHELD_STUB/loginctl"
-export XDG_SESSION_ID=stale OMARCHY_HANDHELD_SESSION=unrelated
+export XDG_SESSION_ID=stale OMARCHY_HANDHELD_SESSION=unrelated HANDHELD_LOGIN_ID=authenticated
 
 reset_case
 HANDHELD_LOGIN_SERVICE=sddm-autologin run_locked_session authenticated-desktop

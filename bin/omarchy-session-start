@@ -19,7 +19,11 @@ source /usr/share/omarchy/default/bash/env-bootstrap
 source "$OMARCHY_PATH/default/gaming/session.sh"
 # shellcheck source=/dev/null
 source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
-(( $# == 1 )) && [[ $1 == "preferred" || $1 == "gaming" || $1 == "relogin" || $1 == "authenticated-desktop" ]] || exit 2
+(( $# == 1 )) || exit 2
+case $1 in
+  preferred | gaming | relogin | authenticated-desktop | sddm) ;;
+  *) exit 2 ;;
+esac
 
 # Hyprland instance sockets already on disk belong to an earlier compositor.
 existing_hypr_sockets() {
@@ -271,7 +275,7 @@ gaming_state_unusable_exit() {
 desktop_login_properties() {
   # SDDM invokes this entry in its own PAM session, before UWSM moves apps
   # to the user manager. Ask logind for the caller, using the system bus.
-  (exec -c /usr/bin/loginctl --no-pager show-session "$1" \
+  (exec -c /usr/bin/timeout --kill-after=1s 2s /usr/bin/loginctl --no-pager show-session "$1" \
     -p Id -p Active -p Class -p Remote -p Seat -p Service -p State -p Type -p User)
 }
 
@@ -283,15 +287,38 @@ is_local_desktop_login() {
   grep -Eq '^Service=sddm(-autologin)?$' <<< "$1"
 }
 
-authenticated_login_id() {
+sddm_login_id() {
   local properties session
   properties=$(desktop_login_properties self) || return 1
   is_local_desktop_login "$properties" && grep -Fxq 'Active=yes' <<< "$properties" &&
-    grep -Fxq 'Service=sddm' <<< "$properties" || return 1
+    grep -Fxq "Service=$1" <<< "$properties" || return 1
+  if [[ $1 == sddm-autologin ]]; then
+    grep -Fxq 'State=active' <<< "$properties" || return 1
+  fi
   session=$(sed -n 's/^Id=//p' <<< "$properties")
   [[ $session =~ ^[[:alnum:]_-]+$ ]] || return 1
   printf '%s\n' "$session"
 }
+
+# Keep the boot ID in private persistent state so it outlives SDDM and the
+# user's runtime directory. The directory lock serialises the check and write
+# across different login IDs. The stamp only selects a policy.
+claim_sddm_boot() (
+  local boot_id previous stamp=sddm-boot-id
+  local uuid='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  IFS= read -r boot_id < /proc/sys/kernel/random/boot_id || return 1
+  [[ $boot_id =~ $uuid ]] || return 1
+  cd -P -- "$gaming_state" || return 1
+  [[ -O . && $(stat -c %a -- .) == 700 ]] || return 1
+  exec 8<. && flock -w 1 8 || return 1
+  if [[ -e $stamp || -L $stamp ]]; then
+    [[ -f $stamp && ! -L $stamp && -O $stamp && $(stat -c %a -- "$stamp") == 600 ]] || return 1
+    previous=$(timeout --kill-after=1s 1s head -c 37 -- "$stamp") || return 1
+    [[ $previous =~ $uuid && $previous != "$boot_id" ]] || return 1
+  fi
+  gaming_state=.
+  gaming_save "$stamp" "$boot_id"
+)
 
 retire_closed_desktop() {
   local session=${XDG_SESSION_ID:-} unit=wayland-wm@hyprland.desktop.service
@@ -333,14 +360,18 @@ if ! omarchy-hw-rog-ally || { [[ $1 == authenticated-desktop ]] && ! omarchy-pkg
   exit $?
 fi
 desktop_entry=''
+autologin_id=''
 if [[ $1 == authenticated-desktop ]]; then
-  if ! XDG_SESSION_ID=$(authenticated_login_id); then
+  if ! XDG_SESSION_ID=$(sddm_login_id sddm); then
     gaming_fail 'Sign in through the local SDDM greeter to start the managed desktop.'
     exit 1
   fi
   export XDG_SESSION_ID
   unset OMARCHY_HANDHELD_SESSION
   desktop_entry=authenticated
+elif [[ $1 == sddm ]] && omarchy-pkg-present omarchy-gaming-session && autologin_id=$(sddm_login_id sddm-autologin); then
+  export XDG_SESSION_ID=$autologin_id
+  unset OMARCHY_HANDHELD_SESSION
 fi
 if ! gaming_state_init; then
   if [[ -n $desktop_entry ]]; then
@@ -380,7 +411,15 @@ elif [[ $1 == gaming ]]; then
   rm -f -- "$gaming_state/recovery"
   selection=gaming
 else
-  selection=$(gaming_entry_selection "$1")
+  entry=$1
+  if [[ $entry == sddm ]]; then
+    if [[ -n $autologin_id ]] && claim_sddm_boot; then
+      entry=preferred
+    else
+      entry=relogin
+    fi
+  fi
+  selection=$(gaming_entry_selection "$entry")
   if gaming_fail_limit_blocked || handheld_autologin_stopped; then
     selection=recovery
   fi
@@ -480,6 +519,11 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 0' HUP INT TERM
+
+if [[ $1 == sddm && $entry == preferred && $selection == desktop && $(gaming_desktop_lock_effective) == on ]]; then
+  return_to_desktop_signin
+  exit $?
+fi
 
 run_gaming() {
   omarchy-cmd-present gamescope && omarchy-cmd-present steam || return 2

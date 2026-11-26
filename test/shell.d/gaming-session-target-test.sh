@@ -294,7 +294,8 @@ if ! grep -q '^profile:desktop:redteam$' "$HANDHELD_LOG" || ! grep -q '^uwsm:' "
 fi
 pass "a managed Desktop login requests controller mode and can continue if refused"
 
-sed -i -e "s|exec -c /usr/bin/loginctl|exec \"$HANDHELD_STUB/loginctl\"|" \
+sed -i -e '/\/usr\/bin\/loginctl/s/exec -c /exec /' \
+  -e "s|/usr/bin/loginctl|$HANDHELD_STUB/loginctl|" \
   -e "s|/proc/\$pid/environ|$work/compositor-environ|" "$HANDHELD_TREE/bin/omarchy-session-start"
 printf 'OMARCHY_HANDHELD_SESSION=old-desktop\0' > "$work/compositor-environ"
 cat > "$HANDHELD_STUB/loginctl" <<'EOF'

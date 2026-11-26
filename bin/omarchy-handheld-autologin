@@ -205,7 +205,7 @@ case $action in
     # Stop used to exit 0 and leave the greeter, which has no keyboard.
     # The supervisor opens the Hyprland desktop once. Relogin is already
     # false, so that desktop exiting does not start another session.
-    exec omarchy-session-start relogin
+    exec omarchy-session-start sddm
     ;;
   install-user)
     install_user "${2:-}"

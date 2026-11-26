@@ -150,8 +150,6 @@ printf 'auto\n' > "$gaming_state/preference"
 printf 'connected\n' > "$panel/status"
 printf 'disconnected\n' > "$dock/status"
 [[ $(gaming_selection) == gaming ]] || fail "undocked auto stays on gaming"
-grep -q 'omarchy-session-start relogin' "$ROOT/bin/omarchy-handheld-autologin" ||
-  fail "the autologin session uses the Relogin entry"
 pass "Relogin forces gaming and ignores the recovery latch and dock auto-switch"
 
 # next=desktop is the session user's one-shot, mode 0600. Relogin consumes
@@ -242,7 +240,7 @@ rm -f "$work/run/session-args"
 restarts_before=$(grep -c '^sddm-restart$' "$work/run/actions")
 run_guard session || fail "a stopped session does not start the desktop supervisor"
 run_guard session || fail "a second stopped session does not start the desktop supervisor"
-[[ $(grep -c '^relogin$' "$work/run/session-args") == 2 ]] ||
+[[ $(grep -c '^sddm$' "$work/run/session-args") == 2 ]] ||
   fail "a stopped session starts the desktop supervisor once per entry" "$(cat "$work/run/session-args" 2>/dev/null)"
 restarts_after=$(grep -c '^sddm-restart$' "$work/run/actions")
 [[ $restarts_before == "$restarts_after" ]] ||
