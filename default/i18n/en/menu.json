@@ -476,7 +476,8 @@
     "label": "Input Methods"
   },
   "setup.keyboard.desktop": {
-    "label": "Desktop Keyboard"
+    "label": "Desktop Keyboard",
+    "description": "Type in terminal prompts, including Update > Omarchy"
   },
   "setup.input": {
     "label": "Input"

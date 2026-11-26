@@ -239,7 +239,7 @@
   "setup.keyboard.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-editor \"$HOME/.config/hypr/bindings.lua\""},
   "setup.keyboard.inputs": {"icon":"","label":"Keyboard Inputs","action":"omarchy-setup-keyboard"},
   "setup.keyboard.input-methods": {"icon":"","label":"Input Methods","action":"omarchy-setup-input"},
-  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","handheldScreen":true,"when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
+  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","description":"Type in terminal prompts, including Update > Omarchy","handheldScreen":true,"when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
   "setup.input": {"icon":"","label":"Input","when":"[[ -f ~/.config/hypr/input.lua ]]","action":"omarchy-launch-editor \"$HOME/.config/hypr/input.lua\""},
   "setup.region": {"icon":"󰇧","label":"Region"},
   "setup.region.language": {"icon":"","label":"Language","provider":"languages"},
