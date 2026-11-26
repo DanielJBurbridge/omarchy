@@ -35,6 +35,9 @@
   "system.switch-gaming": {
     "label": "Switch to Gaming"
   },
+  "system.gaming-recovery": {
+    "label": "Gaming Recovery"
+  },
   "system.about": {
     "label": "About"
   },
