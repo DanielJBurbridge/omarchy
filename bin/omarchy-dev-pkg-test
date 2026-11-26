@@ -31,8 +31,9 @@ Examples:
   omarchy dev pkg-test omarchy-dev ~/Work/omarchy/omarchy-installer
 
 The pkgver of the built package is
-'<base>.<commit UTC yyyymmddHHMM>.r<count>.handheld.<sha8>[.dirty]'.
+'<base>.<UTC yyyymmddHHMMSS>.r<count>.handheld.<sha8>[.dirty]'.
 <base> is the checkout's version file with a trailing .alpha removed.
+The timestamp uses the commit time or, without a commit, the current UTC time.
 pacman -Q shows the commit, and vercmp keeps the build above upstream
 omarchy-dev 4.0.0.r* until that package's base moves to 4.0.1 or later.
 
@@ -107,6 +108,8 @@ handheld_pkgver() {
 handheld_pkgver_for_checkout() {
   local checkout="$1"
   local version="" base stamp rev sha dirty=""
+  # vercmp compares the stamp numerically, so match installed seconds-width stamps.
+  local stamp_format=+%Y%m%d%H%M%S
 
   if [[ -f "$checkout/version" ]]; then
     version=$(<"$checkout/version")
@@ -114,14 +117,14 @@ handheld_pkgver_for_checkout() {
   base=$(handheld_pkgver_base "$version")
 
   if git -C "$checkout" rev-parse --verify HEAD >/dev/null 2>&1; then
-    stamp=$(date -u -d "@$(git -C "$checkout" show -s --format=%ct HEAD)" +%Y%m%d%H%M)
+    stamp=$(date -u -d "@$(git -C "$checkout" show -s --format=%ct HEAD)" "$stamp_format")
     rev=$(git -C "$checkout" rev-list --count HEAD)
     sha=$(git -C "$checkout" rev-parse --short=8 HEAD)
     if [[ -n "$(git -C "$checkout" status --porcelain)" ]]; then
       dirty=".dirty"
     fi
   else
-    stamp=$(date -u +%Y%m%d%H%M)
+    stamp=$(date -u "$stamp_format")
     rev=0
     sha=local
   fi
