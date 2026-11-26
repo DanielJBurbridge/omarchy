@@ -20,8 +20,30 @@ if ! omarchy-cmd-present steamos-powerbuttond; then
   exit 1
 fi
 
-# SESSION owns this foreground process, its kill/wait and enclosing scope.
-# Never enable a global service or let desktop and gaming handle one press.
+# Keep the shared desktop/gaming lock in the launcher. Steam's cleanup
+# signals this PID directly and waits for it to finish.
 exec 9>"$XDG_RUNTIME_DIR/omarchy-power-button.lock"
 flock -n 9 || exit 0
-exec steamos-powerbuttond
+
+# shellcheck disable=SC2329 # Invoked by the signal traps below.
+stop_daemon() {
+  # Keep repeated signals from interrupting the teardown wait.
+  trap '' HUP INT TERM
+  if [[ -n ${!:-} ]]; then
+    kill "$!" 2>/dev/null || true
+    wait "$!" 2>/dev/null || true
+  fi
+  exit "$1"
+}
+trap 'stop_daemon 129' HUP
+trap 'stop_daemon 130' INT
+trap 'stop_daemon 143' TERM
+
+# Close the lock FD before exec so the daemon and its Steam children cannot
+# inherit it. A background child lets Bash handle signals during wait.
+steamos-powerbuttond 9>&- &
+status=0
+wait "$!" || status=$?
+trap - HUP INT TERM
+printf 'steamos-powerbuttond exited unexpectedly (status %d). Check access to the power-button input device.\n' "$status" >&2
+exit "$status"
