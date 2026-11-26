@@ -548,7 +548,7 @@ mod.run_busctl = lambda args, deadline=None: cp(0, "")
 dest = work / "root"
 user_conf = dest / "etc/sddm.conf.d/omarchy-handheld-user.conf"
 user_conf.parent.mkdir(parents=True)
-user_conf.write_text("[Autologin]\nUser=daniel\n")
+user_conf.write_text("[OmarchyHandheld]\nUser=daniel\n")
 os.chmod(user_conf, 0o644)
 os.environ["OMARCHY_PATH"] = str(root)
 check(mod.install_service_into(dest) == 0, "the service install writes the Ally policy")
@@ -648,7 +648,8 @@ hook_script = work / "omarchy-gaming-session.install"
 hook_script.write_text(hook_source.read_text()
   .replace("/usr/bin/omarchy-setup-handheld-dirs", '"$HOOK_ROOT/usr/bin/omarchy-setup-handheld-dirs"')
   .replace("/usr/bin/omarchy-hw-rog-ally", '"$HOOK_HW"')
-  .replace("/usr/lib/omarchy-gaming-session/sddm-user.sh", '"$HOOK_USER_HELPER"'))
+  .replace("/usr/lib/omarchy-gaming-session/sddm-user.sh", '"$HOOK_USER_HELPER"')
+  .replace("/usr/share/omarchy/default/gaming/sddm-user.sh", '"$HOOK_USER_HELPER"'))
 
 def run_hook(function):
   hook_calls.write_text("")
@@ -759,7 +760,6 @@ fi
 grep -F 'warning: InputPlumber profile service install failed; re-run: omarchy-inputplumber-profile install-service' \
   "$work/warn.err" ||
   fail "post_install names the failed step and the re-run command" "$(cat "$work/warn.err")"
-printf '[Autologin]\nUser=daniel\n' > "$work/warn-sddm/omarchy-handheld-user.conf"
 : > "$work/warn-calls"
 if ! PATH="$warn_bin:$PATH" WARN_CALLS=$work/warn-calls \
   OMARCHY_SDDM_CONF_DIR=$work/warn-sddm \
@@ -769,8 +769,6 @@ fi
 grep -F 'warning: InputPlumber profile service removal failed; re-run: omarchy-inputplumber-profile remove-service' \
   "$work/warn-remove.err" ||
   fail "post_remove names the failed step and the re-run command" "$(cat "$work/warn-remove.err")"
-[[ ! -e $work/warn-sddm/omarchy-handheld-user.conf ]] ||
-  fail "post_remove leaves the handheld User= file"
 pass "a failed profile scriptlet warns and still returns"
 
 pkg=$work/pkg

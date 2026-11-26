@@ -1,7 +1,3 @@
-sddm_handheld_user_file() {
-  printf '%s\n' "${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}/omarchy-handheld-user.conf"
-}
-
 # Pacman keeps going when a scriptlet returns 0. A failed profile step has
 # to say which step failed and the command that repeats it.
 warn_profile_step() {
@@ -16,8 +12,8 @@ post_install() {
   if [[ -x /usr/bin/omarchy-setup-handheld-dirs ]]; then
     omarchy-setup-handheld-dirs
   fi
-  # Both policy installers read the recorded handheld user. Create the
-  # drop-in first on a provisioned system that has just added this package.
+  # Both policy installers read the recorded handheld user. Save the owner
+  # first on a provisioned system that has just added this package.
   local user_status=0
   if [[ -x /usr/bin/omarchy-hw-rog-ally ]] && /usr/bin/omarchy-hw-rog-ally; then
     if [[ -x /usr/lib/omarchy-gaming-session/sddm-user.sh && ! -L /usr/lib/omarchy-gaming-session/sddm-user.sh ]]; then
@@ -44,30 +40,25 @@ post_upgrade() {
   post_install
 }
 
-# /etc/sddm.conf.d/omarchy-handheld-user.conf is not a package file. The
-# username is the account the installer created, so the bytes differ per
-# machine and pacman cannot own them. pre_remove and post_remove both
-# delete it. apply also deletes it when the machine is not the handheld
-# variant, which is the desktop-mode cleanup.
-remove_handheld_user_file() {
-  local file
-  file=$(sddm_handheld_user_file)
-  if [[ -L $file || -e $file ]]; then
-    rm -f -- "$file"
+deactivate_handheld_autologin() {
+  local helper=$1
+  if [[ -x $helper && ! -L $helper ]]; then
+    warn_profile_step "Handheld SDDM cleanup" "$helper" deactivate-autologin
   fi
 }
 
 pre_remove() {
-  remove_handheld_user_file
+  # The companion helper is available before pacman removes its files.
+  deactivate_handheld_autologin /usr/lib/omarchy-gaming-session/sddm-user.sh
 }
 
 post_remove() {
+  # Catch an apply that ran while the companion was still installed.
+  deactivate_handheld_autologin /usr/share/omarchy/default/gaming/sddm-user.sh
   if command -v omarchy-inputplumber-profile >/dev/null; then
     warn_profile_step "InputPlumber profile service removal" omarchy-inputplumber-profile remove-service
   fi
   if command -v omarchy-ally-tdp-install >/dev/null; then
     warn_profile_step "Ally TDP session removal" omarchy-ally-tdp-install remove-session
   fi
-  remove_handheld_user_file
-  rm -f -- "${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}/zz-omarchy-handheld.conf"
 }

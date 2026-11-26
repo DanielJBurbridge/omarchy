@@ -11,8 +11,6 @@ conf_dir=${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}
 failures=$run_root/failures
 stop=$run_root/stop
 dropin=$conf_dir/zz-omarchy-handheld.conf
-# User= lives here, not in the drop-in apply rewrites, and not in autologin.conf.
-# Unencrypted installs delete autologin.conf after the first boot.
 user_dropin=$conf_dir/omarchy-handheld-user.conf
 
 if (( EUID == 0 )) && [[ -z ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
@@ -97,22 +95,9 @@ caller_failure_count() {
   printf '%s\n' "$count"
 }
 
-write_dropin() {
-  local relogin=$1
-  ensure_dir "$conf_dir"
-  write_file "$dropin" <<EOF
-[Autologin]
-Session=omarchy-handheld.desktop
-Relogin=$relogin
-EOF
-}
-
-# User= is owned by the gaming-session helper. apply never writes it.
-# A User= outside [Autologin] does not count, so a misplaced line is rewritten.
-# sudo clears the environment, so this never reads OMARCHY_PATH. The installed
-# helper is /usr/share/omarchy/default/gaming/sddm-user.sh. A checkout command
-# carries the same file beside itself, which is how the tests reach it.
-install_user() {
+# sudo clears OMARCHY_PATH. The companion copy also works when stock settings
+# have replaced the desktop's copy of the helper.
+source_sddm_user_helper() {
   local command_path helper
   command_path=$(readlink -f -- "${BASH_SOURCE[0]}")
   helper=$(dirname -- "$command_path")/../default/gaming/sddm-user.sh
@@ -120,19 +105,18 @@ install_user() {
     helper=/usr/share/omarchy/default/gaming/sddm-user.sh
   fi
   if [[ ! -f $helper || -L $helper ]]; then
-    echo "omarchy-handheld-autologin: missing /usr/share/omarchy/default/gaming/sddm-user.sh" >&2
-    return 0
+    helper=/usr/lib/omarchy-gaming-session/sddm-user.sh
+  fi
+  if [[ ! -f $helper || -L $helper ]]; then
+    echo "omarchy-handheld-autologin: missing SDDM user helper" >&2
+    return 1
   fi
   # shellcheck source=/dev/null
   source "$helper"
-  sddm_install_user "$1"
 }
 
-# The gaming-session guard owns the version list. --status is keep, drop,
-# or unknown, and it does not change files. drop means omarchy-dev or
-# omarchy-settings-dev is not a handheld build, so apply must not write
-# the drop-in back. unknown (no pacman answer) keeps the write below.
-handheld_dev_status() {
+# The package guard also answers read-only status queries from apply.
+handheld_package_status() {
   local guard command_path
   guard=/usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard
   if [[ ! -f $guard || -L $guard ]]; then
@@ -146,22 +130,22 @@ handheld_dev_status() {
   "$guard" --status 2>/dev/null || true
 }
 
-apply_dropin() {
-  local lock_policy
+apply_dropin() (
+  local lock_policy variant=0
+  handheld_variant && variant=1
+  if (( ! variant )) && [[ ! -e $conf_dir && ! -L $conf_dir ]]; then
+    return 0
+  fi
+  source_sddm_user_helper || return 1
+  sddm_lock_conf_dir || return 1
+  if (( ! variant )) || [[ $(handheld_package_status) == "drop" ]]; then
+    sddm_deactivate_autologin
+    return
+  fi
   refuse_symlink
-  if ! handheld_variant; then
-    # A User= left behind with no Session= makes SDDM autologin into the last
-    # desktop. Drop both files together.
-    rm -f -- "$dropin" "$user_dropin"
-    return 0
-  fi
-  if [[ $(handheld_dev_status) == "drop" ]]; then
-    rm -f -- "$dropin"
-    return 0
-  fi
   # A crash-loop stop shows the greeter. A boot with no stop file autologins.
   if [[ -f $stop ]]; then
-    write_dropin false
+    sddm_activate_autologin false
     return
   fi
   # Read the packaged policy, independently of the caller's development path.
@@ -173,11 +157,11 @@ apply_dropin() {
     gaming_desktop_lock_effective
   )
   if [[ $lock_policy == on ]]; then
-    write_dropin false
+    sddm_activate_autologin false
   else
-    write_dropin true
+    sddm_activate_autologin true
   fi
-}
+)
 
 restart_greeter() {
   if [[ -n ${OMARCHY_HANDHELD_AUTOLOGIN_DIR:-} ]]; then
@@ -208,7 +192,8 @@ case $action in
     exec omarchy-session-start relogin
     ;;
   install-user)
-    install_user "${2:-}"
+    source_sddm_user_helper
+    sddm_install_user "${2:-}"
     ;;
   apply)
     apply_dropin

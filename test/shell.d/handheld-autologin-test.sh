@@ -105,10 +105,13 @@ FAKE_OMARCHY_DEV_VERSION=4.0.0.r8045.gd54cde7 run_guard apply
 [[ ! -e $dropin ]] || fail "apply writes autologin for an upstream omarchy-dev" "$(cat "$dropin" 2>/dev/null)"
 grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
   fail "apply drops User= for an upstream omarchy-dev"
+grep -Fxq '[OmarchyHandheld]' "$work/sddm/omarchy-handheld-user.conf" ||
+  fail "apply leaves the installer user active for an upstream omarchy-dev"
 FAKE_OMARCHY_DEV_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12 run_guard apply
 grep -q '^Session=omarchy-handheld.desktop$' "$dropin" ||
   fail "apply leaves autologin off for an allypreview build" "$(cat "$dropin" 2>/dev/null)"
 grep -q '^Relogin=true$' "$dropin" || fail "apply leaves Relogin off for an allypreview build"
+grep -Fxq 'User=daniel' "$dropin" || fail "apply fails to restore the recorded user after rollback"
 grep -q '^User=daniel$' "$work/sddm/omarchy-handheld-user.conf" ||
   fail "apply rewrites User= for an allypreview build"
 rm -f "$dropin"
@@ -252,12 +255,13 @@ pass "three failure timestamps within 60s pin Relogin off and the next session i
 
 user_conf=$work/sddm/omarchy-handheld-user.conf
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"
+chmod 0644 "$user_conf"
 kept_user=$(cat "$user_conf")
 run_guard install-user othername
 [[ $(cat "$user_conf") == "$kept_user" ]] || fail "install-user does not replace an existing User=" "$(cat "$user_conf")"
 run_guard apply
-[[ $(cat "$user_conf") == "$kept_user" ]] || fail "apply rewrites the installer User= file" "$(cat "$user_conf")"
-grep -q '^User=' "$dropin" && fail "apply writes User= into the session drop-in" "$(cat "$dropin")"
+grep -Fxq '[OmarchyHandheld]' "$user_conf" || fail "apply leaves the legacy installer User= active"
+grep -Fxq 'User=daniel' "$dropin" || fail "apply loses the legacy installer user"
 rm -f "$user_conf"
 run_guard install-user daniel
 grep -q '^User=daniel$' "$user_conf" || fail "install-user writes User= on its own" "$(cat "$user_conf")"
@@ -267,18 +271,19 @@ if run_guard install-user '../daniel'; then
   fail "install-user accepts a path"
 fi
 printf '[General]\nUser=other\n' > "$user_conf"
+cp "$user_conf" "$work/operator-user.conf"
 run_guard install-user daniel
-grep -q '^\[Autologin\]$' "$user_conf" || fail "a User= outside [Autologin] is rewritten into the section" "$(cat "$user_conf")"
-grep -q '^User=daniel$' "$user_conf" || fail "a misplaced User= is replaced" "$(cat "$user_conf")"
+cmp -s "$user_conf" "$work/operator-user.conf" || fail "install-user replaces operator SDDM configuration"
 printf '[Autologin]\n# User=ghost\nUser=\n' > "$user_conf"
+cp "$user_conf" "$work/operator-user.conf"
 run_guard install-user daniel
-grep -q '^User=daniel$' "$user_conf" || fail "a comment or an empty User= counts" "$(cat "$user_conf")"
+cmp -s "$user_conf" "$work/operator-user.conf" || fail "install-user replaces an explicit empty User="
 rm -f "$user_conf"
 HW=laptop run_guard install-user daniel
 [[ ! -e $user_conf ]] || fail "a laptop install-user writes User=" "$(cat "$user_conf" 2>/dev/null)"
 HW=ally PKG=absent run_guard install-user daniel
 [[ ! -e $user_conf ]] || fail "install-user writes User= without the gaming session package"
-pass "User= stays in its own file and apply never writes it"
+pass "install-user preserves operator configuration and applies only to handheld installs"
 
 rm -f "$user_conf"
 env -i PATH="$work/bin:$ROOT/bin:/usr/bin:/bin" HW=ally PKG=present \
@@ -328,30 +333,34 @@ pass "failures older than 60s are pruned and the third one left trips"
 rm -f "$work/sddm/"*
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"
 printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
+chmod 0644 "$user_conf" "$dropin"
 HW=laptop run_guard apply
-[[ ! -e $dropin && ! -e $user_conf ]] || fail "a laptop apply leaves a handheld SDDM file"
-grep -Rqs 'User=' "$work/sddm" && fail "a laptop apply leaves User= under sddm.conf.d"
+[[ ! -e $dropin ]] || fail "a laptop apply leaves a handheld session drop-in"
+grep -Fxq '[OmarchyHandheld]' "$user_conf" || fail "a laptop apply leaves the recorded user active"
+printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
+chmod 0644 "$dropin"
+HW=ally PKG=absent run_guard apply
+[[ ! -e $dropin ]] || fail "apply without the companion leaves a handheld session drop-in"
+grep -Fxq '[OmarchyHandheld]' "$user_conf" || fail "apply without the companion leaves the recorded user active"
+# shellcheck source=/dev/null
+source <(sed -e "s|/usr/lib/omarchy-gaming-session/sddm-user.sh|$work/default/gaming/sddm-user.sh|" \
+  -e "s|/usr/share/omarchy/default/gaming/sddm-user.sh|$work/default/gaming/sddm-user.sh|" \
+  "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install")
 printf '[Autologin]\nUser=daniel\n' > "$user_conf"
 printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
-HW=ally PKG=absent run_guard apply
-[[ ! -e $dropin && ! -e $user_conf ]] || fail "removing the gaming package leaves a handheld SDDM file"
-grep -Rqs 'User=' "$work/sddm" && fail "removing the gaming package leaves User= under sddm.conf.d"
-# shellcheck source=/dev/null
-source "$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install"
-printf '[Autologin]\nUser=daniel\nSession=omarchy.desktop\n' > "$user_conf"
-printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=true\n' > "$dropin"
+chmod 0644 "$dropin"
 printf '[Autologin]\nUser=keep\nSession=omarchy.desktop\n' > "$work/sddm/autologin.conf"
 cp "$work/sddm/autologin.conf" "$work/upstream-autologin.conf"
-PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
-[[ ! -e $user_conf ]] || fail "post_remove leaves omarchy-handheld-user.conf"
-[[ ! -e $dropin ]] || fail "post_remove leaves a reference to the removed handheld session"
-cmp -s "$work/upstream-autologin.conf" "$work/sddm/autologin.conf" ||
-  fail "post_remove changes the installer's autologin.conf"
-printf '[Autologin]\nUser=daniel\n' > "$user_conf"
 PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm pre_remove
-[[ ! -e $user_conf ]] || fail "pre_remove leaves omarchy-handheld-user.conf"
-grep -q '^User=keep$' "$work/sddm/autologin.conf" || fail "pre_remove deletes autologin.conf"
-pass "laptops and a removed package leave no handheld User="
+[[ ! -e $dropin ]] || fail "pre_remove leaves a reference to the removed handheld session"
+grep -Fxq '[OmarchyHandheld]' "$user_conf" || fail "pre_remove leaves an active handheld user"
+run_guard apply
+PATH=/usr/bin:/bin OMARCHY_SDDM_CONF_DIR=$work/sddm post_remove
+[[ ! -e $dropin ]] || fail "post_remove leaves a reference to the removed handheld session"
+grep -Fxq 'User=daniel' "$user_conf" || fail "removal loses the owner record"
+cmp -s "$work/upstream-autologin.conf" "$work/sddm/autologin.conf" ||
+  fail "removal changes the installer's autologin.conf"
+pass "laptops and companion removal keep the owner record inactive"
 
 # sudo strips the environment, so fail reads the default state home of
 # SUDO_USER. A count already at the limit pins Relogin off without restarting
