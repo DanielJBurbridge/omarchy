@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# omarchy:summary=Show the result of a manual repository update check
+# omarchy:hidden=true
+
+set -euo pipefail
+
+version=$(omarchy-version 2>/dev/null) || version=$(omarchy-i18n update.checkUnknown)
+channel=$(omarchy-channel-current)
+if [[ $channel == "unknown" ]]; then
+  channel=$(omarchy-i18n update.checkUnknown)
+fi
+installed=$(omarchy-i18n update.checkInstalled "$version" "$channel")
+notification=$(omarchy-notification-send --transient -g  -t 35000 -p \
+  "$(omarchy-i18n update.checking)" "$installed")
+
+status=0
+omarchy-update-check >/dev/null || status=$?
+case $status in
+  0) result=$(omarchy-i18n update.checkAvailable) ;;
+  2) result=$(omarchy-i18n update.checkCurrent) ;;
+  124|137) result=$(omarchy-i18n update.checkTimedOut) ;;
+  *) result=$(omarchy-i18n update.checkFailed) ;;
+esac
+
+omarchy-notification-send --transient -g  -t 15000 -r "$notification" "$result" "$installed"
