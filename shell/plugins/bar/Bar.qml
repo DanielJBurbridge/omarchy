@@ -1458,6 +1458,7 @@ Item {
 
   function setRequestedTransparency(value) {
     var nextTransparent = value === true
+    if (requestedTransparent === nextTransparent) return
     requestedTransparent = nextTransparent
     if (!nextTransparent) {
       foregroundAnimationEnabled = false
@@ -1465,9 +1466,7 @@ Item {
       transparent = false
       transparentForeground = themeForeground
       restoreForegroundAnimation()
-      return
     }
-    scheduleTransparentForegroundRefresh()
   }
 
   function restoreForegroundAnimation() {
