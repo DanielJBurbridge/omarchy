@@ -1,4 +1,4 @@
-"""Exercise the desktop observer on an isolated D-Bus connection."""
+"""Exercise the managed profile observer on an isolated D-Bus connection."""
 
 import os
 import queue
@@ -131,13 +131,17 @@ def main(root):
   def emit(backend, action, value=1.0, target_path=target):
     backend.emit_signal(None, target_path, INPUT_EVENTS, "InputEvent", GLib.Variant("(sd)", (action, value)))
 
+  def add_interface(backend, path, name, properties):
+    backend.emit_signal(None, INPUTPLUMBER_PATH, "org.freedesktop.DBus.ObjectManager", "InterfacesAdded",
+                        GLib.Variant("(oa{sa{sv}})", (path, {name: properties})))
+
   def sync_events(backend, observer_name):
     # A later signal from the same connection fences the preceding inputs.
     backend.emit_signal(None, f"{INPUTPLUMBER_PATH}/CompositeDevice0", PROPERTIES, "PropertiesChanged",
                         GLib.Variant("(sa{sv}as)", (COMPOSITE, {}, ["SourceDevicePaths"])))
     expect(profile, True, observer_name)
 
-  for profile in ("desktop", "osk"):
+  for profile in ("desktop", "osk", "gaming"):
     backend = start_backend()
     device.set()
     with subprocess.Popen([sys.executable, sys.argv[1], profile], env=env,
@@ -179,6 +183,10 @@ def main(root):
           bus.flush_sync(None)
           sync_events(backend, observer_name)
           assert actions.read_text() == expected, "different signal sender"
+        elif profile == "gaming":
+          emit(backend, "omarchy_menu")
+          sync_events(backend, observer_name)
+          assert actions.read_text() == expected, "Gaming ignores Desktop OEM actions"
         device.clear()
         backend.close_sync(None)
         backend = start_backend()
@@ -186,8 +194,7 @@ def main(root):
 
         path = f"{INPUTPLUMBER_PATH}/CompositeDevice0"
         emit(backend, "omarchy_menu")
-        backend.emit_signal(None, INPUTPLUMBER_PATH, "org.freedesktop.DBus.ObjectManager", "InterfacesAdded",
-                            GLib.Variant("(oa{sa{sv}})", (path, {COMPOSITE: {}})))
+        add_interface(backend, path, COMPOSITE, {})
         expect(profile, False, observer_name)
         assert actions.read_text() == expected, "profile is still unavailable"
 
@@ -196,9 +203,27 @@ def main(root):
                             GLib.Variant("(sa{sv}as)", (COMPOSITE, {}, ["SourceDevicePaths"])))
         expect(profile, True, observer_name)
 
+        if profile == "gaming":
+          # Recreate the composite under the same daemon, with the source
+          # registered after it. The two events must work in either order.
+          path = f"{INPUTPLUMBER_PATH}/CompositeDevice1"
+          device.clear()
+          add_interface(backend, path, COMPOSITE, {})
+          expect(profile, False, observer_name)
+
+          device.set()
+          add_interface(backend, f"{INPUTPLUMBER_PATH}/devices/source/hidraw0",
+                        "org.shadowblip.Input.Source.HIDRawDevice",
+                        {"IdVendor": GLib.Variant("s", "0b05"), "IdProduct": GLib.Variant("s", "1abe")})
+          expect(profile, True, observer_name)
+          add_interface(backend, path, COMPOSITE, {})
+          expect(profile, True, observer_name)
+
         output, errors = observer.communicate(timeout=5)
         assert observer.returncode == 0 and output == b"ready\n", (output, errors)
         expect("pointer", True, observer_name)
+        add_interface(backend, path, COMPOSITE, {})
+        assert calls.empty(), "profile requests after teardown"
       finally:
         if observer.poll() is None:
           observer.kill()

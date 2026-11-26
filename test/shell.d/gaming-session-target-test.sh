@@ -19,19 +19,8 @@ if grep -q '^\[Service\]' "$unit"; then
 fi
 pass "omarchy-gaming-session.target is a plain user target"
 
-profile_unit=$ROOT/default/systemd/user/omarchy-gaming-input-profile.service
 bridge_dropin=$ROOT/default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf
 shim_dropin=$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf
-grep -q '^Wants=omarchy-gaming-input-profile.service$' "$unit" ||
-  fail "the gaming session target wants the profile load"
-grep -q '^Before=omarchy-rog-ally-input.service$' "$profile_unit" ||
-  fail "the profile load is ordered before the gaming bridge"
-grep -q '^PartOf=omarchy-gaming-session.target$' "$profile_unit" ||
-  fail "the profile load is part of the gaming session target"
-grep -q '^WantedBy=omarchy-gaming-session.target$' "$profile_unit" ||
-  fail "the profile load is wanted by the gaming session target"
-grep -q '^After=omarchy-gaming-input-profile.service$' "$bridge_dropin" ||
-  fail "the bridge unit is After= the profile load"
 grep -q '^PartOf=omarchy-gaming-session.target$' "$bridge_dropin" ||
   fail "the bridge unit is part of the gaming session target"
 grep -q '^WantedBy=omarchy-gaming-session.target$' "$bridge_dropin" ||
@@ -49,20 +38,12 @@ grep -q '^PartOf=graphical-session.target$' "$shim_unit" ||
 if grep -q '^PartOf=omarchy-gaming-session.target$' "$shim_unit"; then
   fail "the TDP shim unit stops with the gaming target"
 fi
-if grep -E '^(Wants|WantedBy|RequiredBy|BindsTo)=(default\.target|graphical-session\.target)$' \
-  "$unit" "$profile_unit"; then
-  fail "the gaming profile is wanted by a desktop target"
-fi
 pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
 install_script=$ROOT/packages/omarchy-gaming-session/omarchy-gaming-session.install
 grep -F -q 'usr/lib/systemd/user/omarchy-gaming-session.target"' "$pkgbuild" ||
   fail "the package ships the gaming session target"
-grep -F -q 'usr/lib/systemd/user/omarchy-gaming-input-profile.service"' "$pkgbuild" ||
-  fail "the package ships the profile oneshot"
-grep -F -q 'omarchy-gaming-session.target.wants/omarchy-gaming-input-profile.service' "$pkgbuild" ||
-  fail "the package links the profile oneshot from the gaming target"
 if grep -E 'default\.target\.wants|graphical-session\.target\.wants' "$pkgbuild"; then
-  fail "the package links the profile oneshot from a desktop target"
+  fail "the package links gaming units from a desktop target"
 fi
 grep -F -q 'systemctl start omarchy-inputplumber-profile.service' "$install_script" ||
   fail "the install script starts the profile service"
@@ -71,7 +52,7 @@ ally_line=$(grep -n '/usr/bin/omarchy-hw-rog-ally' "$install_script" | head -1 |
 if [[ -z $start_line || -z $ally_line ]] || (( ally_line >= start_line )); then
   fail "profile service startup is gated on the Ally"
 fi
-pass "profile load is before the bridge, and both follow the gaming session target"
+pass "the bridge and TDP shim are wanted by the gaming session target"
 
 # A non-login ssh command does not export OMARCHY_PATH. set -u must not abort.
 assert_path_default() {
@@ -208,10 +189,15 @@ mapfile -t shutdown_actions < <(grep -E '^(steam:shutdown:|steam:clean-exit$|gam
   fail "Switch to Desktop lets Steam exit through its own display before the scope receives TERM" "$detail"
 pass "the explicit desktop return lets Steam and Gamescope exit in order"
 
-profile_line=$(grep -n '^profile:desktop:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
-pointer_line=$(grep -n '^profile:pointer:redteam$' "$HANDHELD_LOG" | head -1 | cut -d: -f1)
-if [[ -z $profile_line || -z $pointer_line ]] || (( profile_line <= stop_line || profile_line >= desktop_line || pointer_line <= desktop_line )); then
-  fail "returning from Gaming loads the desktop profile after Gamescope stops and restores the pointer on logout" "$detail"
+mapfile -t profile_actions < <(grep -n '^profile:' "$HANDHELD_LOG")
+(( ${#profile_actions[@]} == 4 )) &&
+  [[ ${profile_actions[0]#*:} == 'profile:gaming:redteam' && ${profile_actions[1]#*:} == 'profile:pointer:redteam' &&
+  ${profile_actions[2]#*:} == 'profile:desktop:redteam' && ${profile_actions[3]#*:} == 'profile:pointer:redteam' ]] ||
+  fail "the active login loads each session profile and restores the pointer on teardown" "$detail"
+if (( ${profile_actions[0]%%:*} >= start_line || ${profile_actions[1]%%:*} <= stop_line ||
+  ${profile_actions[1]%%:*} >= ${profile_actions[2]%%:*} || ${profile_actions[2]%%:*} >= desktop_line ||
+  ${profile_actions[3]%%:*} <= desktop_line )); then
+  fail "the controller watches bracket Gaming and Desktop in the active login" "$detail"
 fi
 pass "the managed session switches the controller mapping between Gaming, Desktop and the greeter"
 
@@ -259,7 +245,7 @@ EOF
 chmod +x "$HANDHELD_STUB/systemctl"
 printf '\n# User override\n' >> "$user_units/$name"
 cp "$user_units/$name" "$work/user-target"
-run_session gaming
+PROFILE_LOAD_STATUS=1 run_session gaming
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the legacy unit setup preserves a user's existing target"
 absent=$(cat "$HANDHELD_LOG")
@@ -269,14 +255,17 @@ fi
 grep -q 'start omarchy-rog-ally-input.service' <<<"$absent" &&
   fail "a missing bridge unit is not started" "$absent"
 grep -q '^gamescope$' <<<"$absent" || fail "a missing TDP shim still starts Gamescope" "$absent"
+if ! grep -q '^profile:gaming:redteam$' <<<"$absent" || grep -q '^profile:pointer:' <<<"$absent"; then
+  fail "a refused gaming profile still starts Gamescope and leaves the controller's native map available" "$absent"
+fi
 pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
 
 mkdir -p "$vendor_units"
 cp "$unit" "$vendor_units/$name"
-rm "$user_units/omarchy-gaming-input-profile.service"
+rm "$user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
 run_session gaming
 grep -q '^gamescope$' "$HANDHELD_LOG" || fail "the installed gaming package still starts Gamescope"
-[[ ! -e $user_units/omarchy-gaming-input-profile.service ]] ||
+[[ ! -e $user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf ]] ||
   fail "the installed gaming package does not recreate per-user units"
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the installed gaming package leaves the user's override in place"
@@ -346,6 +335,6 @@ pass "the gaming session target stays on the handheld path"
 
 if ! dbus-run-session -- python3 "$here/../handheld/input-profile-watch-test.py" \
   "$ROOT/default/gaming/input-profile-watch.py" > "$work/profile-watch.log" 2>&1; then
-  fail "managed desktop profiles recover when InputPlumber and the Ally composite reappear" "$(cat "$work/profile-watch.log")"
+  fail "managed profiles recover when InputPlumber and the Ally composite reappear" "$(cat "$work/profile-watch.log")"
 fi
-pass "managed desktop profiles recover when InputPlumber and the Ally composite reappear"
+pass "managed profiles recover when InputPlumber and the Ally composite reappear"

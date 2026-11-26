@@ -436,7 +436,6 @@ fi
     default/gaming/steamos-update \
     default/gaming/sddm-user.sh \
     default/systemd/user/omarchy-gaming-session.target \
-    default/systemd/user/omarchy-gaming-input-profile.service \
     default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf \
     default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf \
     LICENSE
