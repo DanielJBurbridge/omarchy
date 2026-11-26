@@ -171,51 +171,145 @@ EOF
   chmod 0644 "$dest"
 }
 
-record_file() {
-  printf '%s\n' "$prefix/var/lib/omarchy/handheld/power-profiles-daemon.state"
+ppd_unit=power-profiles-daemon.service
+ppd_record=$prefix/var/lib/omarchy/handheld/power-profiles-daemon.state
+ppd_mask=$prefix/etc/systemd/system/$ppd_unit
+ppd_mask_target=/etc/omarchy/handheld/omarchy-ally-tdp-ppd-mask.service
+
+ppd_owns_mask_target() {
+  [[ -L $prefix$ppd_mask_target && $(readlink -- "$prefix$ppd_mask_target") == /dev/null ]]
+}
+
+ppd_owns_mask() {
+  [[ -L $ppd_mask && $(readlink -- "$ppd_mask") == "$ppd_mask_target" ]] && ppd_owns_mask_target
+}
+
+ppd_has_legacy_mask() {
+  [[ -L $ppd_mask && $(readlink -- "$ppd_mask") == /dev/null ]]
+}
+
+ppd_activity() {
+  if [[ -n $prefix ]]; then
+    printf '%s\n' unknown
+    return
+  fi
+  local state
+  state=$(sc show --property=ActiveState --value "$ppd_unit") || return 1
+  case $state in
+    active | reloading) printf '%s\n' active ;;
+    inactive | failed) printf '%s\n' inactive ;;
+    *) log "could not determine whether $ppd_unit is running (state: $state)"; return 1 ;;
+  esac
+}
+
+reconcile_ppd_activity() {
+  local expected=$1 current
+  case $expected in
+    active | inactive) ;;
+    *) return 0 ;;
+  esac
+  current=$(ppd_activity) || return 1
+  if [[ $current == unknown || $current == "$expected" ]]; then
+    return 0
+  fi
+  if [[ $expected == active ]]; then
+    sc start "$ppd_unit"
+  else
+    sc stop "$ppd_unit"
+  fi
+}
+
+read_ppd_receipt() {
+  local receipt
+  receipt=$(<"$ppd_record") || return 1
+  case $receipt in
+    'v2 active' | 'v2 inactive' | 'v2 unknown' | 'v2 external')
+      printf '%s\n' "${receipt#v2 }"
+      ;;
+    masked | bad | not-found | '') printf '%s\n' external ;;
+    alias | disabled | enabled | enabled-runtime | generated | indirect | linked | linked-runtime | masked-runtime | static | transient)
+      printf '%s\n' legacy
+      ;;
+    *) log "invalid power-profiles-daemon handoff receipt"; return 1 ;;
+  esac
+}
+
+write_ppd_receipt() {
+  local dir=${ppd_record%/*} temporary
+  mkdir -p -- "$dir"
+  temporary=$(mktemp "$dir/.power-profiles-daemon.XXXXXXXX")
+  if ! printf 'v2 %s\n' "$1" >"$temporary" || ! mv -T -- "$temporary" "$ppd_record"; then
+    rm -f -- "$temporary"
+    log "could not save the power-profiles-daemon handoff receipt"
+    return 1
+  fi
 }
 
 mask_ppd() {
-  local record state
-  record=$(record_file)
-  mkdir -p -- "$(dirname -- "$record")"
-  if [[ ! -f $record ]]; then
-    state=$(unit_state power-profiles-daemon.service)
-    printf '%s\n' "$state" >"$record"
+  local receipt='' state activity
+  if [[ -f $ppd_record ]]; then
+    receipt=$(read_ppd_receipt) || return 1
   fi
-  if [[ -n $prefix ]]; then
-    sc mask power-profiles-daemon.service
-  else
-    systemctl mask --now power-profiles-daemon.service
+  if ! ppd_owns_mask && ! { [[ $receipt == legacy ]] && ppd_has_legacy_mask; }; then
+    state=$(unit_state "$ppd_unit")
+    if [[ $state == masked* ]]; then
+      if [[ -z $receipt ]]; then
+        write_ppd_receipt external || return 1
+      fi
+      return 0
+    fi
+    if [[ -z $state || -e $ppd_mask || -L $ppd_mask ]]; then
+      log "could not mask $ppd_unit while preserving its existing unit configuration"
+      return 1
+    fi
+    if [[ -z $receipt || $receipt == external ]]; then
+      activity=$(ppd_activity) || return 1
+      write_ppd_receipt "$activity" || return 1
+    fi
+    # A distinct mask target lets removal recognise our link after an
+    # interruption without calling unmask on administrator links.
+    if [[ ! -e $prefix$ppd_mask_target && ! -L $prefix$ppd_mask_target ]]; then
+      mkdir -p -- "$prefix${ppd_mask_target%/*}"
+      ln -sT -- /dev/null "$prefix$ppd_mask_target"
+    fi
+    if ! ppd_owns_mask_target; then
+      log "the Omarchy mask target for $ppd_unit was replaced"
+      return 1
+    fi
+    mkdir -p -- "${ppd_mask%/*}"
+    ln -sT -- "$ppd_mask_target" "$ppd_mask"
   fi
+  reload_systemd
+  reconcile_ppd_activity inactive
 }
 
 restore_ppd() {
-  local record state
-  record=$(record_file)
-  [[ -f $record ]] || return 0
-  state=$(cat "$record" 2>/dev/null || true)
-  state=${state//$'\n'/}
-  if [[ -n $prefix ]]; then
-    sc unmask power-profiles-daemon.service || true
-  else
-    systemctl unmask power-profiles-daemon.service
+  local receipt
+  [[ -f $ppd_record ]] || return 0
+  receipt=$(read_ppd_receipt) || return 1
+  if [[ $receipt != external ]]; then
+    # For a legacy receipt, a unit that originally lacked a persistent mask
+    # is the only evidence the old installer left for its plain /etc mask.
+    # The old installer recorded no activity.
+    if ppd_owns_mask || { [[ $receipt == legacy ]] && ppd_has_legacy_mask; }; then
+      rm -- "$ppd_mask"
+    fi
+    reload_systemd
+    reconcile_ppd_activity "$receipt"
+    if ppd_owns_mask_target; then
+      rm -- "$prefix$ppd_mask_target"
+    fi
   fi
-  case $state in
-    enabled | enabled-runtime)
-      sc enable power-profiles-daemon.service
-      if [[ -z $prefix ]]; then
-        systemctl start power-profiles-daemon.service
-      fi
-      ;;
-    masked)
-      sc mask power-profiles-daemon.service
-      ;;
-    *)
-      sc disable power-profiles-daemon.service || true
-      ;;
-  esac
-  rm -f -- "$record"
+  rm -- "$ppd_record"
+}
+
+lock_session() {
+  mkdir -p -- "$prefix/run"
+  exec 9>"$prefix/run/omarchy-ally-tdp-install.lock"
+  if ! flock -w 5 9; then
+    log "another Ally TDP session change is in progress"
+    return 1
+  fi
 }
 
 install_power_source() {
@@ -265,6 +359,7 @@ install_hardware() {
 install_session() {
   omarchy-hw-rog-ally || return 0
   omarchy-pkg-present omarchy-gaming-session || return 0
+  lock_session
   [[ -x /usr/bin/omarchy-ally-tdp-apply || -x $OMARCHY_PATH/bin/omarchy-ally-tdp-apply ]] || {
     log "omarchy-ally-tdp-apply is not installed"
     return 1
@@ -358,9 +453,11 @@ case $action in
     install_session
     ;;
   remove-session)
+    lock_session
     remove_session
     ;;
   remove)
+    lock_session
     remove_all
     ;;
   *)

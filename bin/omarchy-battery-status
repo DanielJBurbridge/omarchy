@@ -91,17 +91,14 @@ power_rate=$(awk -v rate="${power_rate_raw:-0}" 'BEGIN {
 state=$(awk '/state/ { print $2; exit }' <<<"$battery_info")
 
 # UPower can report its configured range while the limit is disabled.
-# Prefer the effective thresholds from the battery it resolved.
+# Prefer the effective sysfs thresholds for the selected battery.
 threshold_start=$(read_sysfs_number "$battery_path/charge_control_start_threshold") || threshold_start=""
 if threshold_end=$(read_sysfs_number "$battery_path/charge_control_end_threshold"); then
   charge_limit=$threshold_end
 else
   threshold_end=$(awk '/charge-end-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
   [[ -n $threshold_start ]] || threshold_start=$(awk '/charge-start-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
-  # Time to full uses this battery's own limit, even if another battery has one.
   charge_limit=${threshold_end:-100}
-  [[ -n $threshold_end ]] || threshold_end=$(cat "$power_supply_path"/BAT*/charge_control_end_threshold 2>/dev/null | head -1)
-  [[ -n $threshold_start ]] || threshold_start=$(cat "$power_supply_path"/BAT*/charge_control_start_threshold 2>/dev/null | head -1)
 fi
 if [[ $threshold_end == "100" ]]; then
   threshold_end=""
@@ -163,11 +160,9 @@ if [[ $shell_output == "true" ]]; then
   printf 'size\t%s\n' "${capacity}Wh"
   printf 'time\t%s\n' "$time_remaining"
 
-  cycles=""
-  [[ ! -r $battery_path/cycle_count ]] || cycles=$(<"$battery_path/cycle_count")
-  [[ -n $cycles ]] || cycles=$(cat "$power_supply_path"/BAT*/cycle_count 2>/dev/null | head -1)
-
-  [[ -n $cycles ]] && printf 'cycles\t%s\n' "$cycles"
+  if cycles=$(read_sysfs_number "$battery_path/cycle_count"); then
+    printf 'cycles\t%s\n' "$cycles"
+  fi
 
   if [[ -n $threshold_end ]]; then
     if [[ -n $threshold_start && $threshold_start != $threshold_end ]]; then

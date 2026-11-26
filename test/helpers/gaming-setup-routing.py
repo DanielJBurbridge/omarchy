@@ -58,3 +58,52 @@ printf '%s\\tfixture subtext\\n' "$line"
     result = subprocess.run([str(script), '--help'], env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True)
     assert result.returncode == 0 and 'first sign-in' in result.stdout
     print('PASS standalone-help')
+
+    recovery = script.with_name('omarchy-menu-gaming-recovery')
+    pacman = root / 'pacman'
+    pacman.write_text('#!/bin/bash\n[[ $* == "-Q -- omarchy-gaming-session" && $COMPANION_PRESENT == 1 ]]\n')
+    pacman.chmod(0o755)
+    (root / 'vendor').write_text('ASUSTeK COMPUTER INC.\n')
+    (root / 'board').write_text('unknown\n')
+    (root / 'choices').write_text('CANCEL\n')
+    state = root / 'state/omarchy/gaming-session'
+    marker = state / 'recovery'
+    cases = [
+        ('ordinary-desktop', 'ROG Ally RC71L', 0, 0, None, 'not detected', 'No saved desktop fallback', 'Setup → Gaming'),
+        ('fallback', 'ROG Ally RC71L_RC71L', 1, 1, 'local-only details\n', 'installed', 'Desktop fallback recorded', 'Steam from Apps'),
+        ('partial', 'ROG Ally RC71L', 1, 0, '', 'installed', 'Saved fallback status unavailable', 'Setup → Gaming'),
+        ('symlink', 'ROG Ally RC71L', 0, 1, 'symlink', 'not detected', 'Saved fallback status unavailable', 'Steam from Apps'),
+        ('ally-x', 'ROG Ally X RC72LA', 1, 1, None, '', '', ''),
+    ]
+    env.pop('OMARCHY_HANDHELD_SESSION', None)
+    env.update(TEST_TRANSLATED='0', XDG_STATE_HOME=str(root / 'state'), OMARCHY_LANGUAGE_FILE=str(root / 'language'),
+               OMARCHY_DMI_SYS_VENDOR_PATH=str(root / 'vendor'), OMARCHY_DMI_BOARD_NAME_PATH=str(root / 'board'),
+               OMARCHY_DMI_PRODUCT_NAME_PATH=str(root / 'product'))
+    for name, model, companion, steam, saved, package_label, fallback_label, hint in cases:
+        (root / 'product').write_text(model + '\n')
+        (root / 'count').write_text('0\n')
+        (root / 'menus').write_text('')
+        if saved is not None:
+            state.mkdir(parents=True, exist_ok=True)
+            if saved == 'symlink':
+                marker.symlink_to(root / 'nonexistent')
+            else:
+                marker.write_text(saved)
+        result = subprocess.run([str(recovery)], env=dict(env, COMPANION_PRESENT=str(companion), STEAM_PRESENT=str(steam)),
+                                capture_output=True, text=True, timeout=5)
+        menus = (root / 'menus').read_text()
+        if name == 'ally-x':
+            assert result.returncode == 1 and not menus, (name, result, menus)
+        else:
+            assert result.returncode == 0 and not result.stdout and not result.stderr, (name, result)
+            assert f'Gaming companion {package_label}\t{fallback_label}' in menus and hint in menus, (name, menus)
+            assert 'local-only details' not in menus, (name, menus)
+        if saved is None:
+            assert not marker.exists()
+        elif saved == 'symlink':
+            assert marker.is_symlink()
+            marker.unlink()
+        else:
+            assert marker.read_text() == saved
+            marker.unlink()
+        print('PASS recovery-' + name)

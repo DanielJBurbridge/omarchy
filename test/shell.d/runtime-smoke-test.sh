@@ -401,6 +401,13 @@ sleep 0.3
 (( $(text_color_count) == before )) ||
   fail_with_log "unrelated state writes re-sample the wallpaper (was $before, now $(text_color_count))"
 
+# The config file watch and the bar command can reload the same setting at
+# different times. A reload after the first sample must leave it alone.
+[[ $(scratch_ipc shell reloadConfig) == "ok" ]] || fail_with_log "shell IPC reloads the config"
+sleep 0.3
+(( $(text_color_count) == before )) ||
+  fail_with_log "unchanged shell config re-samples the wallpaper (was $before, now $(text_color_count))"
+
 ln -nsf "$state_dir/current/theme/b.png" "$state_dir/current/background"
 for _ in {1..50}; do
   (( $(text_color_count) > before )) && break
