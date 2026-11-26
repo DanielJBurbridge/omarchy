@@ -10,11 +10,12 @@ trap 'rm -rf "$tmp_dir"' EXIT
 mkdir -p "$tmp_dir/bin"
 # Apple Silicon: a battery not called BAT*, power_now signed by direction, and
 # the thresholds and cycle count only under the native path.
-mkdir -p "$tmp_dir/power/macsmc-battery"
+mkdir -p "$tmp_dir/power/macsmc-battery" "$tmp_dir/power/hidpp_battery_0"
 printf '%s\n' '-10800000' >"$tmp_dir/power/macsmc-battery/power_now"
 printf '75\n' >"$tmp_dir/power/macsmc-battery/charge_control_start_threshold"
 printf '80\n' >"$tmp_dir/power/macsmc-battery/charge_control_end_threshold"
 printf '212\n' >"$tmp_dir/power/macsmc-battery/cycle_count"
+printf '999\n' >"$tmp_dir/power/hidpp_battery_0/cycle_count"
 cat >"$tmp_dir/bin/upower" <<'STUB'
 #!/bin/bash
 
@@ -75,6 +76,9 @@ sed -i 's/native-path:          macsmc-battery/native-path:          CMB0/' "$tm
 generic_output=$(OMARCHY_TEST_NATIVE_PATH=CMB0 OMARCHY_POWER_SUPPLY_PATH="$tmp_dir/power" PATH="$tmp_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
 grep -Fx $'rate\t7.3W' <<<"$generic_output" >/dev/null || fail "battery status accepts arbitrary UPower battery paths"
 grep -Fx $'time\t3h 53m' <<<"$generic_output" >/dev/null || fail "battery status time left follows the live draw"
+if grep -q $'^cycles\t' <<<"$generic_output"; then
+  fail "a battery without a cycle count leaves out the mouse's count" "$generic_output"
+fi
 pass "battery status supports Apple Silicon and arbitrary native battery paths"
 
 # Firmware that doesn't know the present rate leaves current_now in place but
@@ -173,7 +177,9 @@ sed -i 's/energy-full:          69.6 Wh/energy:               27.84 Wh\n  energy
 rm "$hold_dir/power/BAT0/charge_control_end_threshold"
 sed -i '/charge-end-threshold: 80%/d' "$hold_dir/bin/upower"
 mkdir -p "$hold_dir/power/BAT1"
+printf '55\n' >"$hold_dir/power/BAT1/charge_control_start_threshold"
 printf '60\n' >"$hold_dir/power/BAT1/charge_control_end_threshold"
+printf '420\n' >"$hold_dir/power/BAT1/cycle_count"
 unlimited_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
 grep -Fx $'time\t1h 30m' <<<"$unlimited_output" >/dev/null || fail "time to full ignores another battery's charge limit" "$unlimited_output"
 pass "battery status times charging to its own battery's limit"
@@ -185,6 +191,33 @@ danish_output=$(OMARCHY_LANGUAGE_FILE="$tmp_dir/language" OMARCHY_POWER_SUPPLY_P
 danish_time=$(OMARCHY_LANGUAGE_FILE="$tmp_dir/language" OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
 grep -Fx $'time\t1 t 30 min' <<<"$danish_time" >/dev/null || fail "battery status durations follow the Omarchy language" "$danish_time"
 pass "battery status reads in the Omarchy language"
+
+# A pending battery on AC can only be holding at its own charge limit.
+sed -i 's/state:                charging/state:                pending-charge/; /time to full:/d' "$hold_dir/bin/upower"
+printf '0\n' >"$hold_dir/power/BAT0/power_now"
+pending_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'percentage\t40%' <<<"$pending_output" >/dev/null || fail "battery status reports BAT0's percentage" "$pending_output"
+grep -Fx $'state\tpending-charge' <<<"$pending_output" >/dev/null || fail "BAT1's limit does not make BAT0 report holding" "$pending_output"
+if grep -Eq $'^(threshold|cycles)\t' <<<"$pending_output"; then
+  fail "battery status omits the other battery's thresholds and cycle count" "$pending_output"
+fi
+
+# A UPower end threshold without a start belongs to BAT0 alone.
+sed -i '/percentage:/a\  charge-end-threshold: 80%' "$hold_dir/bin/upower"
+upower_limit_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'threshold\t80%' <<<"$upower_limit_output" >/dev/null || fail "BAT0's UPower threshold does not borrow BAT1's start threshold" "$upower_limit_output"
+
+# When UPower has no thresholds, use the matched battery's sysfs readings.
+sed -i '/charge-end-threshold: 80%/d' "$hold_dir/bin/upower"
+printf '35\n' >"$hold_dir/power/BAT0/charge_control_start_threshold"
+printf '40\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+printf '123\n' >"$hold_dir/power/BAT0/cycle_count"
+matched_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'state\tholding' <<<"$matched_output" >/dev/null || fail "BAT0 holds at its own sysfs limit" "$matched_output"
+grep -Fx $'threshold\t35-40%' <<<"$matched_output" >/dev/null || fail "battery status reports BAT0's sysfs thresholds" "$matched_output"
+grep -Fx $'cycles\t123' <<<"$matched_output" >/dev/null || fail "battery status reports BAT0's sysfs cycle count" "$matched_output"
+rm "$hold_dir/power/BAT0/"{charge_control_start_threshold,charge_control_end_threshold,cycle_count}
+pass "battery status uses thresholds and cycle count from the selected battery"
 
 # A full battery says so, with no time to count and no 0W draw.
 cat >"$hold_dir/bin/upower" <<'STUB'
