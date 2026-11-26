@@ -2,10 +2,13 @@
 Operation = Upgrade
 Operation = Install
 Type = Package
+Target = omarchy
 Target = omarchy-dev
+Target = omarchy-settings
 Target = omarchy-settings-dev
+Target = omarchy-gaming-session
 
 [Action]
-Description = Turning off handheld autologin when omarchy-dev or omarchy-settings-dev is not a handheld build...
+Description = Checking whether installed Omarchy packages support handheld autologin...
 When = PostTransaction
 Exec = /usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard

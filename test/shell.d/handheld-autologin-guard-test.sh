@@ -1,10 +1,12 @@
 #!/bin/bash
-# An upstream omarchy-dev, once the base moves past the handheld pkgver,
-# must drop the gaming autologin drop-in. A dev.*, .handheld. or
-# .allypreview. build must leave it. User=, the sudoers grant and the TPM
-# config stay either way. --status reports that choice and does not write.
+# Replacing handheld runtime or settings must deactivate both SDDM settings
+# and retain the installer account for a later return to handheld packages.
 
 set -uo pipefail
+
+if (( EUID != 0 )); then
+  exec unshare --user --map-root-user bash "$0"
+fi
 
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=/dev/null
@@ -18,8 +20,9 @@ pkgbuild=$ROOT/packages/omarchy-gaming-session/PKGBUILD
 grep -q 'Operation = Upgrade' "$hook" || fail "the hook does not run on upgrade"
 grep -q 'Operation = Install' "$hook" || fail "the hook does not run on install"
 grep -q 'When = PostTransaction' "$hook" || fail "the hook does not run after the transaction"
-grep -q 'Target = omarchy-dev' "$hook" || fail "the hook does not target omarchy-dev"
-grep -q 'Target = omarchy-settings-dev' "$hook" || fail "the hook does not target omarchy-settings-dev"
+for package in omarchy omarchy-dev omarchy-settings omarchy-settings-dev; do
+  grep -Fxq "Target = $package" "$hook" || fail "the hook does not target $package"
+done
 grep -q 'Exec = /usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard' "$hook" ||
   fail "the hook does not run the guard"
 if grep -q 'AbortOnFail' "$hook"; then
@@ -32,6 +35,9 @@ grep -q 'usr/lib/omarchy-gaming-session/omarchy-handheld-autologin-guard' "$pkgb
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/package"
+cp "$script" "$ROOT/default/gaming/sddm-user.sh" "$work/package/"
+script=$work/package/${script##*/}
 root=$work/root
 dropin=$root/etc/sddm.conf.d/zz-omarchy-handheld.conf
 user=$root/etc/sddm.conf.d/omarchy-handheld-user.conf
@@ -45,8 +51,16 @@ cat > "$work/bin/pacman" <<'EOF'
 if [[ -n ${FAKE_PACMAN_LOG:-} ]]; then
   printf '%s\n' "$*" >> "$FAKE_PACMAN_LOG"
 fi
+if [[ $1 == -Q && $2 == omarchy && -n ${FAKE_OMARCHY_VERSION:-} ]]; then
+  printf 'omarchy %s\n' "$FAKE_OMARCHY_VERSION"
+  exit 0
+fi
 if [[ $1 == -Q && $2 == omarchy-dev && -n ${FAKE_OMARCHY_DEV_VERSION:-} ]]; then
   printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION"
+  exit 0
+fi
+if [[ $1 == -Q && $2 == omarchy-settings && -n ${FAKE_OMARCHY_SETTINGS_VERSION:-} ]]; then
+  printf 'omarchy-settings %s\n' "$FAKE_OMARCHY_SETTINGS_VERSION"
   exit 0
 fi
 if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_VERSION:-} ]]; then
@@ -60,7 +74,7 @@ cat > "$work/bin/logger" <<'EOF'
 printf '%s\n' "$*" >> "${OMARCHY_TEST_LOGGER_LOG:?}"
 exit 0
 EOF
-chmod +x "$work/bin/pacman" "$work/bin/logger" "$script"
+chmod +x "$work/bin/pacman" "$work/bin/logger"
 
 seed() {
   rm -rf "$root"
@@ -97,10 +111,17 @@ run_guard() {
   (( status == 0 )) || fail "the guard exits 0 for $1 ${2:-}" "$status"
 }
 
-secrets_unchanged() {
-  cmp -s "$user" "$work/user.orig" || fail "User= changed for $1" "$(cat "$user")"
+unrelated_config_unchanged() {
   cmp -s "$sudoers" "$work/sudoers.orig" || fail "the sudoers grant changed for $1"
   cmp -s "$tpm" "$work/tpm.orig" || fail "the TPM config changed for $1"
+}
+
+expect_inactive_owner() {
+  grep -Fxq '[OmarchyHandheld]' "$user" && grep -Fxq 'User=daniel' "$user" ||
+    fail "the recorded owner is missing for $1"
+  if grep -Fxq '[Autologin]' "$user"; then
+    fail "the installer User= can still autologin into the last desktop for $1"
+  fi
 }
 
 expect_disabled() {
@@ -109,13 +130,15 @@ expect_disabled() {
   (( status_rc == 0 )) || fail "--status exits 0 for $1" "$status_rc"
   [[ $status_word == drop ]] || fail "--status is drop for $1" "$status_word"
   cmp -s "$dropin" "$work/dropin.orig" || fail "--status removes autologin for $1"
+  cmp -s "$user" "$work/user.orig" || fail "--status changes the owner file for $1"
   run_guard "$1" "${2:-}"
-  secrets_unchanged "$1"
+  expect_inactive_owner "$1"
+  unrelated_config_unchanged "$1"
   [[ ! -e $dropin ]] || fail "autologin stays enabled for $1" "$(cat "$dropin")"
   grep -q 'omarchy-handheld-autologin apply' "$log" ||
     fail "the journal does not say how to turn autologin back on for $1" "$(cat "$log")"
   run_guard "$1" "${2:-}"
-  secrets_unchanged "$1"
+  expect_inactive_owner "$1"
   [[ ! -e $dropin ]] || fail "a second run restores autologin for $1"
   pass "autologin is disabled for ${1:-<none>}${2:+ / $2}"
 }
@@ -127,7 +150,8 @@ expect_kept() {
   [[ $status_word == keep ]] || fail "--status is keep for $1" "$status_word"
   cmp -s "$dropin" "$work/dropin.orig" || fail "--status changes autologin for $1"
   run_guard "$1" "${2:-}"
-  secrets_unchanged "$1"
+  cmp -s "$user" "$work/user.orig" || fail "User= changed for $1"
+  unrelated_config_unchanged "$1"
   cmp -s "$dropin" "$work/dropin.orig" || fail "autologin changed for $1" "$(cat "$dropin" 2>/dev/null)"
   if grep -q 'removed' "$log"; then
     fail "a kept build removes the drop-in for $1" "$(cat "$log")"
@@ -148,10 +172,17 @@ expect_kept 4.0.0.202611170222.r8072.handheld.e742281c-1
 expect_kept dev.202611170222.e742281c
 expect_kept dev.202611170222.e742281c-1
 
+FAKE_OMARCHY_VERSION=4.0.1-1 expect_disabled "" dev.202611170222.e742281c-1
+FAKE_OMARCHY_SETTINGS_VERSION=4.0.1-1 expect_disabled dev.202611170222.e742281c-1
+FAKE_OMARCHY_VERSION=4.0.0.202611170222.r8072.handheld.e742281c-1 \
+  FAKE_OMARCHY_SETTINGS_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1 \
+  expect_kept ""
+
 # The hook runs while pacman holds db.lck. A nested pacman -Q would wait on
 # that lock, so the guard reads the local database and does not call pacman.
 seed
-mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.1.r1.g0000000-1"
+mkdir -p "$root/var/lib/pacman/local/omarchy-4.0.1-1" \
+  "$root/var/lib/pacman/local/omarchy-settings-4.0.1-1"
 : > "$root/var/lib/pacman/db.lck"
 : > "$work/pacman.log"
 FAKE_PACMAN_LOG=$work/pacman.log \
@@ -162,8 +193,29 @@ FAKE_PACMAN_LOG=$work/pacman.log \
   "$script"
 [[ ! -s $work/pacman.log ]] || fail "the guard calls pacman while db.lck is held" "$(cat "$work/pacman.log")"
 [[ ! -e $dropin ]] || fail "a locked database leaves upstream autologin enabled"
-cmp -s "$user" "$work/user.orig" || fail "User= changed while the database was locked"
-pass "a held pacman lock still disables upstream autologin"
+expect_inactive_owner "the locked stock pair"
+legacy_owners=("${user%/*}"/.omarchy-handheld-user.conf.omarchy-disabled.*)
+legacy_sessions=("${dropin%/*}"/.zz-omarchy-handheld.conf.omarchy-disabled.*)
+cmp -s "${legacy_owners[0]}" "$work/user.orig" && cmp -s "${legacy_sessions[0]}" "$work/dropin.orig" ||
+  fail "rollback does not preserve the legacy SDDM fragments"
+pass "a held pacman lock disables autologin for stock runtime and settings"
+
+seed
+rm -f -- "$dropin"
+FAKE_OMARCHY_VERSION=4.0.1-1 run_guard ""
+expect_inactive_owner "an earlier rollback that removed only the session"
+pass "a legacy owner is deactivated even when the session was already removed"
+
+seed
+printf '[Autologin]\nUser=operator\nSession=omarchy.desktop\n' > "$user"
+cp "$user" "$work/operator.conf"
+ln -s "$work/operator.conf" "$root/etc/sddm.conf.d/autologin.conf"
+rm -f -- "$dropin"
+ln -s "$work/dropin.orig" "$dropin"
+FAKE_OMARCHY_SETTINGS_VERSION=4.0.1-1 run_guard ""
+cmp -s "$user" "$work/operator.conf" && [[ -L $dropin && -L $root/etc/sddm.conf.d/autologin.conf ]] ||
+  fail "stock rollback changes operator SDDM configuration"
+pass "stock rollback preserves edited files and symlinks"
 
 seed
 mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.202611170222.r8072.handheld.e742281c-1"
@@ -189,7 +241,7 @@ pass "a held pacman lock keeps an .allypreview build"
 
 # A directory whose name merely starts with omarchy-dev- is another package.
 # It must not count as a second omarchy-dev, and it must not be omarchy-dev
-# on its own. debug matches the [0-9d] glob and is still the wrong name.
+# on its own.
 seed
 mkdir -p "$root/var/lib/pacman/local/omarchy-dev-4.0.0.r8045.gd54cde7-1"
 mkdir -p "$root/var/lib/pacman/local/omarchy-dev-utils-1.2.3-1"
@@ -254,7 +306,7 @@ FAKE_PACMAN_LOG=$work/pacman.log \
   "$script"
 [[ ! -s $work/pacman.log ]] || fail "the guard calls pacman while db.lck is held for settings-dev" "$(cat "$work/pacman.log")"
 [[ ! -e $dropin ]] || fail "a locked upstream settings-dev leaves autologin enabled"
-cmp -s "$user" "$work/user.orig" || fail "User= changed for an upstream settings-dev"
+expect_inactive_owner "locked stock settings-dev"
 pass "a held pacman lock disables autologin for settings-dev alone"
 
 seed

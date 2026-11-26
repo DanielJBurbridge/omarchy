@@ -3,12 +3,12 @@
 # and let makepkg collect the checkout files for --allsource.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=15
+pkgrel=16
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
 license=('MIT')
-depends=('omarchy' 'iproute2' 'inputplumber' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
+depends=('omarchy' 'diffutils' 'iproute2' 'inputplumber' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
 source=(
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-gamescope.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-gamescope.desktop"
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-handheld.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-handheld.desktop"
@@ -32,10 +32,10 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             '7534f5ebedda451110ed884d1a404244fc02bd34027c7b4ecf565a55040c853f'
             'd7a202bb97c5e34e24ee62b77b316b7717f999a65a66dc4af6e7158aa0076591'
             '69f0d54d4aff96d5f275b080386405e1cbd35b3447f336c76b86517462ed5e98'
-            'a93a3ff413f17a2fd66aef4c98395335c41b50c478ee34bb41b868b40a899e05'
+            'c64bc45684e189a4fb96de791d0c0343b4585afc7a6e52c93cbbb4055d9a50fc'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
-            '1135ff5dbbc58b15bd57d256a1850bddc5e98ead53d24ded7b8b775c9edd4146'
-            '4899c0cac210463b8eaea941461ee6761043f3b75320b62c29f9e0e1d0d5d4e3'
+            'd16af181a4d1fd36c306921bd5ca4de877611a7e758069e857535419f757afc5'
+            '46c40a747591bdf02034fd1e35b669135b5f30e8dca2dc581e0c62ce8f6bc728'
             'a10c59d21030638f862c1b28a1b7d806fcfdca296578587b3874228c6569508b'
             'f69ce16c70cc1414a61ab36fa898d3900d31dd4be46ce5fe1075c9d22152b3a2'
             'a3153f79823df7aaf53f3b569026126ef714864ea66f58d0e4d2d28cde16c781'

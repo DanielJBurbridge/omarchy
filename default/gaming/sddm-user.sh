@@ -1,11 +1,8 @@
 #!/bin/bash
 # Adapted from Pizzarchy deck_autologin.py parse_autologin, commit
 # daa9376ab733880e612569467164754096a5f0f4. A User= outside [Autologin] does
-# not count. This writer creates /etc/sddm.conf.d/omarchy-handheld-user.conf
-# and no other SDDM file. The username is the account the installer created,
-# so the file is not a package payload. apply rewrites zz-omarchy-handheld.conf
-# and does not put User= there. It does not set Session= or Relogin=, and it
-# does not guess a username.
+# not count. The durable owner record uses [OmarchyHandheld]. SDDM only
+# sees that owner under [Autologin] while the managed session is active.
 #
 # Copyright (c) 2026 Diego Huyke
 #
@@ -29,6 +26,7 @@
 
 sddm_conf_dir=${OMARCHY_SDDM_CONF_DIR:-/etc/sddm.conf.d}
 sddm_user_dropin=$sddm_conf_dir/omarchy-handheld-user.conf
+sddm_session_dropin=$sddm_conf_dir/zz-omarchy-handheld.conf
 sddm_autologin_conf=$sddm_conf_dir/autologin.conf
 sddm_state_conf=${OMARCHY_SDDM_STATE:-/var/lib/sddm/state.conf}
 sddm_parse_section_name="[Autologin]"
@@ -75,61 +73,148 @@ sddm_handheld_variant() {
   omarchy-cmd-present omarchy-pkg-present && omarchy-pkg-present omarchy-gaming-session
 }
 
-sddm_refuse_user_symlink() {
-  local path
-  for path in "$sddm_conf_dir" "$sddm_user_dropin" "$sddm_autologin_conf" "$sddm_state_conf"; do
-    if [[ -L $path ]]; then
-      echo "omarchy gaming session: refusing a symlink at $path" >&2
-      return 1
-    fi
-  done
-}
-
-sddm_user_dropin_counts() {
-  local text
-  [[ -f $sddm_user_dropin && ! -L $sddm_user_dropin ]] || return 1
-  text=$(cat -- "$sddm_user_dropin")
-  sddm_parse_section_name="[Autologin]"
-  sddm_parse_autologin "$text"
-  [[ -n $sddm_autologin_user ]]
-}
-
-sddm_write_user() {
-  local username=$1 temporary
-  (( EUID == 0 )) || return 1
-  sddm_refuse_user_symlink || return 1
-  install -d -o root -g root -m 0755 "$sddm_conf_dir"
-  temporary=$(mktemp)
-  printf '[Autologin]\nUser=%s\n' "$username" >"$temporary"
-  install -o root -g root -m 0644 "$temporary" "$sddm_user_dropin"
-  rm -f -- "$temporary"
-}
-
 sddm_username_ok() {
-  [[ $1 != "root" && $1 =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]
+  [[ $1 != "root" && $1 != "sddm" && $1 =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]
 }
 
-# Writes User= once. A file whose [Autologin] User= already counts is left
-# alone, including when the name differs. A User= that sits outside that
-# section is rewritten, because SDDM does not read it.
-sddm_install_user() {
-  local username=$1
-  sddm_refuse_user_symlink || return 1
-  sddm_username_ok "$username" || return 2
-  sddm_handheld_variant || return 0
-  if sddm_user_dropin_counts; then
+sddm_lock_conf_dir() {
+  local owner mode
+  (( EUID == 0 )) || return 1
+  if [[ ! -e $sddm_conf_dir && ! -L $sddm_conf_dir ]]; then
+    install -d -o root -g root -m 0755 "$sddm_conf_dir" || return 1
+  fi
+  if [[ -L $sddm_conf_dir || ! -d $sddm_conf_dir ]] ||
+    ! read -r owner mode < <(stat -c '%u %a' -- "$sddm_conf_dir") ||
+    [[ $owner != 0 ]] || (( (8#$mode & 8#022) != 0 )); then
+    printf 'omarchy gaming session: refusing untrusted SDDM directory %s\n' "$sddm_conf_dir" >&2
+    return 1
+  fi
+  # The caller runs in a subshell. Closing its descriptor releases the lock.
+  exec {sddm_lock_fd}< "$sddm_conf_dir" && flock -x "$sddm_lock_fd"
+}
+
+sddm_generated_file() {
+  [[ -f $1 && ! -L $1 && $(stat -c '%u:%g:%a' -- "$1") == "0:0:644" ]]
+}
+
+sddm_owner_config() {
+  local username=$1 format=$2
+  if [[ $format == "managed" ]]; then
+    printf '# Managed by Omarchy handheld setup (User=%s)\n[OmarchyHandheld]\n' "$username"
+  else
+    printf '[Autologin]\n'
+  fi
+  printf 'User=%s\n' "$username"
+}
+
+sddm_session_config() {
+  local relogin=$1 format=$2 username=${3:-}
+  if [[ $format == "managed" ]]; then
+    printf '# Managed by Omarchy handheld setup (Relogin=%s, User=%s)\n' "$relogin" "$username"
+  fi
+  printf '[Autologin]\nSession=omarchy-handheld.desktop\nRelogin=%s\n' "$relogin"
+  if [[ -n $username ]]; then
+    printf 'User=%s\n' "$username"
+  fi
+}
+
+sddm_owner_matches() {
+  local format=$1 sddm_parse_section_name="[Autologin]"
+  sddm_generated_file "$sddm_user_dropin" || return 1
+  if [[ $format == "managed" ]]; then
+    sddm_parse_section_name="[OmarchyHandheld]"
+  fi
+  sddm_parse_autologin "$(<"$sddm_user_dropin")"
+  sddm_username_ok "$sddm_autologin_user" &&
+    cmp -s -- "$sddm_user_dropin" <(sddm_owner_config "$sddm_autologin_user" "$format")
+}
+
+sddm_session_matches() {
+  local format=$1 sddm_parse_section_name="[Autologin]"
+  sddm_generated_file "$sddm_session_dropin" || return 1
+  sddm_parse_autologin "$(<"$sddm_session_dropin")"
+  [[ $sddm_autologin_relogin == "true" || $sddm_autologin_relogin == "false" ]] || return 1
+  if [[ -n $sddm_autologin_user ]]; then
+    [[ $format == "managed" ]] && sddm_username_ok "$sddm_autologin_user" || return 1
+  fi
+  cmp -s -- "$sddm_session_dropin" <(sddm_session_config "$sddm_autologin_relogin" "$format" "$sddm_autologin_user")
+}
+
+# Preserve unmarked legacy fragments byte for byte outside SDDM's *.conf glob.
+sddm_archive_legacy() {
+  local file=$1 backup
+  backup=$(mktemp --tmpdir="$sddm_conf_dir" ".${file##*/}.omarchy-disabled.XXXXXXXX") || return 1
+  if cp -p -- "$file" "$backup"; then
+    printf 'omarchy gaming session: saved legacy SDDM configuration at %s\n' "$backup" >&2
+  else
+    rm -f -- "$backup"
+    return 1
+  fi
+}
+
+sddm_write_config() {
+  local file=$1 temporary
+  temporary=$(mktemp --tmpdir="$sddm_conf_dir" .omarchy-handheld.XXXXXXXX) || return 1
+  if cat > "$temporary" && chown root:root "$temporary" && chmod 0644 "$temporary" && mv -fT -- "$temporary" "$file"; then
     return 0
   fi
-  sddm_write_user "$username"
+  rm -f -- "$temporary"
+  return 1
 }
+
+sddm_migrate_owner() {
+  if sddm_owner_matches legacy; then
+    sddm_archive_legacy "$sddm_user_dropin" &&
+      sddm_owner_config "$sddm_autologin_user" managed | sddm_write_config "$sddm_user_dropin"
+  fi
+}
+
+sddm_deactivate_autologin() {
+  # Neutralise the legacy User= first. Removing only Session= can make SDDM
+  # autologin into its last session. Earlier guards may already have done so.
+  sddm_migrate_owner || return 1
+  if sddm_session_matches managed; then
+    rm -f -- "$sddm_session_dropin"
+  elif sddm_session_matches legacy; then
+    sddm_archive_legacy "$sddm_session_dropin" && rm -f -- "$sddm_session_dropin"
+  elif [[ -e $sddm_session_dropin || -L $sddm_session_dropin ]]; then
+    printf 'omarchy gaming session: leaving administrator SDDM configuration at %s\n' "$sddm_session_dropin" >&2
+  fi
+}
+
+sddm_activate_autologin() {
+  local relogin=$1 username=""
+  if [[ -e $sddm_session_dropin || -L $sddm_session_dropin ]]; then
+    if sddm_session_matches legacy; then
+      sddm_archive_legacy "$sddm_session_dropin" || return 1
+    elif ! sddm_session_matches managed; then
+      printf 'omarchy gaming session: leaving administrator SDDM configuration at %s\n' "$sddm_session_dropin" >&2
+      return 1
+    fi
+  fi
+  sddm_migrate_owner || return 1
+  if sddm_owner_matches managed; then
+    username=$sddm_autologin_user
+  fi
+  sddm_session_config "$relogin" managed "$username" | sddm_write_config "$sddm_session_dropin"
+}
+
+sddm_install_user() (
+  local username=$1
+  sddm_username_ok "$username" || return 2
+  sddm_handheld_variant || return 0
+  sddm_lock_conf_dir || return 1
+  if [[ ! -e $sddm_user_dropin && ! -L $sddm_user_dropin ]]; then
+    sddm_owner_config "$username" managed | sddm_write_config "$sddm_user_dropin"
+  fi
+)
 
 # The installer-recorded user. autologin.conf's [Autologin] User= is first.
 # After the unencrypted cleanup deletes that file, SDDM's [Last] User= is the
 # same record configure_login wrote. No passwd scan and no $USER.
 sddm_recorded_user() {
-  local text user=""
-  sddm_parse_section_name="[Autologin]"
-  if [[ -f $sddm_autologin_conf ]]; then
+  local text user="" sddm_parse_section_name="[Autologin]"
+  if [[ -f $sddm_autologin_conf && ! -L $sddm_autologin_conf ]]; then
     text=$(cat -- "$sddm_autologin_conf")
     sddm_parse_autologin "$text"
     user=$sddm_autologin_user
@@ -139,28 +224,27 @@ sddm_recorded_user() {
     return 0
   fi
   sddm_parse_section_name="[Last]"
-  if [[ -f $sddm_state_conf ]]; then
+  if [[ -f $sddm_state_conf && ! -L $sddm_state_conf ]]; then
     text=$(cat -- "$sddm_state_conf")
     sddm_parse_autologin "$text"
     user=$sddm_autologin_user
   fi
-  sddm_parse_section_name="[Autologin]"
   if sddm_username_ok "$user"; then
     printf '%s' "$user"
   fi
 }
 
-sddm_install_recorded() {
+sddm_install_recorded() (
   local user
-  sddm_refuse_user_symlink || return 1
   sddm_handheld_variant || return 0
-  if sddm_user_dropin_counts; then
+  sddm_lock_conf_dir || return 1
+  if [[ -e $sddm_user_dropin || -L $sddm_user_dropin ]]; then
     return 0
   fi
   user=$(sddm_recorded_user)
   sddm_username_ok "$user" || return 0
-  sddm_write_user "$user"
-}
+  sddm_owner_config "$user" managed | sddm_write_config "$sddm_user_dropin"
+)
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   set -euo pipefail
@@ -171,8 +255,13 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
     install-user)
       sddm_install_user "${2:-}"
       ;;
+    deactivate-autologin)
+      if [[ -e $sddm_conf_dir || -L $sddm_conf_dir ]]; then
+        sddm_lock_conf_dir && sddm_deactivate_autologin
+      fi
+      ;;
     *)
-      echo "usage: sddm-user.sh install-recorded|install-user" >&2
+      echo "usage: sddm-user.sh install-recorded|install-user|deactivate-autologin" >&2
       exit 2
       ;;
   esac

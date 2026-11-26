@@ -913,15 +913,9 @@ configure_login() {
   # authenticated in the form, so we don't make them retype at SDDM.
   mkdir -p /etc/sddm.conf.d
   printf '[Autologin]\nUser=%s\nSession=omarchy.desktop\n' "$username" >/etc/sddm.conf.d/autologin.conf
-  # Relogin=true needs User= after the unencrypted cleanup deletes autologin.conf.
-  # That name is this install's account, so /etc/sddm.conf.d/omarchy-handheld-user.conf
-  # cannot be a package file. apply rewrites zz-omarchy-handheld.conf
-  # (Session= and Relogin= only) and never puts User= there. install-user
-  # leaves a counted User= alone. The gaming-session scriptlet copies this
-  # record later if the file is still empty. pre_remove, post_remove, and
-  # apply when the machine is not the handheld variant delete the file, so
-  # a leftover User= cannot autologin into the last desktop. Switching the
-  # session preference to desktop does not delete it.
+  # Record the installer account for handheld policies independently of
+  # SDDM's active autologin. The companion can copy this account later if
+  # there is no handheld owner record yet.
   if "$OMARCHY_PATH/bin/omarchy-hw-rog-ally"; then
     "$OMARCHY_PATH/bin/omarchy-handheld-autologin" install-user "$username" || true
   fi
