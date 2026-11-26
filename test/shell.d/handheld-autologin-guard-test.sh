@@ -67,6 +67,14 @@ if [[ $1 == -Q && $2 == omarchy-settings-dev && -n ${FAKE_OMARCHY_SETTINGS_DEV_V
   printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION"
   exit 0
 fi
+if [[ $1 == -Q && ${FAKE_STOCK_PROVIDERS:-} == "1" ]]; then
+  case $2 in
+    omarchy) printf 'omarchy-dev %s\n' "$FAKE_OMARCHY_DEV_VERSION" ;;
+    omarchy-settings) printf 'omarchy-settings-dev %s\n' "$FAKE_OMARCHY_SETTINGS_DEV_VERSION" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
 exit 1
 EOF
 cat > "$work/bin/logger" <<'EOF'
@@ -177,6 +185,27 @@ FAKE_OMARCHY_SETTINGS_VERSION=4.0.1-1 expect_disabled dev.202611170222.e742281c-
 FAKE_OMARCHY_VERSION=4.0.0.202611170222.r8072.handheld.e742281c-1 \
   FAKE_OMARCHY_SETTINGS_VERSION=4.0.0.20261119224125.allypreview.g42fb2c857cb1.tf050deeb5a12-1 \
   expect_kept ""
+
+# After a handheld upgrade, stock-name queries resolve to the installed providers.
+seed
+provider_version=4.0.0.20261126101543.r8947.handheld.df69115b-1
+mkdir -p "$root/var/lib/pacman/local/omarchy-dev-$provider_version" \
+  "$root/var/lib/pacman/local/omarchy-settings-dev-$provider_version"
+: > "$root/var/lib/pacman/db.lck"
+read_status "" ""
+[[ $status_word == keep ]] || fail "--status is keep for locked handheld providers" "$status_word"
+run_guard "" ""
+cmp -s "$user" "$work/user.orig" && cmp -s "$dropin" "$work/dropin.orig" ||
+  fail "the locked guard changes active autologin for handheld providers"
+pass "a held pacman lock keeps the active owner and session for handheld providers"
+
+rm -- "$root/var/lib/pacman/db.lck"
+FAKE_STOCK_PROVIDERS=1 read_status "$provider_version" "$provider_version"
+[[ $status_word == keep ]] || fail "--status is keep for unlocked handheld providers" "$status_word"
+FAKE_STOCK_PROVIDERS=1 run_guard "$provider_version" "$provider_version"
+cmp -s "$user" "$work/user.orig" && cmp -s "$dropin" "$work/dropin.orig" ||
+  fail "the unlocked guard changes active autologin for handheld providers"
+pass "unlocked stock-name queries keep the active owner and session for handheld providers"
 
 # The hook runs while pacman holds db.lck. A nested pacman -Q would wait on
 # that lock, so the guard reads the local database and does not call pacman.

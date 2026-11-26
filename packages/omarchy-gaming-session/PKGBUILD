@@ -3,7 +3,7 @@
 # and let makepkg collect the checkout files for --allsource.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=17
+pkgrel=18
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
@@ -33,7 +33,7 @@ sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
             '69f0d54d4aff96d5f275b080386405e1cbd35b3447f336c76b86517462ed5e98'
             'c64bc45684e189a4fb96de791d0c0343b4585afc7a6e52c93cbbb4055d9a50fc'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
-            'd16af181a4d1fd36c306921bd5ca4de877611a7e758069e857535419f757afc5'
+            'c300fcef13686b115f50a21ad1da252724de887b0a3fc262838787ecd830a6da'
             '46c40a747591bdf02034fd1e35b669135b5f30e8dca2dc581e0c62ce8f6bc728'
             'bdad2bd12ab3fbd22626a272d5b7412fdc35eed4ec190033b70d67fe496d7c11'
             'c5c3abdcafdd253add60dbbac876de235ec1b2281e69d0cef8d6cb30933734f3'
