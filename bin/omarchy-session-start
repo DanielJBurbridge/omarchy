@@ -500,8 +500,11 @@ run_gaming() {
   display_output=$(omarchy-gaming-output gamescope-args) || return 1
   if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
   if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
-    omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
-    gamescope_args+=(--mangoapp)
+    if omarchy-cmd-present mangoapp; then
+      gamescope_args+=(--mangoapp)
+    else
+      gaming_fail 'mangoapp is missing. Starting without the session overlay. Install MangoHud to enable it.'
+    fi
   fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" || return 1

@@ -334,6 +334,17 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert 'gamescope:' in actions, actions
     print('PASS optional input, display and overlay, with no ally-power units')
 
+    directory, env = case('missing-overlay', MISSING='mangoapp')
+    run(env, setup, 'overlay', 'on')
+    result = run(env, selector, 'gaming')
+    actions = (directory / 'actions').read_text()
+    assert actions.count('gamescope:') == 1 and 'steam:-steamos3' in actions, (actions, result.stderr)
+    assert '--mangoapp' not in actions, actions
+    assert not (state(directory) / 'recovery').exists(), actions
+    assert (state(directory) / 'overlay').read_text() == 'on\n'
+    assert 'mangoapp is missing' in result.stderr, result.stderr
+    print('PASS an unavailable overlay preserves the preference and lets Gaming start')
+
     # The historical companion contains its profiles and service, but the
     # matching gamepad helper used to come from the runtime package.
     (bindir / 'omarchy-hw-rog-ally-input').unlink()
