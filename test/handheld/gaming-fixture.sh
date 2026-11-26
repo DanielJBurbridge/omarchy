@@ -12,7 +12,7 @@ handheld_release_blob() {
 
 handheld_gaming_tree() {
   local tree=$1
-  mkdir -p "$tree/bin" "$tree/default/gaming/bin"
+  mkdir -p "$tree/bin" "$tree/default/gaming/bin" "$tree/default/hypr"
   cp "$ROOT/bin/omarchy-session-start" "$tree/bin/omarchy-session-start"
   sed -i 's|^source /usr/share/omarchy/default/bash/env-bootstrap$|:|' "$tree/bin/omarchy-session-start"
   cp "$ROOT/bin/omarchy-gaming-steam" "$tree/bin/omarchy-gaming-steam"
@@ -22,6 +22,9 @@ handheld_gaming_tree() {
   cp "$ROOT/default/gaming/steam-ready.sh" "$tree/default/gaming/steam-ready.sh"
   cp "$ROOT/default/gaming/steam-path.sh" "$tree/default/gaming/steam-path.sh"
   cp "$ROOT/default/gaming/bin/steamos-session-select" "$tree/default/gaming/bin/steamos-session-select"
+  cp "$ROOT/default/hypr/"{keyboard,paths}.lua "$tree/default/hypr/"
+  sed -i -e "s|/etc/vconsole.conf|$tree/etc/vconsole.conf|g" \
+    -e "s|/etc/omarchy/input-method|$tree/etc/omarchy/input-method|g" "$tree/default/hypr/keyboard.lua"
   cat > "$tree/default/gaming/input-profile-watch.py" <<'PY'
 import subprocess
 import sys
@@ -88,6 +91,7 @@ EOF
   cat > "$HANDHELD_STUB/gamescope" <<'EOF'
 #!/bin/bash
 printf 'gamescope\n' >> "$HANDHELD_ACTIONS"
+printf 'gamescope-keyboard:[%s] [%s]\n' "${XKB_DEFAULT_LAYOUT-<unset>}" "${XKB_DEFAULT_VARIANT-<unset>}" >> "$HANDHELD_ACTIONS"
 while (( $# )) && [[ $1 != -- ]]; do
   if [[ $1 == "--prefer-output" ]]; then
     printf 'gamescope-output:%s\n' "${2:-}" >> "$HANDHELD_ACTIONS"
@@ -104,6 +108,7 @@ EOF
   cat > "$HANDHELD_STUB/uwsm" <<'EOF'
 #!/bin/bash
 printf 'uwsm:%s\n' "$*" >> "$HANDHELD_ACTIONS"
+printf 'uwsm-keyboard:[%s] [%s]\n' "${XKB_DEFAULT_LAYOUT-<unset>}" "${XKB_DEFAULT_VARIANT-<unset>}" >> "$HANDHELD_ACTIONS"
 exit 0
 EOF
   cat > "$HANDHELD_STUB/pgrep" <<'EOF'

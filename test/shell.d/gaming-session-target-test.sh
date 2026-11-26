@@ -142,6 +142,7 @@ chmod +x "$HANDHELD_STUB/steam" "$HANDHELD_STUB/busctl" "$HANDHELD_STUB/omarchy-
 handheld_gaming_env
 export XDG_CONFIG_HOME=$work/config
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
+unset XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT
 run_session() {
   local entry=$1 status=0
   : > "$HANDHELD_LOG"
@@ -152,13 +153,28 @@ run_session() {
   (( status == 0 )) ||
     fail "the $entry supervisor exits cleanly" "$(printf 'status=%s\n' "$status"; cat "$HANDHELD_LOG" "$work/err")"
 }
+assert_gamescope_keyboard() {
+  local expected=$1 description=$2
+  grep -Fxq "gamescope-keyboard:$expected" "$HANDHELD_LOG" ||
+    fail "$description" "$(cat "$HANDHELD_LOG" "$work/err")"
+  pass "$description"
+}
 export OMARCHY_DRM_PATH=$work/drm
 mkdir -p "$OMARCHY_DRM_PATH/"{card0-eDP-1,card0-DP-1}
 printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-eDP-1/status"
 printf 'connected\n' >"$OMARCHY_DRM_PATH/card0-DP-1/status"
 head -c 128 /dev/zero >"$OMARCHY_DRM_PATH/card0-DP-1/edid"
 omarchy-gaming-output DP-1 || fail "a connected external output can be preferred"
+mkdir -p "$XDG_CONFIG_HOME/omarchy" "$HANDHELD_TREE/etc"
+keyboard_selection=$XDG_CONFIG_HOME/omarchy/keyboard-layouts
+vconsole=$HANDHELD_TREE/etc/vconsole.conf
+printf 'XKBLAYOUT=gb\n' > "$vconsole"
+printf 'XKBLAYOUT=de,us\nXKBVARIANT=nodeadkeys,dvorak\n' > "$keyboard_selection"
 WAIT_FOR_STEAM_SHUTDOWN=1 run_session gaming
+assert_gamescope_keyboard '[de] [nodeadkeys]' "Gamescope uses the leading saved layout and its paired variant"
+grep -Fxq 'uwsm-keyboard:[<unset>] [<unset>]' "$HANDHELD_LOG" ||
+  fail "the saved layout is scoped to Gamescope" "$(cat "$HANDHELD_LOG")"
+pass "the saved layout stays out of the desktop environment"
 grep -Fxq 'gamescope-output:DP-1,eDP-1' "$HANDHELD_LOG" ||
   fail "the launcher passes the paired output priority to Gamescope" "$(cat "$HANDHELD_LOG")"
 user_units=$XDG_CONFIG_HOME/systemd/user
@@ -212,7 +228,9 @@ fi
 pass "bridge starts after the profile target and the installed TDP shim is restarted"
 
 rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+printf 'XKBLAYOUT=de,us\nXKBVARIANT=,dvorak\n' > "$keyboard_selection"
 WAIT_FOR_STEAM_SHUTDOWN=1 STEAM_IGNORES_SHUTDOWN=1 run_session gaming
+assert_gamescope_keyboard '[de] [<unset>]' "Gamescope keeps the default variant when the next layout has one"
 grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
   grep -Fxq 'systemctl:--user stop omarchy-gamescope-redteam.scope' "$HANDHELD_LOG" &&
   ! grep -q '^systemctl:--user kill ' "$HANDHELD_LOG" &&
@@ -221,7 +239,14 @@ grep -Fxq 'steam:shutdown::77' "$HANDHELD_LOG" &&
 pass "a stuck Steam shutdown does not prevent the desktop return"
 
 rm -f "$XDG_RUNTIME_DIR/omarchy-gaming-$XDG_SESSION_ID/test-steam-shutdown"
+rm "$keyboard_selection"
+cat > "$vconsole" <<'EOF'
+KEYMAP=fr
+ XKBLAYOUT = "fr,us" # Installed layout
+XKBVARIANT='bepo,dvorak'
+EOF
 WAIT_FOR_STEAM_SHUTDOWN=1 GAMESCOPE_STAYS_AFTER_STEAM=1 run_session gaming
+assert_gamescope_keyboard '[fr] [bepo]' "Gamescope falls back to the installed layout and variant"
 mapfile -t stuck_actions < <(grep -E '^(gamescope-child-exit:|systemctl:--user (kill|stop omarchy-gamescope-)|uwsm:)' "$HANDHELD_LOG")
 [[ ${stuck_actions[0]:-} == gamescope-child-exit:0 &&
   ${stuck_actions[1]:-} == 'systemctl:--user kill --kill-whom=all --signal=KILL omarchy-gamescope-redteam.scope' &&
@@ -245,7 +270,8 @@ EOF
 chmod +x "$HANDHELD_STUB/systemctl"
 printf '\n# User override\n' >> "$user_units/$name"
 cp "$user_units/$name" "$work/user-target"
-PROFILE_LOAD_STATUS=1 run_session gaming
+XKB_DEFAULT_LAYOUT=gb PROFILE_LOAD_STATUS=1 run_session gaming
+assert_gamescope_keyboard '[gb] [<unset>]' "an inherited layout keeps its own default variant"
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the legacy unit setup preserves a user's existing target"
 absent=$(cat "$HANDHELD_LOG")
@@ -263,13 +289,19 @@ pass "a missing TDP shim and bridge are skipped and Gamescope still starts"
 mkdir -p "$vendor_units"
 cp "$unit" "$vendor_units/$name"
 rm "$user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf"
+printf 'KEYMAP=us\n' > "$vconsole"
 run_session gaming
+assert_gamescope_keyboard '[<unset>] [<unset>]' "Gamescope keeps its defaults without an XKB selection"
 grep -q '^gamescope$' "$HANDHELD_LOG" || fail "the installed gaming package still starts Gamescope"
 [[ ! -e $user_units/omarchy-rog-ally-input.service.d/10-gaming-session.conf ]] ||
   fail "the installed gaming package does not recreate per-user units"
 cmp -s "$work/user-target" "$user_units/$name" ||
   fail "the installed gaming package leaves the user's override in place"
 pass "the gaming-session package supplies units without rewriting user configuration"
+
+printf 'XKBLAYOUT=de\nXKBVARIANT=nodeadkeys\n' > "$keyboard_selection"
+XKB_DEFAULT_VARIANT=dvorak run_session gaming
+assert_gamescope_keyboard '[<unset>] [dvorak]' "a variant-only override keeps its implicit layout"
 
 printf 'desktop\n' > "$XDG_STATE_HOME/omarchy/gaming-session/preference"
 run_session preferred

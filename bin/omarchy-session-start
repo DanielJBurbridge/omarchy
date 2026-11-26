@@ -503,6 +503,22 @@ run_gaming() {
     omarchy-cmd-present mangoapp || { gaming_fail 'install MangoHud or disable the session overlay.'; return 1; }
     gamescope_args+=(--mangoapp)
   fi
+  # Gamescope reads the XKB defaults at startup. An inherited layout or
+  # variant takes precedence over the saved pair, including an empty override.
+  local keyboard_env=()
+  if [[ ! -v XKB_DEFAULT_LAYOUT && ! -v XKB_DEFAULT_VARIANT ]]; then
+    mapfile -t keyboard_env < <(env -u LUA_INIT lua5.1 - "$OMARCHY_PATH" <<'LUA'
+package.path = arg[1] .. "/?.lua"
+local selected = require("default.hypr.keyboard").selected()
+local layout = (selected.XKBLAYOUT or ""):match("^[^,]*")
+local variant = (selected.XKBVARIANT or ""):match("^[^,]*")
+if layout:match("^[%w_]+$") and variant:match("^[%w_-]*$") then
+  print("XKB_DEFAULT_LAYOUT=" .. layout)
+  if variant ~= "" then print("XKB_DEFAULT_VARIANT=" .. variant) end
+end
+LUA
+    )
+  fi
   rm -f "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" "$gaming_runtime/steam-exit"
   mkfifo -m 600 "$gaming_runtime/ready" "$gaming_runtime/return" "$gaming_runtime/shutdown" || return 1
   (read -r event <> "$gaming_runtime/return" && [[ $event == "desktop" ]]) &
@@ -554,7 +570,7 @@ run_gaming() {
   fi
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
-    gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
+    env "${keyboard_env[@]}" gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
     "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" "${library_args[@]}" \
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!

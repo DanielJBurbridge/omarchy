@@ -75,6 +75,56 @@ printf '%s\n' "$*" >>"${SYSTEMCTL_LOG:?}"
 if [[ ${SYSTEMCTL_FAIL:-0} == 1 ]]; then
   exit 1
 fi
+if [[ $1 == --root=* && ${!#} == power-profiles-daemon.service ]]; then
+  root=${1#--root=}
+  shift
+  unit=power-profiles-daemon.service
+  persistent=$root/etc/systemd/system
+  runtime=$root/run/systemd/system
+  case $1 in
+    is-enabled)
+      if [[ -L $persistent/$unit ]]; then
+        echo masked
+        exit 1
+      elif [[ -L $runtime/$unit ]]; then
+        echo masked-runtime
+        exit 1
+      elif [[ -L $persistent/multi-user.target.wants/$unit ]]; then
+        echo enabled
+      elif [[ -L $runtime/multi-user.target.wants/$unit ]]; then
+        echo enabled-runtime
+      else
+        echo disabled
+        exit 1
+      fi
+      ;;
+    show)
+      if [[ -e $root/ppd-active ]]; then echo active; else echo inactive; fi
+      ;;
+    start)
+      [[ ${PPD_FAIL:-} != start && ! -L $persistent/$unit && ! -L $runtime/$unit ]] || exit 1
+      touch "$root/ppd-active"
+      ;;
+    stop)
+      [[ ${PPD_FAIL:-} != stop ]] || exit 1
+      rm -f -- "$root/ppd-active"
+      ;;
+    mask)
+      ln -sT -- /dev/null "$persistent/$unit"
+      ;;
+    unmask)
+      rm -f -- "$persistent/$unit" "$runtime/$unit"
+      ;;
+    enable)
+      mkdir -p "$persistent/multi-user.target.wants"
+      ln -sTf -- "/usr/lib/systemd/system/$unit" "$persistent/multi-user.target.wants/$unit"
+      ;;
+    disable)
+      rm -f -- "$persistent/multi-user.target.wants/$unit" "$runtime/multi-user.target.wants/$unit"
+      ;;
+  esac
+  exit
+fi
 if [[ $1 == is-active ]]; then
   shift
   result=3
@@ -488,7 +538,7 @@ HW=ally GAMING=0 OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_
 [[ -f $dest/etc/systemd/system/omarchy-ally-tdp-resume.service ]] || fail "hardware install skips the resume unit"
 [[ -f $dest/etc/udev/rules.d/99-omarchy-ally-tdp.rules ]] || fail "hardware install skips udev"
 [[ ! -e $dest/etc/systemd/user/omarchy-ally-tdp-shim.service ]] || fail "hardware install adds the shim without the gaming session"
-grep -q 'mask power-profiles-daemon' "$SYSTEMCTL_LOG" && fail "hardware install masks power-profiles-daemon"
+[[ ! -L $dest/etc/systemd/system/power-profiles-daemon.service ]] || fail "hardware install masks power-profiles-daemon"
 hardware_rule=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
 grep -q 'return polkit.Result.NO;' <<<"$hardware_rule" || fail "a desktop-only Ally does not return NO"
 grep -q 'polkit.Result.YES' <<<"$hardware_rule" && fail "a desktop-only Ally authorizes a user" "$hardware_rule"
@@ -521,7 +571,7 @@ grep -q 'enable omarchy-ally-tdp-resume.service$' "$SYSTEMCTL_LOG" ||
 grep -q 'SystemdService=omarchy-ally-tdp-shim.service' \
   "$dest/usr/share/dbus-1/services/com.steampowered.SteamOSManager1.service" ||
   fail "activation still names steamos-manager"
-grep -q 'mask power-profiles-daemon' "$SYSTEMCTL_LOG" || fail "session install does not mask power-profiles-daemon"
+[[ -L $dest/etc/systemd/system/power-profiles-daemon.service ]] || fail "session install does not mask power-profiles-daemon"
 rule=$(cat "$dest/etc/polkit-1/rules.d/50-omarchy-ally-set-tdp.rules")
 grep -q 'subject.user == "sddm"' <<<"$rule" || fail "the rule does not refuse sddm"
 grep -q 'polkit.Result.NO' <<<"$rule" || fail "the rule does not return NO"
@@ -541,6 +591,87 @@ HW=ally OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$des
 [[ ! -e $dest/etc/systemd/system/omarchy-ally-tdp-source.path && ! -e $dest/etc/systemd/system/omarchy-ally-tdp-resume.service ]] ||
   fail "full TDP removal leaves reapply units installed"
 pass "full TDP removal clears the reapply units"
+
+# Exercise the installer's live PPD activity decisions with the same scratch
+# root and systemctl stub. All other fixture-mode guards stay in effect.
+# shellcheck disable=SC2016
+sed '/^ppd_activity() {$/,+1 s/if \[\[ -n \$prefix \]\]; then/if false; then/' "$install" >"$work/install-ppd"
+run_ppd_install() {
+  HW=ally GAMING=1 OMARCHY_PATH=$ROOT OMARCHY_ALLY_TDP_FIXTURE=1 OMARCHY_ALLY_TDP_DEST=$dest \
+    PATH="$work/bin:$PATH" bash "$work/install-ppd" "$@"
+}
+
+ppd=power-profiles-daemon.service
+ppd_mask=$dest/etc/systemd/system/$ppd
+ppd_runtime_mask=$dest/run/systemd/system/$ppd
+ppd_enabled=$dest/etc/systemd/system/multi-user.target.wants/$ppd
+ppd_runtime_enabled=$dest/run/systemd/system/multi-user.target.wants/$ppd
+ppd_receipt=$dest/var/lib/omarchy/handheld/power-profiles-daemon.state
+ppd_active=$dest/ppd-active
+mkdir -p "${ppd_runtime_enabled%/*}"
+ln -s "/usr/lib/systemd/system/$ppd" "$ppd_runtime_enabled"
+run_ppd_install session
+run_ppd_install remove-session
+[[ -L $ppd_runtime_enabled && ! -L $ppd_enabled && ! -e $ppd_active && ! -L $ppd_mask ]] ||
+  fail "rollback changes runtime enablement or starts an initially inactive PPD"
+pass "an inactive runtime-enabled daemon stays inactive and runtime-enabled"
+
+rm -- "$ppd_runtime_enabled"
+touch "$ppd_active"
+if PPD_FAIL=stop run_ppd_install session; then
+  fail "the handoff reports success after PPD failed to stop"
+fi
+[[ -L $ppd_mask && -e $ppd_receipt && -e $ppd_active ]] || fail "a failed stop loses the PPD handoff"
+run_ppd_install session
+run_ppd_install session
+[[ ! -e $ppd_active ]] || fail "an installation retry leaves PPD active"
+if PPD_FAIL=start run_ppd_install remove-session; then
+  fail "rollback reports success after PPD failed to start"
+fi
+[[ ! -L $ppd_mask && -e $ppd_receipt ]] || fail "a failed restart loses the PPD receipt"
+run_ppd_install remove-session
+[[ -e $ppd_active && ! -e $ppd_receipt && ! -L $ppd_enabled && ! -L $ppd_runtime_enabled ]] ||
+  fail "rollback does not recover an initially active disabled PPD after retry"
+pass "interrupted handoff and rollback restore an active disabled daemon on retry"
+
+for admin_mask in "$ppd_mask" "$ppd_runtime_mask"; do
+  ln -s /dev/null "$admin_mask"
+  run_ppd_install session
+  run_ppd_install remove-session
+  [[ $(readlink -- "$admin_mask") == /dev/null && -e $ppd_active && ! -e $ppd_receipt ]] ||
+    fail "handoff or rollback changes a pre-existing administrator mask or its active daemon"
+  rm -- "$admin_mask"
+done
+run_ppd_install session
+ln -sTf -- /dev/null "$ppd_mask"
+if run_ppd_install remove-session; then
+  fail "rollback reports success while a replacement mask prevents restoring PPD"
+fi
+[[ $(readlink -- "$ppd_mask") == /dev/null && -e $ppd_receipt ]] ||
+  fail "rollback removes the administrator's replacement mask or discards the retry receipt"
+rm -- "$ppd_mask"
+run_ppd_install remove-session
+pass "existing administrator masks and replacement masks survive the handoff"
+
+rm -- "$ppd_active"
+ln -s "/usr/lib/systemd/system/$ppd" "$ppd_runtime_enabled"
+ln -s /dev/null "$ppd_mask"
+printf 'enabled-runtime\n' >"$ppd_receipt"
+run_ppd_install remove-session
+[[ ! -L $ppd_mask && ! -e $ppd_receipt && ! -e $ppd_active && -L $ppd_runtime_enabled && ! -L $ppd_enabled ]] ||
+  fail "legacy rollback does not remove its persistent mask while preserving runtime enablement"
+ln -s /dev/null "$ppd_runtime_mask"
+ln -s /dev/null "$ppd_mask"
+printf 'masked-runtime\n' >"$ppd_receipt"
+run_ppd_install remove-session
+[[ $(readlink -- "$ppd_runtime_mask") == /dev/null && ! -L $ppd_mask && ! -e $ppd_receipt ]] ||
+  fail "legacy rollback does not distinguish its added mask from a pre-existing runtime mask"
+ln -s /dev/null "$ppd_mask"
+printf 'masked\n' >"$ppd_receipt"
+run_ppd_install remove-session
+[[ $(readlink -- "$ppd_mask") == /dev/null && ! -e $ppd_receipt ]] ||
+  fail "legacy rollback removes a pre-existing persistent mask"
+pass "legacy receipts preserve enablement and any originally recorded mask"
 
 yes_dest=$work/yes-dest
 rm -rf "$yes_dest"

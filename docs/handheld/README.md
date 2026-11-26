@@ -1,6 +1,6 @@
 # Omarchy Handheld
 
-**Status as of 25 November 2026 (AWST).** The first target is the original ASUS ROG Ally RC71L. The goal is to match Bazzite and CachyOS Handheld for boot and sign-in with handheld controls, Steam launch, suspend and resume of the same game, and deliberate switching to a usable Hyprland desktop. The physical receipts are from a Z1 Extreme. The Z1, Ally X and Xbox Ally each need their own acceptance run. [Feature parity and hardware receipts](feature-parity.md)
+**Status as of 26 November 2026 (AWST).** The first target is the original ASUS ROG Ally RC71L. The goal is to match Bazzite and CachyOS Handheld for boot and sign-in with handheld controls, Steam launch, suspend and resume of the same game, and deliberate switching to a usable Hyprland desktop. The physical receipts are from a Z1 Extreme. The Z1, Ally X and Xbox Ally each need their own acceptance run. [Feature parity and hardware receipts](feature-parity.md)
 
 ## Architecture
 
@@ -10,7 +10,7 @@
 | `omacom/omarchy-pkgs` | Build and distribute optional dependencies such as output-aware `wvkbd` and the Gaming Mode power-button helper. Review package changes independently of desktop and session policy. |
 | Opt-in `omarchy-gaming-session` | Register the dedicated Gamescope/Steam session and managed Desktop entry. Keep preference, controller profile, authenticated return and optional gaming integrations with their session lifecycle. The ordinary Hyprland entry remains the recovery path. |
 
-The source baseline, `work/ally-unified-quattro` at `191329fee`, combines upstream Quattro `a3bad0b1b`, the managed desktop (Track B, `5f7d0775b`), the session work (Track A, `c53706bfa`, through fork #92), the RC71L i8042 exclusion from fork #39 and the power-button follow-ups from fork #76. The companion is `1.0.0-15`. The parity checklist identifies the builds exercised on hardware. [Fork #92](https://github.com/DanielJBurbridge/omarchy/pull/92) · [Fork #39](https://github.com/DanielJBurbridge/omarchy/pull/39) · [Fork #76](https://github.com/DanielJBurbridge/omarchy/pull/76) · [Parity checklist](feature-parity.md)
+The unified baseline, `work/ally-unified-quattro` at `191329fee`, combined upstream Quattro `a3bad0b1b`, the managed desktop (Track B, `5f7d0775b`), the session work (Track A, `c53706bfa`, through fork #92), the RC71L i8042 exclusion from fork #39 and the power-button follow-ups from fork #76. The current acceptance candidate is integration revision `918cd56c8` with the `1.0.0-15` companion recipe. The parity guide identifies the builds exercised on hardware. [Fork #92](https://github.com/DanielJBurbridge/omarchy/pull/92) · [Fork #39](https://github.com/DanielJBurbridge/omarchy/pull/39) · [Fork #76](https://github.com/DanielJBurbridge/omarchy/pull/76) · [Candidate and evidence](feature-parity.md#unified-integration-baseline)
 
 ## Ordered upstream PR stack
 
@@ -37,7 +37,7 @@ Fork [#39](https://github.com/DanielJBurbridge/omarchy/pull/39) (K07/lock host, 
 
 ### Active docs
 
-- [Feature parity](feature-parity.md) records the unified baseline, what worked on which physical unit and the remaining acceptance gates.
+- [Feature parity](feature-parity.md) records the Bazzite comparison, the evidence by build and the [next RC71L acceptance runs](feature-parity.md#next-rc71l-acceptance-runs).
 - [Alpha follow-ups](alpha-followups.md) tracks the live blockers and keeps the original L-number log.
 - [Alpha install and recovery](ALPHA.md) gives operator steps for the trial builds. [Companion reference](../rog-ally-gaming-session.md) covers the session entries, preferences, packaging and rollback. Use the current baseline above and the [parity checklist](feature-parity.md) when older build or policy details differ.
 
