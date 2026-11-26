@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         [[ ${MISSING:-} != "$1" ]] && command -v "$1" >/dev/null
     ''')
     command('pgrep', '#!/bin/bash\n[[ ${BUSY:-0} == 1 ]]\n')
-    command('omarchy-notification-send', '#!/bin/bash\nexit 0\n')
+    command('omarchy-notification-send', '#!/bin/bash\necho "$*" >> "$TEST_ROOT/notifications"\n')
     command('omarchy-system-lock', '#!/bin/bash\necho "lock" >> "$TEST_ROOT/actions"\nexit 0\n')
     command('omarchy-system', '#!/bin/bash\necho "system:$*" >> "$TEST_ROOT/actions"\nif [[ $MODE == logout-fail && ${2:-} == --execute ]]; then sleep 0.05; exit 42; fi\n')
     command('wvkbd-mobintl', '#!/bin/bash\nexit 0\n')
@@ -199,6 +199,20 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     run(env, setup, 'reset')
     assert not library.exists(), 'reset must also revoke the removable-library opt-in'
     print('PASS persistent, consumed one-shot, display parser and reset')
+
+    directory, env = case('invalid-docked-preference', MODE='crash')
+    connector = directory / 'drm/card0-DP-1'
+    connector.mkdir(parents=True)
+    (connector / 'status').write_text('connected\n')
+    env['OMARCHY_DRM_PATH'] = str(connector.parent)
+    state(directory).mkdir(parents=True)
+    (state(directory) / 'preference').write_text('invalid\n')
+    run(env, selector, 'preferred', timeout=25)
+    actions = (directory / 'actions').read_text()
+    assert 'desktop:' in actions and 'gamescope:' not in actions, actions
+    assert (directory / 'notifications').read_text() == 'Omarchy Session preference reset\n'
+    assert not (state(directory) / 'preference-reset').exists()
+    print('PASS an invalid docked preference opens Desktop and delivers the reset notice')
 
     for mode in ('crash', 'early', 'timeout', 'steam-fail', 'return', 'return-up', 'switch'):
         directory, env = case(mode, MODE=mode)

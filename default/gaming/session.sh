@@ -116,29 +116,28 @@ gaming_selection() {
       read -r choice < "$gaming_state/last" 2>/dev/null || choice=desktop
     fi
   elif gaming_handheld_variant; then
-    # Handheld default is auto. Docked auto is desktop; otherwise gaming.
     choice=auto
   else
     choice=desktop
   fi
   case $choice in
-    desktop | gaming) ;;
-    auto)
-      if omarchy-hw-external-monitors; then
-        choice=desktop
-      else
-        choice=gaming
-      fi
-      ;;
+    desktop | gaming | auto) ;;
     *)
       if gaming_handheld_variant; then
         printf '%s\n' reset > "$gaming_state/preference-reset"
-        choice=gaming
+        choice=auto
       else
         choice=desktop
       fi
       ;;
   esac
+  if [[ $choice == "auto" ]]; then
+    if omarchy-hw-external-monitors; then
+      choice=desktop
+    else
+      choice=gaming
+    fi
+  fi
   # An unsuccessful gaming launch never becomes an automatic login loop.
   if [[ -f $gaming_state/recovery ]]; then choice=desktop; fi
   printf '%s\n' "$choice"
