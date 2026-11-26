@@ -62,8 +62,11 @@ package_version() {
   local name=$1 query version=""
   if [[ ! -e ${root}/var/lib/pacman/db.lck ]]; then
     query=$(pacman -Q "$name" 2>/dev/null) || query=""
-    version=${query#"$name "}
-    version=${version%%[[:space:]]*}
+    # Pacman can resolve a virtual name to an installed provider.
+    if [[ $query == "$name "* ]]; then
+      version=${query#"$name "}
+      version=${version%%[[:space:]]*}
+    fi
   fi
   if [[ -z $version ]]; then
     version=$(local_version "${root}/var/lib/pacman/local" "$name")
