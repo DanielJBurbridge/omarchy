@@ -26,7 +26,13 @@ case ${1:-status} in
         fi
       done
     fi
-    echo 'Absent preference means desktop; choose Omarchy (session preference) at sign-in.'
+    if gaming_handheld_variant; then
+      echo 'The preference selector uses Auto for a missing or invalid preference.'
+      echo 'Auto selects Desktop with an external display and Gaming otherwise.'
+    else
+      echo 'The preference selector uses Desktop for a missing or invalid preference.'
+    fi
+    echo 'The SDDM handheld entry starts Gaming by default, including on cold boot.'
     ;;
   install-power-button)
     (( $# == 1 )) || exit 2

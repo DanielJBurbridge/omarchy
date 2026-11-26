@@ -11,10 +11,10 @@ The optional `omarchy-gaming-session` package registers three SDDM entries.
 | File | Visible name | Behaviour after authentication |
 | --- | --- | --- |
 | `omarchy-gamescope.desktop` | Omarchy Gaming | Explicitly launch gaming, clearing the recovery latch |
-| `omarchy-handheld.desktop` | Omarchy (session preference) | Honour this user's saved preference and next-session override |
+| `omarchy-handheld.desktop` | Omarchy (session preference) | Use the SDDM relogin policy, including the one-use Desktop override |
 | `omarchy-managed-desktop.desktop` | Omarchy (handheld desktop) | Start the managed Hyprland desktop after local sign-in |
 
-The existing `omarchy.desktop` / Omarchy (Hyprland uwsm) is unchanged. Use it as an independent recovery route. SDDM's last-selected session still applies; saved handheld preferences only apply when selecting **Omarchy (session preference)**. The handheld variant autologins into that preference session and starts in gaming when undocked (spec 02; Daniel, 12 Nov 2026). If gaming does not start, the supervisor falls back to the desktop after one retry. Every such desktop start goes through the one choke point in `desktop()` (spec 02). Until K07, the handheld value is `default-off`, so that desktop is not locked. Before the marker is present, that same handheld also skips the ordinary lock on suspend unless a physical keyboard is attached at that moment. The Ally's built-in controller keyboard does not count, and an explicit `on` with no physical keyboard returns to gaming instead of locking. The marker brings the ordinary suspend lock back. Other variants stay `on` and lock before the first frame. A user's `explicit-off` is a different stored value and is not the shipped default. The unchanged Omarchy entry remains a password login.
+The existing `omarchy.desktop` / Omarchy (Hyprland uwsm) is unchanged. Use it as an independent recovery route. The handheld variant autologins into **Omarchy (session preference)**, which currently invokes `omarchy-session-start relogin` on both cold boot and relogin. If gaming does not start, the supervisor falls back to the desktop after one retry. Every such desktop start goes through the one choke point in `desktop()` (spec 02). Until K07, the handheld value is `default-off`, so that desktop is not locked. Before the marker is present, that same handheld also skips the ordinary lock on suspend unless a physical keyboard is attached at that moment. The Ally's built-in controller keyboard does not count, and an explicit `on` with no physical keyboard returns to gaming instead of locking. The marker brings the ordinary suspend lock back. Other variants stay `on` and lock before the first frame. A user's `explicit-off` is a different stored value and is not the shipped default. The unchanged Omarchy entry remains a password login.
 
 `omarchy-session-start` is a pre-UWSM login entrypoint. It uses the existing canonical environment bootstrap, then runs UWSM or a Gamescope scope within the authenticated logind session. No username, UID, home directory or display number is guessed. UWSM intentionally excludes `XDG_SESSION_ID` from the desktop user manager; the selector carries its managed login ID as `OMARCHY_HANDHELD_SESSION` through UWSM's normal environment import and cleanup so desktop actions address the correct supervisor. On machines outside `omarchy-hw-rog-ally`, the optional entries run the ordinary Hyprland command without reading gaming preferences.
 
@@ -32,6 +32,7 @@ Keyboard activation on menu search is a user preference. To opt in, merge `"onSc
 
 ```bash
 # Run as the signed-in user, never sudo.
+omarchy-setup-gaming-session default auto
 omarchy-setup-gaming-session default gaming
 omarchy-setup-gaming-session default desktop
 omarchy-setup-gaming-session default last
@@ -42,7 +43,7 @@ omarchy-setup-gaming-session status
 omarchy-setup-gaming-session reset
 ```
 
-The absent preference is desktop. `next` overrides the persistent choice once and is consumed **before** starting it, including when startup fails. It survives a reboot until the next managed sign-in. `last` remembers the most recently entered desktop or gaming mode. Returning from gaming enters desktop, making desktop the last mode. `reset` removes preferences, render settings, overlay selection, remembered library and recovery state; it preserves logs and all Steam data.
+The preference selector (`omarchy-session-start preferred`) uses `auto` for a missing or invalid preference on an RC71L with the gaming companion. Auto selects Desktop when it detects an external display and Gaming otherwise. An invalid preference queues the “Session preference reset” notice for the next managed Desktop start. In the preference selector, `next` overrides the persistent choice once and is consumed **before** starting it, including when startup fails. It survives a reboot until a session consumes it. `last` remembers the most recently entered desktop or gaming mode. Returning from gaming enters desktop, making desktop the last mode. `reset` removes preferences, render settings, overlay selection, remembered library and recovery state. It preserves logs and all Steam data.
 
 From the managed Hyprland session, save work and fully exit Steam, then choose the **Omarchy Gaming** application or run `omarchy-launch-gaming-session`. This closes desktop applications using Omarchy's existing logout action. A transient user worker owns the switch request and removes it if logout fails, so submitting a logout job cannot accidentally change a later ordinary logout. The launcher stops wvkbd while the departing Wayland display is still available. It refuses an unmanaged desktop, missing dependencies or a surviving Steam client rather than forwarding a gaming request to that client's old display. After installing the increment, sign out and choose the preference session once to enable this action.
 
