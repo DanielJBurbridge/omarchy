@@ -42,6 +42,7 @@ pass "a fail that cannot become root is logged and returns non-zero"
 handheld_prepare_gaming "$work"
 export OMARCHY_HANDHELD_AUTOLOGIN_DIR=$work/run OMARCHY_SDDM_CONF_DIR=$work/sddm
 cp "$ROOT/bin/omarchy-handheld-autologin" "$HANDHELD_TREE/bin/"
+cp "$ROOT/default/gaming/sddm-user.sh" "$HANDHELD_TREE/default/gaming/"
 sed -i "s|/usr/share/omarchy/default/gaming/session.sh|$HANDHELD_TREE/default/gaming/session.sh|" \
   "$HANDHELD_TREE/bin/omarchy-handheld-autologin"
 sed -i "s|/etc/sddm.conf.d/zz-omarchy-handheld.conf|$work/sddm/zz-omarchy-handheld.conf|" \
