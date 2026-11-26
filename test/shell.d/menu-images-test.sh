@@ -237,17 +237,19 @@ pass "background switcher --print-rows prints the current theme's backgrounds"
 # nor start one process per image. Repeated refreshes share one worker pool.
 lazy_images="$tmp/lazy-images"
 lazy_state="$tmp/lazy-state"
-mkdir -p "$lazy_images" "$lazy_state"
+# The earlier background picker can still have a thumbnail worker running.
+lazy_bin="$tmp/lazy-bin"
+mkdir -p "$lazy_images" "$lazy_state" "$lazy_bin"
 for (( i = 0; i < 40; i++ )); do
   printf 'image' >"$lazy_images/$i.png"
 done
 printf '0\n' >"$lazy_state/active"
 printf '0\n' >"$lazy_state/peak"
-cat >"$stub_bin/nproc" <<'EOF'
+cat >"$lazy_bin/nproc" <<'EOF'
 #!/bin/bash
 echo "${FAKE_CORES:-2}"
 EOF
-cat >"$stub_bin/vipsthumbnail" <<'EOF'
+cat >"$lazy_bin/vipsthumbnail" <<'EOF'
 #!/bin/bash
 while (( $# > 0 )); do
   if [[ $1 == "--path" ]]; then output=${2%%\[*}; break; fi
@@ -270,10 +272,10 @@ active=$(<"$LAZY_STATE/active")
 printf '%s\n' "$((active - 1))" >"$LAZY_STATE/active"
 echo done >>"$LAZY_STATE/completed"
 EOF
-chmod +x "$stub_bin/nproc" "$stub_bin/vipsthumbnail"
+chmod +x "$lazy_bin/nproc" "$lazy_bin/vipsthumbnail"
 
 lazy_rows() {
-  setsid env PATH="$stub_bin:$PATH" XDG_CACHE_HOME="$tmp/lazy-cache-$cores" LAZY_STATE="$lazy_state" FAKE_CORES="$cores" \
+  setsid env PATH="$lazy_bin:$PATH" XDG_CACHE_HOME="$tmp/lazy-cache-$cores" LAZY_STATE="$lazy_state" FAKE_CORES="$cores" \
     timeout --foreground 10 "$ROOT/bin/omarchy-menu-images" --lazy-thumbnails --print-rows "$lazy_images" >"$lazy_state/rows" &
   local group=$!
   lazy_groups+=("$group")
