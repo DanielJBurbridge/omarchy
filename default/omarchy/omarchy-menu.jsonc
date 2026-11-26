@@ -36,6 +36,7 @@
 
   // System
   "system.switch-gaming": {"icon":"","label":"Switch to Gaming","handheldScreen":true,"when":"[[ -n ${OMARCHY_HANDHELD_SESSION:-} ]] && omarchy-launch-gaming-session --available","action":"omarchy-launch-gaming-session"},
+  "system.gaming-recovery": {"icon":"","label":"Gaming Recovery","when":"omarchy-hw-rog-ally","action":"omarchy-menu-gaming-recovery"},
   "system.about": {"icon":"","label":"About","aliases":["about"],"action":"omarchy-launch-about"},
   "system.screensaver": {"icon":"󱄄","label":"Screensaver","action":"omarchy-launch-screensaver force"},
   "system.lock": {"icon":"","label":"Lock","action":"omarchy-system-lock"},
@@ -238,7 +239,7 @@
   "setup.keyboard.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-editor \"$HOME/.config/hypr/bindings.lua\""},
   "setup.keyboard.inputs": {"icon":"","label":"Keyboard Inputs","action":"omarchy-setup-keyboard"},
   "setup.keyboard.input-methods": {"icon":"","label":"Input Methods","action":"omarchy-setup-input"},
-  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","handheldScreen":true,"when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
+  "setup.keyboard.desktop": {"icon":"","label":"Desktop Keyboard","description":"Type in terminal prompts, including Update > Omarchy","handheldScreen":true,"when":"omarchy-hw-rog-ally && omarchy-cmd-present wvkbd-mobintl","action":"omarchy-toggle-desktop-keyboard"},
   "setup.input": {"icon":"","label":"Input","when":"[[ -f ~/.config/hypr/input.lua ]]","action":"omarchy-launch-editor \"$HOME/.config/hypr/input.lua\""},
   "setup.region": {"icon":"󰇧","label":"Region"},
   "setup.region.language": {"icon":"","label":"Language","provider":"languages"},
