@@ -621,6 +621,11 @@ SH
 cat >"$stub/steamos-powerbuttond" <<'SH'
 #!/bin/bash
 echo daemon >>"$PKG_LOG"
+if [[ -n ${POWERBUTTON_START_FIFO:-} ]]; then
+  sleep 15 &
+  printf '%s %s\n' "$$" "$!" >"$POWERBUTTON_START_FIFO"
+  wait
+fi
 SH
 chmod +x "$stub/omarchy-cmd-present" "$stub/steamos-powerbuttond"
 
@@ -631,7 +636,7 @@ run_gaming_button() {
     XDG_RUNTIME_DIR="$test_tmp/runtime" XDG_CURRENT_DESKTOP="${TEST_DESKTOP:-gamescope}" \
     DISPLAY="${TEST_DISPLAY-:7}" HYPRLAND_INSTANCE_SIGNATURE="${TEST_HYPRLAND:-}" \
     PKG_LOG="$pkg_log" PATH="$real_predicate:$stub:$ROOT/bin:$PATH" \
-    "$ROOT/bin/omarchy-launch-gaming-powerbutton"
+    "$@" "$ROOT/bin/omarchy-launch-gaming-powerbutton"
 }
 
 : >"$pkg_log"
@@ -645,8 +650,10 @@ if FAKE_POWERBUTTON_INSTALLED=0 run_gaming_button; then fail "missing companion 
 [[ ! -s $pkg_log ]] || fail "refused launches never reach the daemon"
 pass "gaming handler rejects unsupported hardware, desktop and missing prerequisites"
 
-run_gaming_button
+gaming_output=$(run_gaming_button 2>&1)
 [[ $(<"$pkg_log") == "daemon" ]] || fail "Gamescope RC71L starts upstream daemon"
+[[ $gaming_output == *"steamos-powerbuttond exited unexpectedly (status 0)"* ]] ||
+  fail "an immediate daemon exit is logged even when its status is zero" "$gaming_output"
 : >"$pkg_log"
 (
   flock 9
@@ -654,6 +661,32 @@ run_gaming_button
 ) 9>"$test_tmp/runtime/omarchy-power-button.lock"
 [[ ! -s $pkg_log ]] || fail "a second button handler cannot start"
 pass "gaming handler starts once and shares exclusion with desktop handler"
+
+(
+  start_fifo="$test_tmp/powerbutton-started"
+  power_lock="$test_tmp/runtime/omarchy-power-button.lock"
+  mkfifo "$start_fifo"
+  exec {start_fd}<>"$start_fifo"
+  # Signal the launcher PID directly, as omarchy-gaming-steam does.
+  POWERBUTTON_START_FIFO="$start_fifo" run_gaming_button exec >"$test_tmp/powerbutton.log" 2>&1 &
+  wrapper_pid=$!
+  steam_cli_pid=''
+  trap 'kill "$wrapper_pid" "$steam_cli_pid" 2>/dev/null || true' EXIT
+  read -r -t 5 -u "$start_fd" daemon_pid steam_cli_pid ||
+    fail "gaming daemon and its Steam child started" "$(<"$test_tmp/powerbutton.log")"
+  if flock -n "$power_lock" true; then
+    fail "gaming launcher holds the shared lock while the daemon runs"
+  fi
+  kill "$wrapper_pid"
+  wait "$wrapper_pid" 2>/dev/null || true
+  wrapper_pid=''
+  if kill -0 "$daemon_pid" 2>/dev/null; then
+    fail "stopping the gaming launcher stops the daemon"
+  fi
+  kill -0 "$steam_cli_pid" || fail "the Steam child outlives the gaming daemon"
+  flock -n "$power_lock" true || fail "the Steam child cannot retain the shared power-button lock"
+)
+pass "the shared power-button lock is released at teardown even when a Steam child lingers"
 
 # A substring match for 0x74 would also tag an ordinary keyboard carrying
 # only KEY_ZOOM (0x174). Query a real isolated hwdb, never the host database.
