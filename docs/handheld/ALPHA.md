@@ -122,6 +122,8 @@ fi
 
 When desktop sign-in is enabled, enter your password at the greeter. Otherwise the desktop opens directly. After repeated failed starts the supervisor can already have opened the greeter or a recovery desktop. If the screen stays stuck, check `~/.local/state/omarchy/gaming-session/session.log` or use the recovery greeter below.
 
+Once the desktop opens, choose **Omarchy → System → Gaming Recovery** to see whether the Gaming companion and a saved desktop fallback were detected. The menu points to desktop Steam or Gaming Setup.
+
 ### Open a recovery greeter
 
 Keep your SSH connection open and have the owner's password ready. Create a temporary SDDM override to request password sign-in. Save the filename it prints.

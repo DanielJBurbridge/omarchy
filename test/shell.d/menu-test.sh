@@ -190,6 +190,19 @@ assertDeepEqual(
 
 const defaultItems = menu.parseMenuJsonc(defaultMenuJsonc)
 const defaultById = Object.fromEntries(defaultItems.map(item => [item.id, item]))
+const defaultOrder = Object.keys(defaultById)
+
+const desktopKeyboard = defaultById['setup.keyboard.desktop']
+const updateOmarchy = defaultById['update.omarchy']
+const updateKeyboardSearch = (onHandheldScreen, keyboardAvailable) => {
+  const guards = { [desktopKeyboard.id]: keyboardAvailable }
+  const visible = menu.isVisible(defaultById, defaultOrder, guards, desktopKeyboard, onHandheldScreen)
+  return menu.matchesQuery(desktopKeyboard, 'update keyboard', visible)
+}
+assert(updateKeyboardSearch(true, true), 'update keyboard search finds the existing Desktop Keyboard action')
+assert(!updateKeyboardSearch(false, true), 'update keyboard search excludes the action on ordinary desktop outputs')
+assert(!updateKeyboardSearch(true, false), 'update keyboard search excludes the action when the keyboard is unavailable')
+assert(menu.isVisible(defaultById, defaultOrder, { [desktopKeyboard.id]: false }, updateOmarchy, false), 'Omarchy update remains available without the desktop keyboard')
 
 // Needs the real menu: app rows sort after all menu items, and only at that
 // item count does the order tiebreak alone bury an installed app.
