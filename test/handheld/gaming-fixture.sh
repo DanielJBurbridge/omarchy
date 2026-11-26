@@ -44,9 +44,7 @@ if status == 0:
 PY
   mkdir -p "$tree/default/systemd/user/omarchy-rog-ally-input.service.d" \
     "$tree/default/systemd/user/omarchy-ally-tdp-shim.service.d"
-  cp "$ROOT/default/systemd/user/omarchy-gaming-session.target" \
-    "$ROOT/default/systemd/user/omarchy-gaming-input-profile.service" \
-    "$tree/default/systemd/user/"
+  cp "$ROOT/default/systemd/user/omarchy-gaming-session.target" "$tree/default/systemd/user/"
   cp "$ROOT/default/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf" \
     "$tree/default/systemd/user/omarchy-rog-ally-input.service.d/"
   cp "$ROOT/default/systemd/user/omarchy-ally-tdp-shim.service.d/10-gaming-session.conf" \

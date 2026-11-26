@@ -55,7 +55,7 @@ fi
 
 if [[ $next_sink_name != "$current_sink_name" ]]; then
   # A PulseAudio index can belong to a different object in PipeWire.
-  omarchy-audio-output-set-default "$next_sink_name"
+  omarchy-audio-output-set-default "$next_sink_name" || exit $?
 fi
 
 omarchy-osd -i "volume-${icon_state}" -m "$next_sink_description"

@@ -3,6 +3,8 @@
 # omarchy:summary=Load the InputPlumber gaming profile before the gaming bridge
 
 set -uo pipefail
+# Older gaming-session packages may still invoke this oneshot. The login
+# supervisor owns profile recovery for current packages.
 # The profile service is the only LoadProfileFromYaml caller. A missing
 # daemon or a machine that is not the RC71L must not hold the bridge back.
 if ! omarchy-hw-rog-ally; then

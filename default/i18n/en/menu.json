@@ -1213,6 +1213,9 @@
   "update.omarchy": {
     "label": "Omarchy"
   },
+  "update.check": {
+    "label": "Check for Updates"
+  },
   "update.channel": {
     "label": "Channel"
   },
