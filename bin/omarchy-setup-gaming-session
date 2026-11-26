@@ -32,7 +32,8 @@ case ${1:-status} in
     else
       echo 'The preference selector uses Desktop for a missing or invalid preference.'
     fi
-    echo 'The SDDM handheld entry starts Gaming by default, including on cold boot.'
+    echo 'The SDDM handheld entry uses this preference on the first automatic login of each boot.'
+    echo 'Relogin defaults to Gaming and honours a one-use Desktop override.'
     ;;
   install-power-button)
     (( $# == 1 )) || exit 2

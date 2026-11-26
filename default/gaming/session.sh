@@ -13,7 +13,11 @@ gaming_state_init() {
 gaming_save() {
   local temporary
   temporary=$(mktemp "$gaming_state/.setting.XXXXXX") || return 1
-  printf '%s\n' "$2" > "$temporary" && mv -f "$temporary" "$gaming_state/$1"
+  if printf '%s\n' "$2" > "$temporary" && mv -fT -- "$temporary" "$gaming_state/$1"; then
+    return 0
+  fi
+  rm -f -- "$temporary"
+  return 1
 }
 
 gaming_runtime_path() {
