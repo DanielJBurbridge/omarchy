@@ -72,6 +72,9 @@ exit 1
 EOF
 cat > "$work/bin/busctl" <<'EOF'
 #!/bin/bash
+if [[ ${7:-} == "GetManagedObjects" ]]; then
+  exec cat "${GREETER_SNAPSHOT:?}"
+fi
 printf '%s\n' "$*" >> "${BUSCTL_LOG:?}"
 exit 0
 EOF
@@ -87,6 +90,67 @@ fi
 exit 0
 EOF
 chmod +x "$work/bin/"*
+
+(
+  controller=/org/shadowblip/InputPlumber/CompositeDevice1
+  usb=/devices/pci0000:00/0000:00:08.1/0000:09:00.3/usb1
+  ally_path="$usb/1-3/1-3:1.0/input/input18/event7"
+  pad_path="$usb/1-2/1-2:1.0/input/input19/event13"
+  mkdir -p "$work/sys${pad_path}" "$work/sys${ally_path}" "$work/pointer-bin"
+  mount --bind "$work/sys" /sys
+  trap 'umount /sys' EXIT
+  printf '#!/bin/bash\nexit 0\n' >"$work/pointer-bin/sleep"
+  chmod +x "$work/pointer-bin/sleep"
+
+  check_pad() (
+    local name=$1 load=$2 sysfs=$3 phys=$4 properties=$5 ally_properties=${6:-'{"ID_INTEGRATION":"internal"}'}
+    export GREETER_SNAPSHOT="$work/$name.json" BUSCTL_LOG="$work/busctl-$name"
+    jq -n --arg path "$controller" --arg ally "$ally_path" --arg sysfs "$sysfs" \
+      --arg phys "$phys" --argjson properties "$properties" --argjson ally_properties "$ally_properties" '
+      "org.shadowblip.Input.Source.UdevDevice" as $source
+      | {data: [{
+          "/org/shadowblip/InputPlumber/devices/source/event7": {($source): {
+            DevicePath: {data: "/dev/input/event7"}, IdVendor: {data: "0b05"}, IdProduct: {data: "1abe"},
+            SysfsPath: {data: $ally}, Properties: {data: $ally_properties}
+          }},
+          "/org/shadowblip/InputPlumber/devices/source/event13": {($source): {
+            DevicePath: {data: "/dev/input/event13"}, IdVendor: {data: "045e"}, IdProduct: {data: "028e"},
+            SysfsPath: {data: $sysfs}, PhysPath: {data: $phys}, Properties: {data: $properties}
+          }},
+          ($path): {"org.shadowblip.Input.CompositeDevice": {
+            Name: {data: "ASUS ROG Ally"},
+            SourceDevicePaths: {data: ["/dev/input/event7", "/dev/input/event13"]}
+          }}
+        }]}' >"$GREETER_SNAPSHOT"
+    : >"$BUSCTL_LOG"
+    local status=0
+    PATH="$work/pointer-bin:$work/bin:$PATH" "$ROOT/bin/omarchy-ally-pointer" || status=$?
+    if [[ $load == "yes" ]]; then
+      local profile="$ROOT/default/inputplumber/profiles/omarchy-ally-pointer.yaml"
+      (( status == 0 )) &&
+        [[ $(<"$BUSCTL_LOG") == "--timeout=1s call org.shadowblip.InputPlumber $controller org.shadowblip.Input.CompositeDevice LoadProfilePath s $profile" ]] ||
+        fail "$name loads the pointer profile"
+    else
+      (( status == 1 )) && [[ ! -s $BUSCTL_LOG ]] || fail "$name refuses the pointer profile"
+    fi
+    pass "$name"
+  )
+
+  external='{"ID_VENDOR_ID":"045e","ID_MODEL_ID":"028e","ID_INTEGRATION":"external"}'
+  stale='{"ID_VENDOR_ID":"046d","ID_MODEL_ID":"c534","ID_INTEGRATION":"external","ID_PATH":"pci-0000:0b:00.3-usb-0:1.3.4:1.1","ID_MODEL":"USB_Receiver"}'
+  wrong_path='{"ID_VENDOR_ID":"045e","ID_MODEL_ID":"028e","ID_INTEGRATION":"internal","DEVPATH":"/devices/unrelated"}'
+  result=0
+  check_pad "built-in pad with Logitech properties" yes "$pad_path" "usb-0000:09:00.3-2/input0" "$stale" || result=1
+  check_pad "built-in ASUS source with Logitech properties" yes "$pad_path" "" '{}' "$stale" || result=1
+  check_pad "external pad with matching properties" no "$pad_path" "" "$external" || result=1
+  check_pad "external pad on another USB controller" no "" "usb-0000:0b:00.3-1/input0" "$wrong_path" || result=1
+  check_pad "external pad behind a hub on the same controller" no "$usb/1-1.3/1-1.3:1.0/input/event13" "" '{}' || result=1
+  printf 'fixed\n' >"$work/sys$usb/1-2/removable"
+  check_pad "fixed USB device overrides InputPlumber" yes "$pad_path" "" "$external" || result=1
+  printf 'removable\n' >"$work/sys$usb/1-2/removable"
+  check_pad "removable USB device overrides InputPlumber" no "$pad_path" "" '{"ID_INTEGRATION":"internal"}' || result=1
+  (( result == 0 ))
+)
 
 BUSCTL_LOG=$work/busctl.log SYSTEMCTL_LOG=$work/systemctl.log HW=laptop \
   PATH="$work/bin:$PATH" "$ROOT/bin/omarchy-gaming-input-profile"

@@ -9,30 +9,97 @@ set -euo pipefail
 omarchy-hw-rog-ally || exit 0
 bus=org.shadowblip.InputPlumber
 composite=org.shadowblip.Input.CompositeDevice
+udev=org.shadowblip.Input.Source.UdevDevice
 profile="$OMARCHY_PATH/default/inputplumber/profiles/omarchy-ally-pointer.yaml"
+
+sysfs_integration() {
+  local path=$1 removable
+  [[ $path == /* ]] || return 1
+  path=$(realpath -e -- "/sys/${path#/sys/}" 2>/dev/null) || return 1
+  while [[ $path == /sys/devices/* ]]; do
+    if [[ ${path##*/} =~ ^[0-9]+-[0-9]+(\.[0-9]+)*$ ]]; then
+      if IFS= read -r removable 2>/dev/null <"$path/removable"; then
+        case $removable in
+          fixed) printf '%s\n' internal; return 0 ;;
+          removable) printf '%s\n' external; return 0 ;;
+        esac
+      fi
+      return 1
+    fi
+    path=${path%/*}
+  done
+  return 1
+}
+
+sysfs_integrations() {
+  local path integration
+  jq -r --arg udev "$udev" '
+    .data[0][][$udev]
+    | select((.IdVendor.data == "0b05" and .IdProduct.data == "1abe")
+             or (.IdVendor.data == "045e" and .IdProduct.data == "028e"))
+    | .SysfsPath.data // empty
+  ' <<<"$1" | while IFS= read -r path; do
+    if integration=$(sysfs_integration "$path"); then
+      printf '%s\t%s\n' "$path" "$integration"
+    fi
+  done
+}
+
+ally_composites() {
+  local snapshot=$1
+  jq -r --arg composite "$composite" --arg udev "$udev" \
+    --rawfile sysfs <(sysfs_integrations "$snapshot") '
+    def matches($properties; $key; $value):
+      ($properties | has($key) | not) or $properties[$key] == $value;
+
+    # InputPlumber can report a udev property map from another source.
+    def integration($kernel):
+      (.Properties.data // {}) as $properties
+      | $kernel[.SysfsPath.data // ""] // (
+          if matches($properties; "ID_VENDOR_ID"; .IdVendor.data)
+            and matches($properties; "ID_MODEL_ID"; .IdProduct.data)
+            and matches($properties; "DEVPATH"; .SysfsPath.data // "")
+          then $properties.ID_INTEGRATION else null end
+        );
+
+    def direct_usb_controller:
+      [(.SysfsPath.data // "" | capture("/(?<host>[^/]+)/usb[0-9]+/[0-9]+-(?<port>[0-9.]+)(/|$)")),
+       (.PhysPath.data // "" | capture("^usb-(?<host>[^/]+?)-(?<port>[0-9.]+)(/|$)"))][0]
+      | if .port == null or (.port | contains(".")) then null else .host end;
+
+    ($sysfs | split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]})
+      | from_entries) as $kernel
+    | .data[0] as $objects
+    | [$objects[][$udev]
+       | select((.IdVendor.data == "0b05" and .IdProduct.data == "1abe")
+                or (.IdVendor.data == "045e" and .IdProduct.data == "028e"))
+       | select(.DevicePath.data)
+       | {path: .DevicePath.data, ally: (.IdVendor.data == "0b05"),
+          integration: integration($kernel), controller: direct_usb_controller}] as $sources
+    | $objects | to_entries[]
+    | select(.value[$composite].Name.data == "ASUS ROG Ally")
+    | (.value[$composite].SourceDevicePaths.data // []) as $devices
+    | [$sources[] | select(.path as $path | $devices | index($path) != null)] as $attached
+    | [$attached[] | select(.ally and .integration != "external")] as $ally_sources
+    | select($ally_sources | length > 0)
+    # The built-in Xbox pad is on a sibling port of the Ally USB controller.
+    | [$ally_sources[] | select(.integration == "internal") | .controller // empty] as $internal
+    | (if ($internal | length) > 0 then $internal else [$ally_sources[].controller // empty] end) as $controllers
+    | select(all($attached[] | select(.ally | not);
+        .integration == "internal" or
+        (.integration != "external" and (.controller as $host | $controllers | index($host) != null))))
+    | .key
+  ' <<<"$snapshot"
+}
 
 # InputPlumber takes its bus name before udev has assembled the controller.
 # Use one snapshot per attempt, so the composite and its sources are matched
 # together. Keep an external Xbox pad out even if InputPlumber combines it
 # with the Ally’s other built-in sources.
 for ((attempt = 0; attempt < 20; attempt++)); do
-  if paths=$(busctl --timeout=500ms --json=short call "$bus" /org/shadowblip/InputPlumber \
-    org.freedesktop.DBus.ObjectManager GetManagedObjects |
-    jq -r --arg composite "$composite" '
-      .data[0] as $objects
-      | ($objects[]["org.shadowblip.Input.Source.UdevDevice"]
-         | select(.IdVendor.data == "0b05" and .IdProduct.data == "1abe"
-           and .Properties.data.ID_INTEGRATION != "external")
-         | .DevicePath.data) as $ally_source
-      | [$objects[]["org.shadowblip.Input.Source.UdevDevice"]
-          | select(.IdVendor.data == "045e" and .IdProduct.data == "028e"
-            and .Properties.data.ID_INTEGRATION == "external")
-          | .DevicePath.data] as $external_pads
-      | $objects | to_entries[]
-      | select(.value[$composite].Name.data == "ASUS ROG Ally")
-      | select(.value[$composite].SourceDevicePaths.data
-         | index($ally_source) and all(.[]; . as $source | ($external_pads | index($source)) == null))
-      | .key' | sort -u) && [[ -n $paths ]]; then
+  if snapshot=$(busctl --timeout=500ms --json=short call "$bus" /org/shadowblip/InputPlumber \
+      org.freedesktop.DBus.ObjectManager GetManagedObjects) &&
+    paths=$(ally_composites "$snapshot") && [[ -n $paths ]]; then
     if [[ $paths =~ ^/org/shadowblip/InputPlumber/CompositeDevice[0-9]+$ ]]; then
       exec busctl --timeout=1s call "$bus" "$paths" "$composite" LoadProfilePath s "$profile"
     fi
