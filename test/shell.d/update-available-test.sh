@@ -13,10 +13,17 @@ mkdir -p "$stub_bin"
 
 cat >"$stub_bin/checkupdates" <<'SH'
 #!/bin/bash
+if [[ -n ${TEST_CHECKUPDATES_LOG:-} ]]; then
+  [[ -d $CHECKUPDATES_DB ]] || exit 1
+  printf '%s\n' "$CHECKUPDATES_DB" >>"$TEST_CHECKUPDATES_LOG"
+fi
 case "${TEST_CHECKUPDATES:-updates}" in
   updates)
     printf 'linux 6.1-1 -> 6.1-2\nomarchy 4.0.0-1 -> 4.0.1-1\nomarchy-settings 4.0.0-1 -> 4.0.1-1\nomarchy-dev 4.1.0-1 -> 4.1.1-1\nomarchy-settings-dev 4.1.0-1 -> 4.1.1-1\n'
     exit 0
+    ;;
+  system-update)
+    echo 'linux 6.1-1 -> 6.1-2'
     ;;
   none)
     exit 2
@@ -24,6 +31,9 @@ case "${TEST_CHECKUPDATES:-updates}" in
   fail)
     echo "check failed" >&2
     exit 1
+    ;;
+  stall)
+    exec sleep 60
     ;;
 esac
 SH
@@ -74,6 +84,9 @@ case "$1" in
       --abbrev-ref)
         [[ ${TEST_GIT_UPSTREAM:-origin/quattro} != "none" ]] || exit 1
         echo "${TEST_GIT_UPSTREAM:-origin/quattro}"
+        ;;
+      --short)
+        echo abc1234
         ;;
       *)
         exit 1
@@ -228,3 +241,55 @@ fi
 [[ $status -eq 0 ]] || fail "update checker reports package updates before the first omarchy update"
 grep -q '^linux ' "$stdout" || fail "update checker counts any package before the first omarchy update" "$(cat "$stdout")"
 pass "update checker counts any package update before the first omarchy update"
+
+# Exercise the menu adapter and checker with controlled repository and
+# notification responses. A manual check must distinguish failure from no updates.
+cat >"$stub_bin/omarchy-notification-send" <<'SH'
+#!/bin/bash
+options=" ${*:1:$#-2} "
+if [[ ! -s $TEST_NOTIFY_LOG ]]; then
+  [[ $options == *' -p '* ]] || exit 1
+  echo 42
+else
+  [[ $options == *' -r 42 '* ]] || exit 1
+fi
+printf '%s\n' "${@: -2}" >>"$TEST_NOTIFY_LOG"
+SH
+
+# Shorten the deadline for the hanging fixture while still exercising timeout.
+TEST_REAL_TIMEOUT=$(command -v timeout)
+export TEST_REAL_TIMEOUT
+cat >"$stub_bin/timeout" <<'SH'
+#!/bin/bash
+if [[ $TEST_CHECKUPDATES == "stall" ]]; then
+  shift 2
+  exec "$TEST_REAL_TIMEOUT" --kill-after=1s 0.2s "$@"
+else
+  exec "$TEST_REAL_TIMEOUT" "$@"
+fi
+SH
+chmod +x "$stub_bin/omarchy-notification-send" "$stub_bin/timeout"
+
+check_menu_result() {
+  local scenario=$1 expected=$2 database notifications
+  local installed="Omarchy dev (abc1234) · Channel dev"
+  : >"$test_tmp/checkupdates.log"
+  : >"$test_tmp/notify.log"
+  PATH="$stub_bin:$ROOT/bin:$PATH" HOME="$test_tmp/home" TEST_GIT_LOG="$git_log" \
+    TEST_CHECKUPDATES="$scenario" TEST_CHECKUPDATES_LOG="$test_tmp/checkupdates.log" \
+    TEST_NOTIFY_LOG="$test_tmp/notify.log" CHECKUPDATES_DB="$test_tmp/shared-db" \
+    "$ROOT/bin/omarchy-menu-check-updates" 2>"$stderr" || fail "manual check finishes for $scenario" "$(cat "$stderr")"
+
+  database=$(<"$test_tmp/checkupdates.log")
+  [[ -n $database && $database != "$test_tmp/shared-db" && ! -e $database ]] ||
+    fail "manual check uses and removes its own database for $scenario"
+  printf -v notifications 'Checking for repository updates…\n%s\n%s\n%s' "$installed" "$expected" "$installed"
+  [[ $(<"$test_tmp/notify.log") == "$notifications" ]] ||
+    fail "manual check shows $expected and the installed version and channel" "$(cat "$test_tmp/notify.log")"
+  pass "manual check reports $scenario"
+}
+
+check_menu_result system-update 'Repository updates available'
+check_menu_result none 'No repository updates pending'
+check_menu_result fail 'Update check failed'
+check_menu_result stall 'Update check timed out'

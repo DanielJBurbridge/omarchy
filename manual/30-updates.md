@@ -2,6 +2,8 @@
 
 Omarchy and your packages are kept up to date via _Update > Omarchy_ in the Omarchy menu (`Super + Space`).
 
+Choose _Update > Check for Updates_ to see whether updates are pending for packages from your configured repositories. The notification also shows your Omarchy version and update channel.
+
 Omarchy itself is installed as regular pacman packages from the [Omarchy Package Repository](https://github.com/omacom-io/omarchy-pkgs), so an update installs [the latest Omarchy release](https://github.com/omacom/omarchy/releases), runs any pending migrations to get your system in sync with the latest, and updates all system packages from the [Omarchy Arch Mirror](https://github.com/omacom-io/omarchy-mirror) and [AUR](https://aur.archlinux.org/) (if you have installed any AUR packages).
 
 When new releases are made, a circle arrow icon will appear to the right of your clock. Click it and the update process will start.

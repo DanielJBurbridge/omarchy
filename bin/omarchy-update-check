@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# omarchy:summary=Check for pending repository package updates
+
+set -euo pipefail
+
+# Give each manual check its own database so it cannot race the bar checker.
+database=$(mktemp -d)
+trap 'rm -rf -- "$database"' EXIT
+
+# checkupdates returns 0 for updates, 2 for none, and 1 for an error.
+CHECKUPDATES_DB="$database" timeout --kill-after=2s 30s checkupdates --nocolor

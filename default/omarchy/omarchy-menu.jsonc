@@ -490,6 +490,7 @@
 
   // Update
   "update.omarchy": {"icon":"","iconFont":"omarchy","label":"Omarchy","action":"omarchy-launch-floating-terminal-with-presentation omarchy-update"},
+  "update.check": {"icon":"","label":"Check for Updates","action":"omarchy-menu-check-updates"},
   "update.channel": {"icon":"󰔫","label":"Channel"},
   "update.kernel": {"icon":"","label":"Kernel","when":"(( $(omarchy-kernel list | wc -l) > 1 ))","provider":"kernels"},
   "update.config": {"icon":"","label":"Config","title":"Reset to default"},
