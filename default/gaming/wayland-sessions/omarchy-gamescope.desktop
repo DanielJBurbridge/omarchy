@@ -2,5 +2,5 @@
 Name=Omarchy Gaming
 Comment=Standalone Steam Gamescope session with Omarchy desktop recovery
 Exec=omarchy-session-start gaming
-TryExec=gamescope
+TryExec=omarchy-session-start
 Type=Application

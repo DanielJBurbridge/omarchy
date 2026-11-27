@@ -1,3 +1,6 @@
+# The handheld runtime and settings supply the policy installers. A stock
+# provider can appear during rollback, so call each helper only if present.
+
 # Pacman keeps going when a scriptlet returns 0. A failed profile step has
 # to say which step failed and the command that repeats it.
 warn_profile_step() {

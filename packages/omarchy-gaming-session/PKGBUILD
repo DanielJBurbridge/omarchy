@@ -3,12 +3,20 @@
 # and let makepkg collect the checkout files for --allsource.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=18
+pkgrel=19
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
 license=('MIT')
-depends=('omarchy' 'diffutils' 'iproute2' 'inputplumber' 'gamescope>=3.17.0' 'steam' 'sddm' 'systemd' 'util-linux')
+# The paired handheld runtime and settings supply the Omarchy entry points.
+# Current development packages provide the unversioned virtual name omarchy.
+depends=('omarchy' 'bash' 'coreutils' 'diffutils' 'gamescope>=3.17.0'
+         'inputplumber>=0.84.0' 'iproute2' 'lua51' 'pacman' 'polkit'
+         'procps-ng' 'python' 'python-gobject' 'sddm' 'steam' 'sudo'
+         'systemd' 'util-linux')
+optdepends=('mangohud: Gamescope overlay via mangoapp'
+            'omarchy-rog-ally-powerbutton: RC71L power-button handling in Gaming Mode'
+            'udisks2: remembered removable Steam libraries')
 source=(
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-gamescope.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-gamescope.desktop"
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-handheld.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-handheld.desktop"
@@ -26,10 +34,10 @@ source=(
   'omarchy-gaming-inputplumber.hook'
   "${pkgname}-${pkgver}-${pkgrel}-LICENSE::file://${startdir}/../../LICENSE"
 )
-sha256sums=('d1dc75de73707abae50f6f71c0dc9fbc705a0aee71536683748f0ea79b3416ef'
+sha256sums=('a697cc8058ae879fb3f0ef12fe69acafe79a227a5820ed085795c4431161a20a'
             '6a641adab37b03362dd4405684fd7c269cccc647fb96ac863896e79aeb618edb'
             '7534f5ebedda451110ed884d1a404244fc02bd34027c7b4ecf565a55040c853f'
-            'd7a202bb97c5e34e24ee62b77b316b7717f999a65a66dc4af6e7158aa0076591'
+            '9cd356df485b20ef525231da163d1fbeaba5e5b5d15b800bb3a335e1b86a0878'
             '69f0d54d4aff96d5f275b080386405e1cbd35b3447f336c76b86517462ed5e98'
             'c64bc45684e189a4fb96de791d0c0343b4585afc7a6e52c93cbbb4055d9a50fc'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
