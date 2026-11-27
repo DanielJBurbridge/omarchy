@@ -139,6 +139,16 @@ charging_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bi
 grep -Fx $'time\t1h' <<<"$charging_output" >/dev/null || fail "time to full counts up to the charge limit" "$charging_output"
 pass "battery status times charging to the charge limit"
 
+# UPower can keep reporting the configured limit after firmware disables it.
+printf '100\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+disabled_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'time\t1h 30m' <<<"$disabled_output" >/dev/null || fail "a disabled charge limit counts up to 100%" "$disabled_output"
+if grep -q $'^threshold\t' <<<"$disabled_output"; then
+  fail "a disabled charge limit is omitted from the panel" "$disabled_output"
+fi
+printf '80\n' >"$hold_dir/power/BAT0/charge_control_end_threshold"
+pass "battery status uses the effective firmware limit"
+
 # UPower's own estimate stands in when the draw is too small to divide by...
 printf '100000\n' >"$hold_dir/power/BAT0/power_now"
 idle_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
@@ -156,10 +166,19 @@ sed -i 's/energy-full:          69.6 Wh/energy:               27.84 Wh\n  energy
 rm "$hold_dir/power/BAT0/charge_control_end_threshold"
 sed -i '/charge-end-threshold: 80%/d' "$hold_dir/bin/upower"
 mkdir -p "$hold_dir/power/BAT1"
+printf '55\n' >"$hold_dir/power/BAT1/charge_control_start_threshold"
 printf '60\n' >"$hold_dir/power/BAT1/charge_control_end_threshold"
+printf '420\n' >"$hold_dir/power/BAT1/cycle_count"
 unlimited_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
 grep -Fx $'time\t1h 30m' <<<"$unlimited_output" >/dev/null || fail "time to full ignores another battery's charge limit" "$unlimited_output"
-pass "battery status times charging to its own battery's limit"
+if grep -Eq $'^(threshold|cycles)\t' <<<"$unlimited_output"; then
+  fail "battery status omits another battery's thresholds and cycle count" "$unlimited_output"
+fi
+sed -i '/percentage:/a\  charge-end-threshold: 80%' "$hold_dir/bin/upower"
+upower_output=$(OMARCHY_POWER_SUPPLY_PATH="$hold_dir/power" PATH="$hold_dir/bin:$PATH" "$ROOT/bin/omarchy-battery-status" --shell)
+grep -Fx $'threshold\t80%' <<<"$upower_output" >/dev/null || fail "UPower's end threshold does not borrow another battery's start" "$upower_output"
+sed -i '/charge-end-threshold: 80%/d' "$hold_dir/bin/upower"
+pass "battery status reports only the selected battery's readings"
 
 # The status line and its durations follow the Omarchy language.
 echo "da" >"$tmp_dir/language"

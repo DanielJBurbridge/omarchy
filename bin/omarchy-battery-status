@@ -89,17 +89,19 @@ power_rate=$(awk -v rate="${power_rate_raw:-0}" 'BEGIN {
   print rounded
 }')
 state=$(awk '/state/ { print $2; exit }' <<<"$battery_info")
-threshold_start=$(awk '/charge-start-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
-threshold_end=$(awk '/charge-end-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
 
-# Read the thresholds from the battery UPower resolved rather than a BAT* glob,
-# which misses every battery with another name.
-[[ -n $threshold_end || ! -r $battery_path/charge_control_end_threshold ]] || threshold_end=$(<"$battery_path/charge_control_end_threshold")
-[[ -n $threshold_start || ! -r $battery_path/charge_control_start_threshold ]] || threshold_start=$(<"$battery_path/charge_control_start_threshold")
-# The time to full counts to this battery's own limit, never another one's.
+# UPower can still report a configured range after the limit is disabled.
+# Use the selected battery's effective thresholds when sysfs has an end value.
+if threshold_end=$(read_sysfs_number "$battery_path/charge_control_end_threshold"); then
+  threshold_start=$(read_sysfs_number "$battery_path/charge_control_start_threshold") || threshold_start=""
+else
+  threshold_start=$(awk '/charge-start-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
+  threshold_end=$(awk '/charge-end-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
+fi
 charge_limit=${threshold_end:-100}
-[[ -n $threshold_end ]] || threshold_end=$(cat "$power_supply_path"/BAT*/charge_control_end_threshold 2>/dev/null | head -1)
-[[ -n $threshold_start ]] || threshold_start=$(cat "$power_supply_path"/BAT*/charge_control_start_threshold 2>/dev/null | head -1)
+if [[ $threshold_end == "100" ]]; then
+  threshold_end=""
+fi
 
 # Time left is the energy left over the draw shown beside it, so the two always
 # agree; charging counts up to the charge limit. UPower's own estimate averages
@@ -157,14 +159,12 @@ if [[ $shell_output == "true" ]]; then
   printf 'size\t%s\n' "${capacity}Wh"
   printf 'time\t%s\n' "$time_remaining"
 
-  cycles=""
-  [[ ! -r $battery_path/cycle_count ]] || cycles=$(<"$battery_path/cycle_count")
-  [[ -n $cycles ]] || cycles=$(cat "$power_supply_path"/BAT*/cycle_count 2>/dev/null | head -1)
-
-  [[ -n $cycles ]] && printf 'cycles\t%s\n' "$cycles"
+  if cycles=$(read_sysfs_number "$battery_path/cycle_count"); then
+    printf 'cycles\t%s\n' "$cycles"
+  fi
 
   if [[ -n $threshold_end ]]; then
-    if [[ -n $threshold_start && $threshold_start != $threshold_end ]]; then
+    if [[ -n $threshold_start ]] && (( threshold_start != threshold_end )); then
       printf 'threshold\t%s-%s%%\n' "$threshold_start" "$threshold_end"
     else
       printf 'threshold\t%s%%\n' "$threshold_end"
@@ -189,7 +189,7 @@ fi
 parts=("$(omarchy-i18n battery.statusLabel "$percentage")")
 
 if [[ $charge_holding == "true" ]]; then
-  if [[ -n $threshold_start && $threshold_start != $threshold_end ]]; then
+  if [[ -n $threshold_start ]] && (( threshold_start != threshold_end )); then
     threshold_label="$(omarchy-i18n --number "$threshold_start")-$(omarchy-i18n --number "$threshold_end")%"
   else
     threshold_label="$(omarchy-i18n --number "$threshold_end")%"
