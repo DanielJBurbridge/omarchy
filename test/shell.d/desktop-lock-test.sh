@@ -133,6 +133,25 @@ printf '%s\n' on | root_do tee "$value" >/dev/null
 root_do chown root:root "$value"
 root_do chmod 0644 "$value"
 [[ $(user_effective) == on ]] || fail "root on wins over a user off" "$(user_effective)"
+service_output=$(
+  env -i PATH=/usr/bin:/bin bash -euo pipefail -s -- "$work/session.sh" 2>&1 <<'BASH'
+source "$1"
+omarchy-hw-rog-ally() { return 1; }
+[[ -z $gaming_state ]]
+[[ $(gaming_desktop_lock_effective) == on ]]
+if gaming_state_init || gaming_save next desktop || gaming_runtime_path; then
+  exit 1
+fi
+[[ $(gaming_selection) == desktop ]]
+[[ $(gaming_entry_selection preferred) == desktop ]]
+[[ $(gaming_entry_selection relogin) == gaming ]]
+gaming_display_args
+[[ ${gamescope_args[*]} == "--framerate-limit 0 -F linear" ]]
+BASH
+) ||
+  fail "the gaming session helper supports a system service without HOME or XDG state" "$service_output"
+[[ -z $service_output ]] || fail "missing user state produces no errors" "$service_output"
+pass "the system desktop-lock policy works without user state and session helpers use their defaults"
 root_do chmod 0666 "$value"
 [[ $(user_effective) == on ]] || fail "a group-writable value is ignored after K07" "$(user_effective)"
 pass "post-K07 missing and corrupt lock, and only explicit-off stays off"

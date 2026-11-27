@@ -93,8 +93,12 @@ done
 pass "sign-in preserves the desktop user's session choice and the Ally's managed controls"
 
 printf 'on\n' > "$work/desktop-lock"
-run_guard apply
-grep -qx 'Relogin=false' "$dropin" || fail "required desktop sign-in disables relogin" "$(cat "$dropin")"
+env -i PATH="$work/bin:$ROOT/bin:/usr/bin:/bin" \
+  OMARCHY_HANDHELD_AUTOLOGIN_ROOT="$work" OMARCHY_HANDHELD_AUTOLOGIN_DIR="$work/run" \
+  OMARCHY_SDDM_CONF_DIR="$work/sddm" \
+  "$work/bin/handheld-autologin-under-test" apply ||
+  fail "apply runs without HOME or XDG_STATE_HOME"
+grep -qx 'Relogin=false' "$dropin" || fail "required desktop sign-in disables relogin without a user environment" "$(cat "$dropin")"
 printf 'explicit-off\n' > "$work/desktop-lock"
 run_guard apply
 grep -qx 'Relogin=true' "$dropin" || fail "opting out restores relogin" "$(cat "$dropin")"

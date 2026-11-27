@@ -1,10 +1,17 @@
 # shellcheck shell=bash
 # Shared, unprivileged session state. Never source saved preferences as code.
-gaming_state=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/gaming-session
+# System services can read the desktop lock policy without a user state directory.
+gaming_state=''
+if [[ -n ${XDG_STATE_HOME:-} ]]; then
+  gaming_state=$XDG_STATE_HOME/omarchy/gaming-session
+elif [[ -n ${HOME:-} ]]; then
+  gaming_state=$HOME/.local/state/omarchy/gaming-session
+fi
 
 gaming_fail() { echo "Omarchy Gaming: $*" >&2; }
 
 gaming_state_init() {
+  [[ -n $gaming_state ]] || return 1
   umask 077
   mkdir -p "$gaming_state"
   [[ -d $gaming_state && ! -L $gaming_state && -O $gaming_state ]]
@@ -12,6 +19,7 @@ gaming_state_init() {
 
 gaming_save() {
   local temporary
+  [[ -n $gaming_state ]] || return 1
   temporary=$(mktemp "$gaming_state/.setting.XXXXXX") || return 1
   if printf '%s\n' "$2" > "$temporary" && mv -fT -- "$temporary" "$gaming_state/$1"; then
     return 0
@@ -111,10 +119,10 @@ gaming_desktop_lock_effective() {
 
 gaming_selection() {
   local choice=''
-  if [[ -f $gaming_state/next ]]; then
+  if [[ -n $gaming_state && -f $gaming_state/next ]]; then
     read -r choice < "$gaming_state/next" || true
     rm -f "$gaming_state/next"
-  elif [[ -f $gaming_state/preference ]]; then
+  elif [[ -n $gaming_state && -f $gaming_state/preference ]]; then
     read -r choice < "$gaming_state/preference" || true
     if [[ $choice == "last" ]]; then
       read -r choice < "$gaming_state/last" 2>/dev/null || choice=desktop
@@ -128,7 +136,9 @@ gaming_selection() {
     desktop | gaming | auto) ;;
     *)
       if gaming_handheld_variant; then
-        printf '%s\n' reset > "$gaming_state/preference-reset"
+        if [[ -n $gaming_state ]]; then
+          printf '%s\n' reset > "$gaming_state/preference-reset"
+        fi
         choice=auto
       else
         choice=desktop
@@ -143,7 +153,9 @@ gaming_selection() {
     fi
   fi
   # An unsuccessful gaming launch never becomes an automatic login loop.
-  if [[ -f $gaming_state/recovery ]]; then choice=desktop; fi
+  if [[ -n $gaming_state && -f $gaming_state/recovery ]]; then
+    choice=desktop
+  fi
   printf '%s\n' "$choice"
 }
 
@@ -236,7 +248,7 @@ gaming_fail_limit_blocked() {
 gaming_entry_selection() {
   local choice=''
   if [[ $1 == relogin ]]; then
-    if [[ -f $gaming_state/next ]]; then
+    if [[ -n $gaming_state && -f $gaming_state/next ]]; then
       read -r choice < "$gaming_state/next" || true
       if [[ $choice == "desktop" ]]; then
         rm -f -- "$gaming_state/next"
@@ -286,7 +298,7 @@ gaming_switch_for_lock() {
 
 gaming_display_args() {
   local size=native fps=0 filter=linear extra=''
-  if [[ -f $gaming_state/display ]]; then
+  if [[ -n $gaming_state && -f $gaming_state/display ]]; then
     read -r size fps filter extra < "$gaming_state/display" || return 1
   fi
   [[ -z $extra ]] || return 1
