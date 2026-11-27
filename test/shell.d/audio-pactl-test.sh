@@ -87,7 +87,16 @@ OUT
   "get-default-sink")
     echo "alsa_output.speakers"
     ;;
+  "set-default-sink alsa_output.headphones")
+    if [[ ${SINK_GONE:-} == "switch" ]]; then exit 1; fi
+    ;;
+  "set-sink-volume "*)
+    if [[ ${SINK_GONE:-} == "write" ]]; then exit 1; fi
+    ;;
   "get-sink-volume "*)
+    if [[ ${SINK_GONE:-} == "readback" ]] && grep -q ' pactl set-sink-volume ' "$CALLS"; then
+      exit 1
+    fi
     echo "Volume: front-left: 32768 /  50% / -18.06 dB"
     ;;
   "get-sink-mute "*)
@@ -114,11 +123,13 @@ calls() {
 # --- pactl output is parsed in the C locale, whatever the caller's ---
 
 : >"$CALLS"
-LC_ALL=en_US.UTF-8 omarchy-audio-output-set-default 42 alsa_output.speakers 2>/dev/null || true
+LC_ALL=en_US.UTF-8 omarchy-audio-output-set-default 42 alsa_output.speakers 2>/dev/null
 grep -qx 'C pactl list sink-inputs' "$CALLS" ||
   fail 'audio-output-set-default reads sink-inputs in the C locale' "$(calls)"
 grep -q 'pactl move-sink-input 42 alsa_output.speakers' "$CALLS" ||
   fail 'audio-output-set-default moves streams' "$(calls)"
+grep -qx 'wpctl set-default 42' "$CALLS" ||
+  fail 'audio-output-set-default accepts a PipeWire node ID from the panel' "$(calls)"
 pass 'audio-output-set-default reads sink-inputs in the C locale'
 
 : >"$CALLS"
@@ -128,7 +139,7 @@ grep -qx 'C pactl list sink-inputs' "$CALLS" ||
 pass 'audio-output-sink reads sink-inputs in the C locale'
 
 : >"$CALLS"
-LC_ALL=en_US.UTF-8 omarchy-audio-output-switch 2>/dev/null || true
+LC_ALL=en_US.UTF-8 omarchy-audio-output-switch 2>/dev/null
 grep -qx 'C pactl -f json list sinks' "$CALLS" ||
   fail 'audio-output-switch reads sinks in the C locale' "$(calls)"
 grep -qx 'C pactl get-sink-volume alsa_output.headphones' "$CALLS" ||
@@ -137,7 +148,19 @@ grep -qx 'C pactl get-sink-mute alsa_output.headphones' "$CALLS" ||
   fail 'audio-output-switch reads sink mute in the C locale' "$(calls)"
 grep -Fxq 'omarchy-osd -i volume-medium -m Studio\DAC Headphones' "$CALLS" ||
   fail 'audio-output-switch preserves backslashes in sink descriptions' "$(calls)"
+grep -q ' pactl set-default-sink alsa_output.headphones$' "$CALLS" ||
+  fail 'audio-output-switch selects by sink name' "$(calls)"
+! grep -q '^wpctl set-default ' "$CALLS" ||
+  fail 'audio-output-switch never uses a PulseAudio index as a PipeWire ID' "$(calls)"
 pass 'audio-output-switch reads pactl outputs in the C locale'
+
+: >"$CALLS"
+if SINK_GONE=switch omarchy-audio-output-switch; then
+  fail 'audio-output-switch fails when the next sink disappears' "$(calls)"
+fi
+! grep -qE '^omarchy-osd | pactl move-sink-input ' "$CALLS" ||
+  fail 'audio-output-switch neither moves streams nor shows a success OSD for a vanished sink' "$(calls)"
+pass 'audio-output-switch handles a sink disappearing before selection'
 
 : >"$CALLS"
 LC_ALL=en_US.UTF-8 omarchy-audio-output-volume +5 2>/dev/null || true
@@ -147,6 +170,16 @@ XDG_RUNTIME_DIR="$work" LC_ALL=en_US.UTF-8 omarchy-audio-output-volume mute-togg
 grep -qx 'C pactl get-sink-mute alsa_output.speakers' "$CALLS" ||
   fail 'audio-output-volume reads sink mute in the C locale' "$(calls)"
 pass 'audio-output-volume reads pactl outputs in the C locale'
+
+for stage in write readback; do
+  : >"$CALLS"
+  if SINK_GONE=$stage omarchy-audio-output-volume +5 2>"$work/err"; then
+    fail "audio-output-volume fails when a sink disappears during $stage" "$(calls)"
+  fi
+  ! grep -q '^omarchy-osd ' "$CALLS" ||
+    fail "audio-output-volume skips the OSD when a sink disappears during $stage" "$(calls)"
+done
+pass 'audio-output-volume handles sink removal during and after a volume write'
 
 : >"$CALLS"
 (

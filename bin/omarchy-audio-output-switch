@@ -9,14 +9,12 @@ fronted=$(omarchy-audio-tuning fronted-sink 2>/dev/null || true)
 # pactl translates availability, headers and yes/no; parse them in the C locale.
 current_sink_name=$(timeout 2 pactl get-default-sink)
 
-next_sink_index=""
 next_sink_name=""
 next_sink_description=""
 next_sink_json_volume=""
 
 {
-  IFS= read -r -d '' next_sink_index &&
-    IFS= read -r -d '' next_sink_name &&
+  IFS= read -r -d '' next_sink_name &&
     IFS= read -r -d '' next_sink_description &&
     IFS= read -r -d '' next_sink_json_volume
 } < <(LC_ALL=C timeout 2 pactl -f json list sinks |
@@ -29,7 +27,6 @@ next_sink_json_volume=""
           | if $idx != null then ($idx + 1) % ($sinks | length) else 0 end) as $next_idx
         | $sinks[$next_idx]
         | [
-            (.index | tostring),
             .name,
             ((.description // .properties."device.description" // .name) | gsub("[\t\r\n]"; " ")),
             ((.volume | to_entries[0]?.value.value_percent // "") | sub("%$"; ""))
@@ -71,7 +68,8 @@ else
 fi
 
 if [[ $next_sink_name != "$current_sink_name" ]]; then
-  omarchy-audio-output-set-default "$next_sink_index" "$next_sink_name"
+  # A PulseAudio sink index can identify a different object in PipeWire.
+  omarchy-audio-output-set-default "$next_sink_name" || exit $?
 fi
 
 omarchy-osd -i "volume-${icon_state}" -m "$next_sink_description"
