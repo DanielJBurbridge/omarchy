@@ -22,10 +22,11 @@ function shouldWarnLowBattery(device, dischargingState, threshold, alreadyNotifi
 }
 
 function parseActiveProfile(text) {
-  // busctl --json=short prints {"type":"s","data":"balanced"}; an empty or
+  // Properties.Get returns a D-Bus variant wrapping the string. An empty or
   // malformed reply (daemon not running) reads as no active profile.
   try {
-    return String(JSON.parse(text).data || "").trim()
+    var value = JSON.parse(text).data[0]
+    return value.type === "s" ? value.data.trim() : ""
   } catch (e) {
     return ""
   }

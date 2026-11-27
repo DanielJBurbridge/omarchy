@@ -99,7 +99,10 @@ Item {
     // interpreter for it trips a CPython 3.14 shutdown race
     // (python/cpython#124619): the GLib D-Bus worker thread re-enters the
     // interpreter after finalization and the process dies with SIGSEGV.
-    command: ["busctl", "--json=short", "get-property", "net.hadess.PowerProfiles", "/net/hadess/PowerProfiles", "net.hadess.PowerProfiles", "ActiveProfile"]
+    // Use an explicit Properties.Get call: busctl get-property ignores
+    // --auto-start=no, and native Ally TDP can own the power policy instead.
+    command: ["busctl", "--auto-start=no", "--json=short", "call", "net.hadess.PowerProfiles", "/net/hadess/PowerProfiles",
+      "org.freedesktop.DBus.Properties", "Get", "ss", "net.hadess.PowerProfiles", "ActiveProfile"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.activePowerProfile = BatteryModel.profileAfterRead(root.activePowerProfile, text, root.powerProfileReadSignals, root.powerProfileSignals)

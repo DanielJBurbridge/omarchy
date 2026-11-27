@@ -175,7 +175,11 @@ cat >"$power_stub/omarchy-pkg-present" <<'SH'
 #!/bin/bash
 [[ $1 == omarchy-gaming-session && ${FAKE_GAMING_SESSION:-0} == 1 ]]
 SH
-chmod +x "$power_stub/omarchy-install-rog-ally-powerbutton" "$power_stub/omarchy-pkg-present"
+cat >"$power_stub/omarchy-pkg-add" <<'SH'
+#!/bin/bash
+[[ $1 == wvkbd ]]
+SH
+chmod +x "$power_stub/"*
 
 run_ally_leaf() {
   OMARCHY_DMI_SYS_VENDOR_PATH="$dmi/sys_vendor" \
@@ -368,7 +372,7 @@ mock_bin=$ally_work/bin
 mkdir -p "$mock_bin"
 printf '#!/bin/bash\nprintf "%%s\\n" "$1"\n' >"$mock_bin/omarchy-i18n"
 mkdir -p "$ally_steps"
-for script in enable-user-units.sh gnome-theme.sh gtk-primary-paste.sh audio-tuning.sh superwhisper.sh welcome.sh; do
+for script in enable-user-units.sh gnome-theme.sh gtk-primary-paste.sh audio-tuning.sh camera-tuning.sh superwhisper.sh welcome.sh; do
   printf 'echo ordinary-first-run >>"$OMARCHY_TEST_CALLS"\n' >"$ally_steps/$script"
 done
 for hook in setup-agent.hook setup-fingerprint.hook; do

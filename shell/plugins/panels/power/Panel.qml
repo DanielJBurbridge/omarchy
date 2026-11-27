@@ -17,7 +17,6 @@ Panel {
   // permits — needed for the togglePercentage method below.
   manageIpc: false
   property var batteryInfo: ({})
-  property var systemInfo: ({})
   property var profiles: []
   property string activeProfile: ""
   property int profileIndex: 0
@@ -28,8 +27,9 @@ Panel {
     && bar?.shell?.isHandheldScreen?.(panel.screen) === true
   readonly property string displayName: handheld ? panel.screen.name : ""
   onHandheldChanged: {
+    deferredProfile = ""
     updateProfiles("")
-    if (opened && !profilesProc.running) profilesProc.readProfiles()
+    if (opened) profilesProc.readProfiles()
   }
   readonly property string volumeSink: {
     var name = handheld && opened ? Pipewire.defaultAudioSink?.name : ""
@@ -75,6 +75,8 @@ Panel {
     if (!controlProc.running) controlProc.nextStep()
   }
 
+  readonly property var batteryService: bar && bar.shell && typeof bar.shell.firstPartyServiceFor === "function"
+    ? bar.shell.firstPartyServiceFor("omarchy.battery") : null
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -212,27 +214,51 @@ Panel {
   readonly property string timeLabel: discharging ? Commons.I18n.t("power.timeLeft") : Commons.I18n.t("power.timeToFull")
   readonly property string handheldTime: Model.flowTime(batteryInfo, discharging, batteryFlowIdle)
 
+  function profileName(profile) {
+    switch (profile) {
+      case PowerProfile.PowerSaver: return "power-saver"
+      case PowerProfile.Performance: return "performance"
+      default: return "balanced"
+    }
+  }
+
+  property string deferredProfile: ""
+
+  function syncActiveProfile(name, force) {
+    // The handheld panel reads the Ally's native TDP presets from hardware.
+    if (handheld || !name) return
+    if (!force && actionProc.running) {
+      deferredProfile = name
+      return
+    }
+    activeProfile = name
+    if (opened && !cursorActive) {
+      var idx = profiles.indexOf(activeProfile)
+      if (idx >= 0) profileIndex = idx
+    }
+  }
+
   function refresh() {
     if (!batteryPresent) return
 
     if (!batteryProc.running) batteryProc.running = true
-    if (!profilesProc.running) profilesProc.readProfiles()
-    if (!systemProc.running) systemProc.running = true
+    // Native TDP has no PPD change signal. Sample it while the panel is open.
+    if ((handheld || profiles.length === 0) && !profilesProc.running && !actionProc.running)
+      profilesProc.readProfiles()
   }
 
-  function updateKeyValue(raw, targetName) {
+  function updateBatteryInfo(raw) {
     var next = Model.parseKeyValue(raw)
     // Keep last known good data if a refresh briefly returns nothing — happens
     // around AC plug/unplug events. Avoids the section collapsing mid-transition.
     if (Object.keys(next).length === 0) return
-    if (targetName === "battery") batteryInfo = next
-    else systemInfo = next
+    batteryInfo = next
   }
 
   function updateProfiles(raw) {
     var parsed = Model.parseProfiles(raw, profileIndex)
     profiles = parsed.profiles
-    activeProfile = parsed.activeProfile
+    if (!actionProc.running || !raw) activeProfile = parsed.activeProfile
     profileIndex = parsed.profileIndex
     if (opened && !cursorActive) {
       var idx = profiles.indexOf(activeProfile)
@@ -241,7 +267,13 @@ Panel {
   }
 
   function setProfile(profile) {
-    if (profiles.indexOf(profile) < 0 || actionProc.running) return
+    var idx = profiles.indexOf(profile)
+    if (idx < 0 || actionProc.running) return
+    // Reflect the chosen profile immediately; on failure or daemon change, the
+    // exit/reactive handlers reconcile back to the true active profile.
+    deferredProfile = ""
+    activeProfile = profile
+    profileIndex = idx
     var command = ["omarchy-powerprofiles-set"]
     if (!handheld) command.push("--ppd-only")
     actionProc.command = command.concat([root.discharging ? "battery" : "ac", profile])
@@ -282,6 +314,7 @@ Panel {
 
       cursorRow = controlRows[0] || ""
       stepIndex = 0
+      if (batteryService) syncActiveProfile(batteryService.activePowerProfile)
       refresh()
       var idx = profiles.indexOf(activeProfile)
       profileIndex = idx >= 0 ? idx : 0
@@ -346,16 +379,36 @@ Panel {
     }
   }
 
+  Connections {
+    target: PowerProfiles
+    function onProfileChanged() {
+      if (!root.batteryService) root.syncActiveProfile(root.profileName(PowerProfiles.profile))
+    }
+  }
+
+  Connections {
+    target: root.batteryService
+    function onActivePowerProfileChanged() {
+      if (root.batteryService) root.syncActiveProfile(root.batteryService.activePowerProfile)
+    }
+  }
+
   Process {
     id: batteryProc
     command: ["omarchy-battery-status", "--shell"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "battery") }
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateBatteryInfo(text) }
   }
 
   Process {
     id: profilesProc
     property bool readingHandheld: false
+    property bool readPending: false
     function readProfiles() {
+      if (running) {
+        readPending = true
+        return
+      }
+      readPending = false
       readingHandheld = root.handheld
       command = readingHandheld ? ["omarchy-powerprofiles-list", "--active-state"]
         : ["omarchy-powerprofiles-list", "--ppd-only", "--active-state"]
@@ -365,23 +418,28 @@ Panel {
     // A failed PPD read can be transient. A successful empty read says no
     // presets are available and clears any previously displayed buttons.
     onExited: function(code) {
-      if (readingHandheld !== root.handheld) {
-        if (root.opened) readProfiles()
-      } else if (code === 0) {
+      if (!readPending && readingHandheld === root.handheld && code === 0) {
         root.updateProfiles(profileOutput.text)
       }
+      if (readPending || (readingHandheld !== root.handheld && root.opened)) Qt.callLater(readProfiles)
     }
   }
 
   Process {
-    id: systemProc
-    command: ["omarchy-system-stats"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "system") }
-  }
-
-  Process {
     id: actionProc
-    onExited: root.refresh()
+    onExited: function(exitCode) {
+      var deferred = root.deferredProfile
+      root.deferredProfile = ""
+      if (root.handheld || !root.batteryService) {
+        profilesProc.readProfiles()
+      } else if (exitCode !== 0) {
+        root.syncActiveProfile(root.batteryService.activePowerProfile, true)
+        profilesProc.readProfiles()
+      } else {
+        if (deferred !== "") root.syncActiveProfile(deferred, true)
+        root.batteryService.refreshPowerProfile()
+      }
+    }
   }
 
   Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
@@ -532,8 +590,8 @@ Panel {
           Text {
             id: heroPercent
             textFormat: Text.PlainText
-            text: root.handheld ? Commons.I18n.formatNumber(Math.round(root.batteryFraction * 100)) + "%"
-              : root.reading(root.batteryInfo.percentage) || "—"
+            text: (!root.handheld && root.reading(root.batteryInfo.percentage))
+              || (root.batteryPresent ? Commons.I18n.formatNumber(Math.round(root.batteryFraction * 100)) + "%" : "—")
             color: root.bar.foreground
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.displayLarge

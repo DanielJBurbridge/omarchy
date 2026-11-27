@@ -57,8 +57,8 @@ assertEqual(
 const recovered = battery.shouldWarnLowBattery({ isPresent: true, percentage: 0.11, state: charging }, discharging, 10, true)
 assertEqual(recovered.notifiedLowBattery, false, 'battery re-arms after recovering above the threshold')
 
-const reply = profile => JSON.stringify({ type: 's', data: profile })
-assertEqual(battery.parseActiveProfile(reply('power-saver')), 'power-saver', 'battery parses the busctl profile reply')
+const reply = profile => JSON.stringify({ type: 'v', data: [{ type: 's', data: profile }] })
+assertEqual(battery.parseActiveProfile(reply('power-saver')), 'power-saver', 'battery parses the D-Bus profile variant')
 assertEqual(battery.parseActiveProfile(''), '', 'battery reads a missing daemon as no profile')
 
 assertEqual(battery.profileAfterRead('', reply('balanced'), 0, 0), 'balanced', 'battery takes its startup read')

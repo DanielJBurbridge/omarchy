@@ -24,13 +24,10 @@ fi
 # over PA_VOLUME_NORM), so the OSD reads identically either way.
 # pactl translates its labels and yes/no; parse them in the C locale.
 volume_percent() {
-  local report
-  report=$(LC_ALL=C pactl get-sink-volume "$sink" 2>/dev/null) || return 1
-  awk 'NR == 1 {
-    for (i = 1; i <= NF; i++)
-      if ($i ~ /^[0-9]+%$/) { sub("%", "", $i); print $i; found = 1; exit }
-  }
-  END { if (!found) exit 1 }' <<<"$report"
+  local line
+  line=$(LC_ALL=C pactl get-sink-volume "$sink" 2>/dev/null) || return
+  line=${line%%$'\n'*}
+  [[ $line =~ (^|[[:space:]])([0-9]+)%([[:space:]]|$) ]] && printf '%s\n' "${BASH_REMATCH[2]}"
 }
 
 case "$action" in
@@ -41,7 +38,8 @@ esac
 if [[ $action == "mute-toggle" ]]; then
   runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
   debounce_file="$runtime_dir/omarchy-audio-output-volume-mute-toggle.last"
-  now=$(date +%s%3N)
+  now_us=${EPOCHREALTIME//[!0-9]/}
+  now=$(( 10#$now_us / 1000 ))
   last=0
   [[ -r $debounce_file ]] && read -r last <"$debounce_file" || true
   if ((now - last < 250)); then
@@ -74,6 +72,7 @@ else
   exit 1
 fi
 
+# The named output can disappear after the write, especially during dock removal.
 if ! percent=$(volume_percent) ||
     ! mute=$(LC_ALL=C pactl get-sink-mute "$sink" 2>/dev/null) ||
     [[ $mute != "Mute: yes" && $mute != "Mute: no" ]]; then
