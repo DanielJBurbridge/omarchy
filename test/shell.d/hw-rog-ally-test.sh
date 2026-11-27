@@ -93,3 +93,45 @@ if omarchy-hw-rog-ally; then fail 'a partial RC71L match is excluded'; fi
 write_dmi 'Other vendor' RC71L 'ROG Ally RC71L'
 if omarchy-hw-rog-ally; then fail 'a different vendor is excluded'; fi
 pass 'other devices and partial matches are excluded'
+
+export OMARCHY_INPUT_SYSFS_DIR="$test_tmp/input"
+mkdir -p "$OMARCHY_INPUT_SYSFS_DIR"
+cat >"$test_tmp/bin/udevadm" <<'SH'
+#!/bin/bash
+cat -- "${!#}"
+SH
+chmod +x "$test_tmp/bin/udevadm"
+
+cat >"$OMARCHY_INPUT_SYSFS_DIR/event0" <<'UDEV'
+ID_INPUT_KEYBOARD=1
+DEVPATH=/devices/platform/i8042/serio0/input/input2/event2
+UDEV
+
+write_dmi "$asus" G614J 'ROG Strix G16'
+omarchy-hw-physical-keyboard || fail 'a real PS/2 keyboard still counts on a ROG laptop'
+pass 'a real PS/2 keyboard still counts on a ROG laptop'
+
+write_dmi "$asus" RC71L 'ROG Ally'
+cat >"$OMARCHY_INPUT_SYSFS_DIR/event1" <<'UDEV'
+ID_INPUT_KEYBOARD=1
+ID_VENDOR_ID=0b05
+ID_MODEL_ID=1abe
+DEVPATH=/devices/pci0000:00/usb1/1-3/1-3:1.0/input/input4/event4
+UDEV
+cat >"$OMARCHY_INPUT_SYSFS_DIR/event2" <<'UDEV'
+ID_INPUT_KEYBOARD=1
+DEVPATH=/devices/virtual/input/input9/event9
+UDEV
+if omarchy-hw-physical-keyboard; then
+  fail 'the Ally placeholder, controller and virtual devices do not count as keyboards'
+fi
+pass 'the Ally placeholder, controller and virtual devices do not count as keyboards'
+
+cat >"$OMARCHY_INPUT_SYSFS_DIR/event3" <<'UDEV'
+ID_INPUT_KEYBOARD=1
+ID_VENDOR_ID=046d
+ID_MODEL_ID=c31c
+DEVPATH=/devices/pci0000:00/usb2/2-1/2-1:1.0/input/input8/event8
+UDEV
+omarchy-hw-physical-keyboard || fail 'a USB keyboard counts alongside the Ally devices'
+pass 'a USB keyboard counts alongside the Ally devices'

@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# omarchy:summary=Check whether a physical keyboard is available
+
+device_is_physical_keyboard() {
+  local property keyboard=0 devpath='' vendor='' product=''
+  while IFS= read -r property; do
+    case $property in
+      ID_INPUT_KEYBOARD=1) keyboard=1 ;;
+      DEVPATH=*) devpath=${property#*=} ;;
+      ID_VENDOR_ID=*) vendor=${property#*=} ;;
+      ID_MODEL_ID=*) product=${property#*=} ;;
+    esac
+  done <<<"$1"
+
+  (( keyboard )) || return 1
+  [[ $devpath == /devices/* && $devpath != /devices/virtual/* ]] || return 1
+  # The built-in Ally controller also presents a USB keyboard interface.
+  [[ ${vendor,,} == "0b05" && ${product,,} == "1abe" ]] && return 1
+  # The original Ally exposes this i8042 event without a physical keyboard.
+  if [[ $devpath == /devices/platform/i8042/serio0/input/* ]] && omarchy-hw-rog-ally; then
+    return 1
+  fi
+  return 0
+}
+
+for event in "${OMARCHY_INPUT_SYSFS_DIR:-/sys/class/input}"/event*; do
+  [[ -e $event ]] || continue
+  properties=$(udevadm info --query=property -- "$event" 2>/dev/null) || continue
+  device_is_physical_keyboard "$properties" && exit 0
+done
+exit 1
