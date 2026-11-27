@@ -29,6 +29,34 @@ LUA
 done
 pass "look and feel mutes bells only when the running compositor supports it"
 
+for ally in true false; do
+  MODEL_IS_ALLY="$ally" lua - <<'LUA' || fail "only the original Ally gets the suspend power binding"
+package.path = os.getenv("ROOT") .. "/?.lua;" .. package.path
+local ally = os.getenv("MODEL_IS_ALLY") == "true"
+local binding
+hl = { on = function() end }
+o = {
+  shell_quote = function(value) return value end,
+  shell_succeeds = function() return ally end,
+  bind_toggle = function() end,
+  bind = function(keys, _, action, options)
+    if keys == "XF86PowerOff" then
+      assert(not binding)
+      binding = true
+      if ally then
+        assert(action == "omarchy-system-power-button" and options.locked == false)
+      else
+        assert(action.menu == "system" and options.locked == true)
+      end
+    end
+  end,
+}
+require("default.hypr.bindings.utilities")
+assert(binding)
+LUA
+done
+pass "the power key retains the system menu binding on other models"
+
 run_application_bindings() {
   local home="$1"
   local prelude="${2:-}"

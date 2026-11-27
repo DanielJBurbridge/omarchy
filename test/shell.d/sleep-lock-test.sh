@@ -353,3 +353,73 @@ budget_cap_ms=$(sed -n 's/^budget_cap_ms=//p' "$sleep_lock")
   fail "sleep lock cap leaves logind room to act" \
     "cap: ${budget_cap_ms}ms window: ${inhibit_delay}s"
 pass "sleep lock cap stays inside the shipped logind inhibitor window"
+
+# The Ally button owns the suspend request, so an insecure lock must prevent
+# the request from reaching logind at all.
+setup_scenario power_button
+mock_clamshell
+cat >"$mock_bin/omarchy-hw-rog-ally" <<'SH'
+#!/bin/bash
+[[ ${MODEL:-RC71L} == "RC71L" ]]
+SH
+cat >"$mock_bin/hyprctl" <<'SH'
+#!/bin/bash
+[[ $1 == "locked" && ${LOCKED:-false} != "unreachable" ]] || exit 1
+printf '%s\n' "${LOCKED:-false}"
+SH
+cat >"$mock_bin/omarchy-shell" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$CALL_LOG"
+if [[ $* == "lock status" ]]; then
+  printf '{"secure":true}\n'
+elif [[ ${NO_LOCK:-false} == "true" ]]; then
+  printf 'missing-pam\n'
+fi
+SH
+cat >"$mock_bin/systemctl" <<'SH'
+#!/bin/bash
+printf 'systemctl %s\n' "$*" >>"$CALL_LOG"
+[[ $1 == "suspend" ]] && grep -Fxq 'lock status' "$CALL_LOG"
+SH
+cat >"$mock_bin/omarchy-menu" <<'SH'
+#!/bin/bash
+printf 'menu %s\n' "$*" >>"$CALL_LOG"
+SH
+chmod +x "$mock_bin/"*
+
+power_button() {
+  : >"$call_log"
+  CALL_LOG="$call_log" PATH="$mock_bin:$ROOT/bin:$PATH" XDG_RUNTIME_DIR="$scenario_dir" \
+    HOME="$scenario_dir" OMARCHY_SLEEP_CONFIG_DIR="$scenario_dir" \
+    "$ROOT/bin/omarchy-system-power-button" 2>"$journal_log"
+}
+
+if ! power_button || ! grep -Fxq 'systemctl suspend' "$call_log"; then
+  fail "the Ally desktop confirms a secure lock before requesting suspend" "$(<"$call_log")"
+fi
+if NO_LOCK=true power_button || grep -q '^systemctl ' "$call_log"; then
+  fail "the Ally stays awake when the desktop refuses to lock"
+fi
+pass "the Ally power button suspends only after the desktop locks securely"
+
+MODEL=G614J power_button && [[ ! -s $call_log ]] || fail "a ROG laptop skips the Ally suspend handler"
+for locked in true unreachable unexpected; do
+  LOCKED=$locked power_button && [[ ! -s $call_log ]] ||
+    fail "the Ally power button ignores locked and unknown compositor states"
+done
+(
+  exec 8>"$scenario_dir/omarchy-power-button.lock"
+  flock -n 8 || exit 1
+  power_button && [[ ! -s $call_log ]]
+) || fail "the Ally ignores overlapping power-key events while the first request holds the lock"
+pass "the Ally handler ignores locked and unknown states and overlapping events"
+
+touch "$scenario_dir/omarchy-sleep-disabled.conf"
+power_button && [[ $(<"$call_log") == "menu toggle system" ]] ||
+  fail "the Ally power button opens the system menu when system sleep is disabled"
+rm "$scenario_dir/omarchy-sleep-disabled.conf"
+mkdir -p "$scenario_dir/.local/state/omarchy/toggles"
+touch "$scenario_dir/.local/state/omarchy/toggles/suspend-off"
+power_button && [[ $(<"$call_log") == "menu toggle system" ]] ||
+  fail "the Ally power button opens the system menu when suspend is disabled"
+pass "the Ally power button honours both sleep settings"

@@ -1,4 +1,5 @@
 local keyboard = require("default.hypr.keyboard")
+local paths = require("default.hypr.paths")
 
 o.bind("SUPER + SPACE", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ALT + SPACE", "Apps", { ipc = "omarchy.dock.apps" })
@@ -8,7 +9,12 @@ o.bind("SUPER + CTRL + O", "Toggle menu", { menu = "toggle" })
 o.bind("SUPER + CTRL + H", "Hardware menu", { menu = "hardware" })
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", { menu = "root" })
 o.bind("SUPER + ESCAPE", "System menu", { menu = "system" })
-o.bind("XF86PowerOff", "Power menu", { menu = "system" }, { locked = true })
+if o.shell_succeeds(o.shell_quote(paths.omarchy_path .. "/bin/omarchy-hw-rog-ally")) then
+  -- The Ally fingerprint sensor can also fire the power key during unlock.
+  o.bind("XF86PowerOff", "Power button", "omarchy-system-power-button", { locked = false })
+else
+  o.bind("XF86PowerOff", "Power menu", { menu = "system" }, { locked = true })
+end
 o.bind("SUPER + K", "Keybindings", { menu = "learn.keybindings" })
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + CTRL + K", "Herdr keybindings", "omarchy-menu-herdr-keybindings")
