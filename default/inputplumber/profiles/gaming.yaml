@@ -2,14 +2,13 @@
 # Schema: https://raw.githubusercontent.com/ShadowBlip/InputPlumber/v0.84.0/rootfs/usr/share/inputplumber/schema/device_profile_v1.json
 # Capability names are the schema's vocabulary. This file is not a copy of an upstream profile.
 # Compared against InputPlumber 0.84.0. Nothing was copied, and this file makes no licence claim.
-# `deck` is that schema's name for a virtual Steam Deck (Valve 28de:1205).
-# Gyro, L4/R4 and a native Quick Access button are on that target, and Steam
-# draws ABXY where the Ally prints them. xbox-elite and xbox-series have no gyro.
+# `deck-uhid` uses Deck reports with the Ally-specific Valve ID 28de:12fd.
+# It exposes gyro, L4/R4 and Quick Access over UHID without a USB/IP attachment.
 version: 1
 kind: "DeviceProfile"
 name: "Omarchy Ally gaming"
 target_devices:
-  - "deck"
+  - "deck-uhid"
   - "mouse"
   - "keyboard"
 mapping:

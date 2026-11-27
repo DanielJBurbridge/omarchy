@@ -122,11 +122,13 @@ def run_busctl(args: list[str], deadline: float | None = None) -> subprocess.Com
   return subprocess.CompletedProcess(command, 124, "", "D-Bus query timed out")
 
 
-# The deck target is a virtual USB device. The module name matches
-# /sys/module/vhci_hcd. Tests point OMARCHY_VHCI_SYS at a fixture directory.
+# Kept for install-vhci and the existing migration that invokes it.
 VHCI_MODULE = "vhci_hcd"
 VHCI_SYS = "/sys/module/vhci_hcd"
 VHCI_CONF = "etc/modules-load.d/omarchy-rog-ally-vhci.conf"
+UHID_DEVICE = Path("/dev/uhid")
+HID_DEVICES = Path("/sys/bus/hid/devices")
+DECK_UHID = "deck-uhid"
 EDGE_FALLBACK = "ds5-edge"
 
 
@@ -158,12 +160,12 @@ def gaming_pad_fallback(yaml: str, targets: list[str], reason: str) -> tuple[str
     f"omarchy-inputplumber-profile: {reason}; gaming falls back to ds5-edge for this load",
     file=sys.stderr,
   )
-  needle = '\n  - "deck"\n'
+  needle = f'\n  - "{DECK_UHID}"\n'
   if needle not in yaml:
-    print("omarchy-inputplumber-profile: gaming profile has no deck target to replace", file=sys.stderr)
+    print(f"omarchy-inputplumber-profile: gaming profile has no {DECK_UHID} target to replace", file=sys.stderr)
     return None, None
   swapped = yaml.replace(needle, f'\n  - "{EDGE_FALLBACK}"\n', 1)
-  return swapped, [EDGE_FALLBACK if item == "deck" else item for item in targets]
+  return swapped, [EDGE_FALLBACK if item == DECK_UHID else item for item in targets]
 
 
 def run_systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -387,10 +389,16 @@ def live_types(composite: str, deadline: float | None = None) -> list[str] | Non
   return kinds
 
 
-def wait_for_deck(composite: str) -> bool:
+def ally_uhid_attached() -> bool:
+  # InputPlumber registers the D-Bus target before creating its HID device.
+  # v0.84.0 uses Valve's Ally-specific product ID for this composite.
+  return next(HID_DEVICES.glob("0003:28DE:12FD.*/hidraw/hidraw*"), None) is not None
+
+
+def wait_for_gaming_pad(composite: str, target: str) -> bool:
   deadline = time.monotonic() + 2
   while True:
-    if "deck" in (live_types(composite, deadline) or ()):
+    if target in (live_types(composite, deadline) or ()) and (target != DECK_UHID or ally_uhid_attached()):
       return True
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -443,6 +451,33 @@ def load_profile_yaml(composite: str, yaml: str) -> bool:
   return True
 
 
+def load_gaming(composite: str, profile_name: str, yaml: str, targets: list[str]) -> bool:
+  uhid_available = UHID_DEVICE.is_char_device()
+  if uhid_available:
+    if ally_uhid_attached() and already_loaded(composite, profile_name, targets):
+      print("omarchy-inputplumber-profile: gaming already loaded", file=sys.stderr)
+      return True
+    if load_profile_yaml(composite, yaml) and wait_for_gaming_pad(composite, DECK_UHID):
+      return True
+    reason = f"the {DECK_UHID} target did not attach"
+  else:
+    reason = "/dev/uhid is unavailable"
+
+  fallback_yaml, fallback_targets = gaming_pad_fallback(yaml, targets, reason)
+  if fallback_yaml is None:
+    return False
+  # A primary load schedules a target change. Reassert the fallback even
+  # when a previous Edge is still visible on D-Bus.
+  if not uhid_available and already_loaded(composite, profile_name, fallback_targets):
+    return True
+  if not load_profile_yaml(composite, fallback_yaml):
+    return False
+  if wait_for_gaming_pad(composite, EDGE_FALLBACK):
+    return True
+  print(f"omarchy-inputplumber-profile: the {EDGE_FALLBACK} target did not attach", file=sys.stderr)
+  return False
+
+
 def load(name: str, wait: bool = False) -> int:
   if not ally():
     return 0
@@ -463,19 +498,13 @@ def load(name: str, wait: bool = False) -> int:
       print("omarchy-inputplumber-profile: no RC71L composite; not loading", file=sys.stderr)
     # The greeter proceeds when no single composite is ready after the wait.
     return 0 if wait else 1
-  if name == "gaming" and targets and "deck" in targets and not ensure_vhci():
-    yaml, targets = gaming_pad_fallback(yaml, targets, "vhci_hcd is not loaded")
-    if yaml is None:
-      return 1
+  if name == "gaming" and targets and DECK_UHID in targets:
+    return 0 if load_gaming(composite, profile_name, yaml, targets) or wait else 1
   if already_loaded(composite, profile_name, targets):
     print(f"omarchy-inputplumber-profile: {name} already loaded", file=sys.stderr)
     return 0
   if not load_profile_yaml(composite, yaml):
     return 0 if wait else 1
-  if name == "gaming" and targets and "deck" in targets and not wait_for_deck(composite):
-    yaml, _ = gaming_pad_fallback(yaml, targets, "the deck target did not attach")
-    if yaml is None or not load_profile_yaml(composite, yaml):
-      return 0 if wait else 1
   return 0
 
 

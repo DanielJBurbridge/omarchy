@@ -1,6 +1,16 @@
 # ROG Ally RC71L reliability
 
-Source behaviour and physical acceptance are separate. No suspend, reboot, service restart or installation was performed on the Ally by the reliability source worker. The single rollout owner performs the device checks below after installing a coordinated release.
+The rollout owner performs the physical checks below after installing a coordinated release. The 27 November controller investigation used read-only checks on the Ally.
+
+## Gaming controller and suspend
+
+On 27 November 2026, `rog-ally` running `linux-omarchy 7.2.15-6-omarchy` and `inputplumber 0.84.0-1.779` aborted two `s2idle` attempts at 11:18:38 and 11:18:40. The kernel reported that USB device `9-1` had yet to suspend and that `vhci_hcd.0` had one active connection, then returned `-16` (`EBUSY`). Sysfs identified that device as `28de:1205` (`Valve Corporation Steam Controller`), and InputPlumber listed `deck` on the gaming composite.
+
+The gaming profile now uses `deck-uhid`. InputPlumber v0.84.0 creates the virtual pad through `/dev/uhid` and assigns `28de:12fd` (`ROG Ally Controller`) to the `ASUS ROG Ally` composite. Its Deck-format reports encode ABXY, gyro, L4/R4 and Quick Access. The USB/IP target's `28de:1205` identity depends on a USB interface number Steam checks. Steam Input can identify the Ally PID and display a different controller image. Verify glyphs and bindings in the installed Steam client. [InputPlumber UHID target](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/input/target/steam_deck_uhid.rs) · [InputPlumber product IDs](https://github.com/ShadowBlip/InputPlumber/blob/v0.84.0/src/drivers/steam_deck/mod.rs) · [InputPlumber maintainer on Steam's Ally mapping](https://github.com/ShadowBlip/InputPlumber/issues/638)
+
+The running kernel ships `uhid.ko.zst` with `CONFIG_UHID=m`, exposes the `/dev/uhid` character node and lets the root InputPlumber service see it. The installed Steam and InputPlumber udev rules grant active-seat access to Valve virtual hidraw devices. The broker checks both the D-Bus attachment and the Ally hidraw device because the former can appear before the driver creates the latter. It tries `ds5-edge` on failure and requires a live fallback pad. Fresh installs skip USB/IP module provisioning. Existing installations can have `vhci_hcd` loaded, since the suspend veto requires an active connection.
+
+After installing the paired archives and starting a new gaming session, check that `inputplumber device 0 targets list` shows `deck-uhid` or a logged `ds5-edge` fallback. Check that the old `28de:1205` device is absent from the `vhci_hcd` bus and test suspend and resume in a game. Confirm ABXY glyphs, gyro, both grips and Quick Access in Steam. The read-only audit saw an IMU-only composite and no physical `0b05:1abe` HID device on the running Ally. If it remains IMU-only, record that separately. The profile broker requires a matching physical RC71L source before it replaces any target.
 
 ## Desktop power button (R01, R03)
 

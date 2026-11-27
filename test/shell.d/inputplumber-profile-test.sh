@@ -46,7 +46,6 @@ vhci_migration=$ROOT/migrations/1795442196.sh
 grep -q '^echo "Load vhci_hcd on the ROG Ally' "$vhci_migration" || fail "the vhci migration says what it does"
 grep -q 'omarchy-hw-rog-ally' "$vhci_migration" || fail "the vhci migration is gated on the Ally"
 grep -q 'install-vhci$' "$vhci_migration" || fail "the vhci migration calls install-vhci"
-grep -q 'install-vhci' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf installs vhci_hcd on the Ally"
 grep -q 'omarchy-hw-rog-ally' "$ROOT/install/hardware/asus/inputplumber.sh" || fail "the hardware leaf is gated on the Ally"
 grep -q 'install-service' "$ROOT/install/hardware/asus/inputplumber.sh" && fail "the hardware leaf installs the profile service"
 grep -q 'omarchy-pkg-present omarchy-gaming-session' "$ROOT/install/hardware/asus/gaming-session.sh" || fail "the gaming session leaf is opt-in"
@@ -142,7 +141,7 @@ shipped = {
   "omarchy-ally-pointer.yaml": ("Omarchy Ally boot pointer", ["xbox-elite", "mouse", "keyboard"]),
   "desktop.yaml": ("Omarchy Ally desktop v2", ["xbox-elite", "mouse", "keyboard"]),
   "osk.yaml": ("Omarchy Ally osk v2", ["xbox-elite", "mouse", "keyboard"]),
-  "gaming.yaml": ("Omarchy Ally gaming", ["deck", "mouse", "keyboard"]),
+  "gaming.yaml": ("Omarchy Ally gaming", ["deck-uhid", "mouse", "keyboard"]),
 }
 for filename, expected in shipped.items():
   text = (profiles / filename).read_text()
@@ -152,8 +151,6 @@ for filename, expected in shipped.items():
 
 gaming = (profiles / "gaming.yaml").read_text()
 _, gaming_targets = mod.profile_meta(gaming)
-check(gaming_targets == ["deck", "mouse", "keyboard"], "gaming presents the Steam Deck (28de:1205)")
-check(not any(name in gaming_targets for name in ("ds5-edge", "xbox-elite", "xbox-series", "deck-uhid")), "gaming is not an Edge, Elite, Series or uhid target")
 check(any(target in gamepads for target in gaming_targets), "gaming mode includes a gamepad Steam recognises")
 check(set(gaming_targets) - {"mouse", "keyboard"}, "gaming is not a mouse and keyboard target list")
 check("motion:" not in gaming, "gaming does not map a stick to the pointer")
@@ -409,19 +406,16 @@ check(mod.intercept(2) == 0, "intercept 2 is accepted")
 sets = [call for call in bus.calls if call[0] == "set-property"]
 check(len(sets) == 1 and sets[0][2] == c1 and sets[0][4:] == ["InterceptMode", "u", "2"], "intercept sets mode on the RC71L composite")
 
-deck = "/org/shadowblip/InputPlumber/devices/target/deck0"
-prop(deck, "DeviceType", 's "deck"')
+deck = "/org/shadowblip/InputPlumber/devices/target/gamepad2"
+prop(deck, "DeviceType", 's "deck-uhid"')
+usb_deck = "/org/shadowblip/InputPlumber/devices/target/gamepad3"
+prop(usb_deck, "DeviceType", 's "deck"')
 gaming_on_disk = (prefix / "gaming.yaml").read_text()
 probes = []
-modprobe_state = {"ok": False, "appear": False}
 
 def fake_modprobe(module):
   probes.append(module)
-  if not modprobe_state["ok"]:
-    return cp(1, "", "modprobe failed")
-  if modprobe_state["appear"]:
-    Path(os.environ["OMARCHY_VHCI_SYS"]).mkdir(parents=True, exist_ok=True)
-  return cp(0, "")
+  return cp(1, "", "modprobe failed")
 
 mod.run_modprobe = fake_modprobe
 
@@ -446,78 +440,79 @@ def sent_yaml():
 
 absent = work / "no-vhci"
 os.environ["OMARCHY_VHCI_SYS"] = str(absent)
+mod.UHID_DEVICE = work / "no-uhid"
+mod.HID_DEVICES = work / "hid"
+hidraw_deck = mod.HID_DEVICES / "0003:28DE:12FD.0001/hidraw/hidraw1"
+
+def surface_pad_after_load(_seconds):
+  prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
+
 bus.reset()
-probes.clear()
 prop(c1, "ProfileName", 's "Default"')
+mod.pause = surface_pad_after_load
+fallback_yaml = gaming_on_disk.replace('\n  - "deck-uhid"\n', '\n  - "ds5-edge"\n')
 code, err = load_logged("gaming")
-sent = sent_yaml()
-check(code == 0, "gaming loads when vhci_hcd cannot be loaded")
-check("vhci_hcd is not loaded; gaming falls back to ds5-edge for this load" in err, "the ds5-edge fallback is logged")
-check('\n  - "ds5-edge"\n' in sent and '\n  - "deck"\n' not in sent, "that load sends ds5-edge")
-check(probes == ["vhci_hcd"], "the gaming load tries modprobe vhci_hcd")
-check((prefix / "gaming.yaml").read_text() == gaming_on_disk, "the fallback does not rewrite gaming.yaml")
+check(code == 0 and sent_yaml() == fallback_yaml, "missing /dev/uhid tries the Edge fallback")
+check("/dev/uhid is unavailable; gaming falls back to ds5-edge" in err, "the fallback reason is logged")
 
 bus.reset()
-probes.clear()
 prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
-prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
+code, err = load_logged("gaming")
+check(code == 0 and bus.methods() == [], "a live Edge is kept while UHID remains unavailable")
 
-def attach_deck(_seconds):
+mod.UHID_DEVICE = Path("/dev/null")
+bus.reset()
+prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{usb_deck}"')
+
+def attach_deck_uhid(_seconds):
   prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{deck}"')
+  hidraw_deck.mkdir(parents=True, exist_ok=True)
 
-mod.pause = attach_deck
+mod.pause = attach_deck_uhid
 code, err = load_logged("gaming")
-check(code == 0 and bus.methods() == [], "a second fallback load is skipped")
-check("already loaded" in err, "the skip is logged")
+check(code == 0 and sent_yaml() == gaming_on_disk and "falls back" not in err,
+      "a previously loaded USB/IP Deck is replaced with the attached UHID pad")
+check(hidraw_deck.is_dir(), "the load waits for the UHID pad's hidraw device")
 
-modprobe_state["ok"] = True
-modprobe_state["appear"] = False
 bus.reset()
-probes.clear()
-prop(c1, "ProfileName", 's "Default"')
 code, err = load_logged("gaming")
-sent = sent_yaml()
-check(code == 0 and "falls back to ds5-edge" in err, "a modprobe that leaves sysfs absent still falls back")
-check('\n  - "ds5-edge"\n' in sent, "that load still sends ds5-edge")
+check(code == 0 and bus.methods() == [], "an attached UHID pad is kept on repeat loads")
 
-appeared = work / "vhci-after"
-os.environ["OMARCHY_VHCI_SYS"] = str(appeared)
-modprobe_state["appear"] = True
+if hidraw_deck.exists():
+  hidraw_deck.rmdir()
 bus.reset()
-probes.clear()
-prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
-prop(c1, "TargetDevices", f'as 3 "{mouse}" "{keyboard}" "{edge}"')
-code, err = load_logged("gaming")
-sent = sent_yaml()
-check(code == 0 and "falls back" not in err, "a later load with vhci_hcd sends deck again")
-check(sent == gaming_on_disk, "that load sends the deck profile")
-check(probes == ["vhci_hcd"], "the module is loaded when sysfs was absent")
-check(bus.calls.count(["get-property", mod.IP_BUS, c1, mod.COMPOSITE_IFACE, "TargetDevices"]) >= 3,
-      "a load waits for Deck to appear after checking the previous targets")
+clock = [0.0]
+monotonic = mod.time.monotonic
+mod.time.monotonic = lambda: clock[0]
 
-present = work / "vhci-present"
-present.mkdir()
-os.environ["OMARCHY_VHCI_SYS"] = str(present)
-bus.reset()
-probes.clear()
-prop(c1, "ProfileName", 's "Default"')
-code, err = load_logged("gaming")
-check(code == 0 and sent_yaml() == gaming_on_disk, "a present vhci_hcd sends deck")
-check(probes == [], "a present module is not modprobed again")
-check("falls back" not in err, "a present module does not log the fallback")
+def wait_without_hidraw(seconds):
+  clock[0] += seconds
+  if len(sent_profiles()) == 2:
+    surface_pad_after_load(seconds)
 
+mod.pause = wait_without_hidraw
+code, err = load_logged("gaming")
+check(code == 0 and sent_profiles() == [gaming_on_disk, fallback_yaml],
+      "a D-Bus Deck target without a hidraw device is replaced with Edge")
+check("deck-uhid target did not attach" in err, "the attach failure is logged")
+
+# Both targets use UHID. A kernel without working UHID cannot attach either pad.
 bus.reset()
 prop(c1, "TargetDevices", f'as 2 "{mouse}" "{keyboard}"')
-mod.pause = time.sleep
-code, err = load_logged("gaming")
-mod.pause = lambda _seconds: None
-fallback_yaml = gaming_on_disk.replace('\n  - "deck"\n', '\n  - "ds5-edge"\n')
-check(code == 0 and sent_profiles() == [gaming_on_disk, fallback_yaml],
-      "a Deck that never attaches is replaced by ds5-edge")
-check("the deck target did not attach; gaming falls back to ds5-edge" in err, "the attach failure is logged")
-check((prefix / "gaming.yaml").read_text() == gaming_on_disk, "the attach fallback leaves gaming.yaml intact")
+mod.UHID_DEVICE = work / "no-uhid"
 
-os.environ["OMARCHY_VHCI_SYS"] = str(absent)
+def advance(seconds):
+  clock[0] += seconds
+
+mod.pause = advance
+code, err = load_logged("gaming")
+check(code == 1 and sent_yaml() == fallback_yaml and "ds5-edge target did not attach" in err,
+      "a successful D-Bus call without a fallback pad is a failed load")
+mod.time.monotonic = monotonic
+mod.pause = lambda _seconds: None
+check((prefix / "gaming.yaml").read_text() == gaming_on_disk, "the fallbacks leave gaming.yaml intact")
+check(probes == [], "gaming never loads the USB/IP module")
+
 bus.reset()
 probes.clear()
 prop(c1, "ProfileName", 's "Default"')
@@ -686,7 +681,6 @@ check(mod.install_vhci() == 0, "install-vhci is a no-op off the Ally")
 check(not (vhci_root / mod.VHCI_CONF).exists(), "off the Ally writes no modules-load.d entry")
 mod.ally = lambda: True
 os.environ["OMARCHY_VHCI_SYS"] = str(absent)
-modprobe_state["ok"] = False
 probes.clear()
 check(mod.install_vhci() == 0, "install-vhci writes the entry when the module does not load")
 conf = vhci_root / mod.VHCI_CONF
@@ -858,8 +852,8 @@ if ! run_packaged "$pkg/usr/bin/omarchy-inputplumber-profile" install-greeter >"
   fail "install-greeter fails on the packaged layout" "$(cat "$pkg/greeter.err")"
 fi
 [[ -L /etc/systemd/system/omarchy-ally-pointer.service ]] || fail "the pointer unit follows package updates"
-grep -Fxq vhci_hcd /etc/modules-load.d/omarchy-rog-ally-vhci.conf ||
-  fail "packaged hardware setup provisions the Deck pad module"
+[[ ! -e /etc/modules-load.d/omarchy-rog-ally-vhci.conf ]] ||
+  fail "packaged hardware setup loads the retired USB/IP module"
 if ! run_packaged "$pkg/usr/share/omarchy/bin/omarchy-inputplumber-profile" install-service >"$pkg/service.out" 2>"$pkg/service.err"; then
   fail "install-service fails on the packaged layout" "$(cat "$pkg/service.err")"
 fi
