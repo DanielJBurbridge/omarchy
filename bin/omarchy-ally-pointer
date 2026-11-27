@@ -1,0 +1,217 @@
+#!/usr/bin/python3
+
+# omarchy:summary=Switch the original ROG Ally between pointer and gamepad controls
+# omarchy:args=[load|restore]
+# omarchy:examples=sudo --preserve-env=OMARCHY_PATH omarchy-ally-pointer load | sudo omarchy-ally-pointer restore
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+BUS = "org.shadowblip.InputPlumber"
+OBJECT_ROOT = "/org/shadowblip/InputPlumber"
+COMPOSITE = "org.shadowblip.Input.CompositeDevice"
+SOURCE = "org.shadowblip.Input.Source.UdevDevice"
+POINTER_PROFILE = "Omarchy Ally pointer"
+DEFAULT_PROFILE_PATH = "/usr/share/inputplumber/profiles/default.yaml"
+SYSFS_ROOT = Path("/sys")
+
+
+def read_profile():
+  # The system unit supplies the package-owned directory. Pass the opened
+  # file's contents to InputPlumber so it does not have to reopen the path.
+  path = os.path.join(os.environ["OMARCHY_PATH"], "default/inputplumber/profiles/omarchy-ally-pointer.yaml")
+  fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+  with os.fdopen(fd, encoding="utf-8") as profile:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+      raise ValueError("the pointer profile must be a regular file owned by the service user")
+    return profile.read()
+
+
+def value(properties, key):
+  return properties.get(key, {}).get("data")
+
+
+def sysfs_integration(sysfs_path):
+  if not sysfs_path.startswith("/"):
+    return None
+  try:
+    path = (SYSFS_ROOT / sysfs_path.removeprefix("/sys/").lstrip("/")).resolve(strict=True)
+    if path.is_relative_to(SYSFS_ROOT / "devices"):
+      for parent in path.parents:
+        if re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", parent.name):
+          removable = (parent / "removable").read_text().strip()
+          return {"fixed": "internal", "removable": "external"}.get(removable)
+  except OSError:
+    pass
+  return None
+
+
+def source_integration(source, usb_id, sysfs_path):
+  integration = sysfs_integration(sysfs_path)
+  if integration:
+    return integration
+
+  # InputPlumber can report a udev property map from another source.
+  properties = value(source, "Properties") or {}
+  fingerprint = zip(("ID_VENDOR_ID", "ID_MODEL_ID", "DEVPATH"), (*usb_id, sysfs_path))
+  if all(properties.get(key, expected) == expected for key, expected in fingerprint):
+    return properties.get("ID_INTEGRATION")
+  return None
+
+
+def direct_usb_controller(sysfs_path, phys_path):
+  port = (re.search(r"/([^/]+)/usb[0-9]+/[0-9]+-([0-9.]+)(?:/|$)", sysfs_path) or
+          re.match(r"usb-([^/]+?)-([0-9.]+)(?:/|$)", phys_path))
+  if port and "." not in port[2]:
+    return port[1]
+  return None
+
+
+def ally_composites(objects):
+  ally_sources = {}
+  xbox_pads = {}
+  for interfaces in objects.values():
+    source = interfaces.get(SOURCE, {})
+    device = value(source, "DevicePath")
+    usb_id = (value(source, "IdVendor"), value(source, "IdProduct"))
+    if not device or usb_id not in {("0b05", "1abe"), ("045e", "028e")}:
+      continue
+    sysfs_path = value(source, "SysfsPath") or ""
+    integration = source_integration(source, usb_id, sysfs_path)
+    controller = direct_usb_controller(sysfs_path, value(source, "PhysPath") or "")
+    if usb_id == ("0b05", "1abe") and integration != "external":
+      ally_sources[device] = integration, controller
+    elif usb_id == ("045e", "028e"):
+      xbox_pads[device] = integration, controller
+
+  for path, interfaces in objects.items():
+    composite = interfaces.get(COMPOSITE, {})
+    devices = value(composite, "SourceDevicePaths") or []
+    if (value(composite, "Name") != "ASUS ROG Ally" or
+        not re.fullmatch(OBJECT_ROOT + r"/CompositeDevice[0-9]+", path)):
+      continue
+    attached_ally = [ally_sources[device] for device in devices if device in ally_sources]
+    if not attached_ally:
+      continue
+    controllers = ({host for integration, host in attached_ally if host and integration == "internal"} or
+                   {host for _, host in attached_ally if host})
+    # The built-in Xbox pad is on a sibling port of the Ally's USB controller.
+    has_external_pad = any(
+      integration != "internal" and (integration == "external" or controller not in controllers)
+      for integration, controller in (xbox_pads[device] for device in devices if device in xbox_pads)
+    )
+    yield path, value(composite, "ProfileName"), has_external_pad
+
+
+def switch_profile(mode):
+  # The D-Bus name appears before InputPlumber finishes discovering sources.
+  deadline = time.monotonic() + 5
+  while time.monotonic() < deadline:
+    snapshot = subprocess.run(
+      ["busctl", "--system", "--timeout=500ms", "--json=short", "call", BUS, OBJECT_ROOT,
+       "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"],
+      capture_output=True,
+    )
+    if snapshot.returncode == 0:
+      devices = list(ally_composites(json.loads(snapshot.stdout)["data"][0]))
+      if len(devices) > 1:
+        raise ValueError("found more than one original ROG Ally composite in InputPlumber")
+      if devices:
+        path, profile, has_external_pad = devices[0]
+        command = ["busctl", "--system", "--timeout=1s", "call", BUS, path, COMPOSITE]
+        if mode == "restore":
+          # Restore even if a pad joined the composite after we loaded it.
+          if profile == POINTER_PROFILE:
+            subprocess.run(command + ["LoadProfilePath", "s", DEFAULT_PROFILE_PATH], check=True)
+        elif not has_external_pad and profile != POINTER_PROFILE:
+          subprocess.run(command + ["LoadProfileFromYaml", "s", read_profile()], check=True)
+        return
+      if mode == "restore":
+        return
+    time.sleep(0.25)
+  raise ValueError("the original ROG Ally composite did not become ready in InputPlumber")
+
+
+def follow_seat():
+  from gi.repository import Gio, GLib
+
+  bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+  login = "org.freedesktop.login1"
+  seat = Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.DO_NOT_AUTO_START, None, login,
+                              "/org/freedesktop/login1/seat/seat0", login + ".Seat")
+  last_session = None
+
+  def sync_session():
+    nonlocal last_session
+    active = seat.get_cached_property("ActiveSession")
+    if active is None:
+      return
+    _, path = active.unpack()
+    if path == last_session:
+      return
+    if path == "/":
+      # Start the boot greeter with the pointer if no session has started yet.
+      if last_session is not None:
+        return
+      mode = "load"
+    else:
+      reply = bus.call_sync(
+        login, path, "org.freedesktop.DBus.Properties", "GetAll",
+        GLib.Variant("(s)", (login + ".Session",)), GLib.VariantType.new("(a{sv})"),
+        Gio.DBusCallFlags.NO_AUTO_START, 1000,
+      )
+      properties = reply.unpack()[0]
+      if properties.get("Class") == "greeter":
+        mode = "load"
+      elif properties.get("Class") == "user" and properties.get("Type") in {"wayland", "x11"}:
+        mode = "restore"
+      else:
+        # Console switches should preserve a manual choice in the same desktop session.
+        return
+    switch_profile(mode)
+    last_session = path
+
+  def update_session(_proxy, changed, _invalidated):
+    if "ActiveSession" in changed.unpack():
+      try:
+        sync_session()
+      except (GLib.Error, OSError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"omarchy-ally-pointer: {error}", file=sys.stderr)
+
+  seat.connect("g-properties-changed", update_session)
+  try:
+    sync_session()
+  except GLib.Error as error:
+    raise ValueError(str(error)) from None
+  subprocess.run(["systemd-notify", "--ready"], check=True)
+  GLib.MainLoop().run()
+
+
+def main():
+  args = sys.argv[1:]
+  if args not in ([], ["load"], ["restore"], ["watch"]):
+    raise ValueError("usage: omarchy-ally-pointer [load|restore]")
+  if subprocess.run(["omarchy-hw-rog-ally"]).returncode:
+    return
+  if args == ["watch"]:
+    follow_seat()
+  else:
+    switch_profile(args[0] if args else "load")
+
+
+if __name__ == "__main__":
+  try:
+    main()
+  except (OSError, ValueError) as error:
+    raise SystemExit(f"omarchy-ally-pointer: {error}") from None
+  except subprocess.CalledProcessError as error:
+    raise SystemExit(error.returncode) from None

@@ -1,0 +1,22 @@
+[Unit]
+Description=Switch the ROG Ally stick pointer at sign-in
+Requires=inputplumber.service
+Wants=systemd-logind.service
+After=inputplumber.service systemd-logind.service
+Before=display-manager.service
+
+[Service]
+# Wait for the initial profile before allowing the display manager to start.
+Type=notify
+NotifyAccess=all
+Environment=OMARCHY_PATH=/usr/share/omarchy
+ExecCondition=/usr/bin/omarchy-hw-rog-ally
+ExecStart=/usr/bin/omarchy-ally-pointer watch
+ExecStopPost=/usr/bin/omarchy-ally-pointer restore
+TimeoutStartSec=8s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=graphical.target
