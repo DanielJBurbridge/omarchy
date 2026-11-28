@@ -81,6 +81,7 @@ while true; do
   if omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session; then
     load_power_option
     options+=("$power_option")
+    options+=("$(row '󰁹' "$(omarchy-i18n gaming.chargeLimit)" "$(omarchy-i18n gaming.chargeLimitHint)")")
     options+=("$(row '󰋊' "$(omarchy-i18n gaming.library)" "$(omarchy-i18n gaming.libraryHint)")")
   fi
   options+=("$(row '󰋖' "$(omarchy-i18n gaming.help)" "$(omarchy-i18n gaming.helpTopics)")" "$(row '󰅖' "$(omarchy-i18n gaming.close)" "$(omarchy-i18n gaming.closeHelp)")")
@@ -100,19 +101,26 @@ while true; do
 
   case "$selection" in
     "$(omarchy-i18n gaming.openBigPicture)") omarchy-launch-steam-bigpicture; exit ;;
+    "$(omarchy-i18n gaming.chargeLimit)") omarchy-battery-charge-limit choose || true ;;
     "$(omarchy-i18n gaming.library)")
       # shellcheck source=default/gaming/session.sh
       source "$OMARCHY_PATH/default/gaming/session.sh"
       gaming_handheld_variant || exit 1
       saved=''
-      if [[ -f $gaming_state/library ]]; then read -r saved < "$gaming_state/library"; fi
-      choice=$(python "$OMARCHY_PATH/default/gaming/removable-library.py" select "$saved" \
-        "$(omarchy-i18n gaming.chooseLibrary)" "$(omarchy-i18n gaming.forgetLibrary)" "$(omarchy-i18n gaming.back)")
-      if [[ $choice == "forget" ]]; then
-        rm -f -- "$gaming_state/library"
-      elif [[ -n $choice ]]; then
+      if [[ -f $gaming_state/library ]]; then saved=$(<"$gaming_state/library"); fi
+      if choice=$(python "$OMARCHY_PATH/default/gaming/removable-library.py" select "$saved" \
+        "$(omarchy-i18n gaming.chooseLibrary)" "$(omarchy-i18n gaming.rememberedLibrary)" \
+        "$(omarchy-i18n gaming.noLibraries)"); then
+        [[ $choice != "$saved" ]] || continue
         gaming_state_init
-        gaming_save library "$choice"
+        if [[ -n $choice ]]; then
+          gaming_save library "$choice"
+        else
+          rm -f -- "$gaming_state/library"
+        fi
+      else
+        status=$?
+        if (( status != 1 )); then exit "$status"; fi
       fi
       ;;
     "$(omarchy-i18n gaming.desktopMode)") omarchy-launch-steam-desktop; exit ;;

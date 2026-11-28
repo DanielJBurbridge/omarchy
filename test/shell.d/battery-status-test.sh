@@ -267,6 +267,8 @@ pass "battery status leaves out readings it doesn't have"
 charge_limit=$ROOT/bin/omarchy-battery-charge-limit
 export OMARCHY_TEST_CHARGE_STATE="$tmp_dir/charge-state"
 export OMARCHY_TEST_CHARGE_WRITES="$tmp_dir/charge-writes"
+export OMARCHY_TEST_CHARGE_NOTICE="$tmp_dir/charge-notice"
+export OMARCHY_TEST_ASUSD_STATE_FILE="$tmp_dir/asusd-state"
 printf 'false\n' >"$OMARCHY_TEST_CHARGE_STATE"
 : >"$OMARCHY_TEST_CHARGE_WRITES"
 
@@ -276,7 +278,29 @@ cat >"$tmp_dir/bin/omarchy-hw-rog-ally" <<'STUB'
 STUB
 cat >"$tmp_dir/bin/systemctl" <<'STUB'
 #!/bin/bash
-[[ $* == "--system is-active --quiet asusd.service" && ${OMARCHY_TEST_ASUSD_ACTIVE:-no} == "yes" ]]
+[[ $* == "--system show --property=ActiveState --value asusd.service" ]] || exit 2
+[[ ${OMARCHY_TEST_ASUSD_QUERY:-ok} == "ok" ]] || exit 1
+if [[ -f $OMARCHY_TEST_ASUSD_STATE_FILE ]]; then
+  cat "$OMARCHY_TEST_ASUSD_STATE_FILE"
+else
+  printf '%s\n' "${OMARCHY_TEST_ASUSD_STATE:-inactive}"
+fi
+STUB
+cat >"$tmp_dir/bin/omarchy-menu-select" <<'STUB'
+#!/bin/bash
+case ${OMARCHY_TEST_CHARGE_PICK:-cancel} in
+  apply) printf '%s\n' "$3" ;;
+  back) printf '%s\n' "$2" ;;
+  reclaim)
+    printf 'activating\n' >"$OMARCHY_TEST_ASUSD_STATE_FILE"
+    printf '%s\n' "$3"
+    ;;
+  cancel) exit 1 ;;
+esac
+STUB
+cat >"$tmp_dir/bin/omarchy-notification-send" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$@" >"$OMARCHY_TEST_CHARGE_NOTICE"
 STUB
 cat >"$tmp_dir/bin/busctl" <<'STUB'
 #!/bin/bash
@@ -332,10 +356,11 @@ JSON
   *) exit 2 ;;
 esac
 STUB
-chmod +x "$tmp_dir/bin/"{busctl,omarchy-hw-rog-ally,systemctl}
+chmod +x "$tmp_dir/bin/"{busctl,omarchy-hw-rog-ally,systemctl,omarchy-menu-select,omarchy-notification-send}
 
 run_charge_limit() {
-  PATH="$tmp_dir/bin:$PATH" "$charge_limit" "$@"
+  OMARCHY_PATH="$ROOT" OMARCHY_LANGUAGE_FILE="$tmp_dir/absent-language" \
+    PATH="$tmp_dir/bin:$ROOT/bin:$PATH" "$charge_limit" "$@"
 }
 
 charge_status=$(run_charge_limit status)
@@ -362,11 +387,29 @@ fi
 [[ ! -s $OMARCHY_TEST_CHARGE_WRITES ]] || fail "refused charge limit requests never call UPower's setter"
 pass "charge limit refuses other hardware, ambiguous batteries and unsupported ceilings"
 
-active_status=$(OMARCHY_TEST_ASUSD_ACTIVE=yes run_charge_limit status)
-if OMARCHY_TEST_ASUSD_ACTIVE=yes run_charge_limit on >"$tmp_dir/charge-error" 2>&1; then
+active_status=$(OMARCHY_TEST_ASUSD_STATE=active run_charge_limit status)
+if OMARCHY_TEST_ASUSD_STATE=active run_charge_limit on >"$tmp_dir/charge-error" 2>&1; then
   fail "charge limit refuses to write while asusd owns the setting"
 fi
 [[ $active_status == "$charge_status" && ! -s $OMARCHY_TEST_CHARGE_WRITES ]] ||
   fail "asusd does not block read-only status and no UPower setter runs"
 grep -Fq asusd "$tmp_dir/charge-error" || fail "the refusal identifies the competing daemon"
 pass "charge limit status remains available while asusd manages the ceiling"
+
+run_charge_limit choose
+OMARCHY_TEST_CHARGE_PICK=back run_charge_limit choose
+[[ ! -s $OMARCHY_TEST_CHARGE_WRITES ]] || fail "cancelling or going back never changes charging"
+OMARCHY_TEST_CHARGE_PICK=apply run_charge_limit choose
+[[ $(run_charge_limit status) == "UPower charge limit is on (80%)." ]] ||
+  fail "the desktop chooser enables the configured ceiling"
+[[ $(<"$OMARCHY_TEST_CHARGE_NOTICE") == $'Battery charge limit\n80% charge limit is on' ]] ||
+  fail "the chooser reports UPower's confirmed charging limit"
+
+: >"$OMARCHY_TEST_CHARGE_WRITES"
+if OMARCHY_TEST_CHARGE_PICK=reclaim run_charge_limit choose >"$tmp_dir/charge-error" 2>&1 ||
+  OMARCHY_TEST_ASUSD_QUERY=failed run_charge_limit off >"$tmp_dir/charge-error" 2>&1; then
+  fail "a charge limit request requires known idle ASUS charging ownership"
+fi
+[[ ! -s $OMARCHY_TEST_CHARGE_WRITES ]] ||
+  fail "charging ownership changing while the picker is open blocks the UPower write"
+pass "the fixed charge limit chooser applies only a confirmed selection while ASUS charging is idle"

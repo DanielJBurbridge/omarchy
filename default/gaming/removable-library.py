@@ -1,5 +1,6 @@
-"""Select and mount one removable filesystem using the session owner's UDisks rights."""
+"""Select and mount remembered removable filesystems using the session owner's UDisks rights."""
 
+import json
 import os
 import re
 import subprocess
@@ -10,6 +11,10 @@ import gi
 
 gi.require_version("UDisks", "2.0")
 from gi.repository import Gio, GLib, UDisks
+
+
+def remembered_uuids(value):
+  return dict.fromkeys(uuid for uuid in value.splitlines() if re.fullmatch(r"[a-zA-Z0-9-]+", uuid))
 
 
 def volumes(client):
@@ -39,26 +44,37 @@ def eligible(client, obj):
           and drive.props.seat == os.getenv("XDG_SEAT", "seat0"))
 
 
-def select(client, saved, title, forget, back):
-  choices = {}
+def select(client, saved, title, remembered, unavailable):
+  saved = remembered_uuids(saved)
+  choices = {uuid: f"{remembered}\t{uuid}" for uuid in saved}
   for uuid, objects in sorted(volumes(client).items()):
     if len(objects) == 1 and eligible(client, objects[0]):
       props = objects[0].get_block().props
       label = "".join(c if c.isprintable() else " " for c in props.id_label)
-      choices[f"{label or props.device}\t{uuid}"] = uuid
+      choices[uuid] = f"{label or props.device}\t{uuid}"
 
-  options = ["󰋊\t" + row for row in choices]
-  if saved:
-    row = forget + "\t" + saved
-    choices[row] = "forget"
-    options.append("󰅖\t" + row)
-  options.append("󰌑\t" + back)
+  if not choices:
+    picker = subprocess.run(["omarchy-menu-select", title, f"󰌑\t{unavailable}",
+                             "--", "--width", "640"], stdout=subprocess.DEVNULL)
+    raise SystemExit(picker.returncode or 1)
+
+  options = ["󰋊\t" + row for row in choices.values()]
+  preselected = [arg for uuid in saved for arg in ("--selected", choices[uuid])]
   picker = subprocess.run(["omarchy-menu-select", title, *options,
-                           "--", "--width", "640"], stdout=subprocess.PIPE, text=True)
-  if picker.returncode not in (0, 1):
+                           "--", "--width", "640", "--multiple", *preselected],
+                          stdout=subprocess.PIPE, text=True)
+  if picker.returncode:
     raise SystemExit(picker.returncode)
-  if picker.returncode == 0:
-    print(choices.get(picker.stdout.rstrip("\n"), ""))
+
+  uuids_by_row = {row: uuid for uuid, row in choices.items()}
+  try:
+    selected = json.loads(picker.stdout)
+    if not isinstance(selected, list):
+      raise ValueError("invalid library selection")
+    uuids = dict.fromkeys(uuids_by_row[row] for row in selected)
+  except (KeyError, TypeError, ValueError):
+    raise SystemExit(2)
+  print("\n".join(uuids))
 
 
 def mount_interrupted(error):
@@ -68,16 +84,17 @@ def mount_interrupted(error):
             Gio.DBusError.NO_REPLY, Gio.DBusError.NAME_HAS_NO_OWNER, Gio.DBusError.SERVICE_UNKNOWN)))
 
 
-def watch(client, uuid):
+def watch(client, remembered):
   # An unmount or UDisks restart retains the kernel disk sequence. Reinserting
   # the medium gives it a fresh sequence, even at the same device path.
   # None marks a handled insertion. After an interrupted Mount, keep the
   # daemon's D-Bus owner so only a replacement daemon can trigger one retry.
-  insertions = {}
+  tracked = {uuid: {} for uuid in remembered_uuids(remembered)}
+  if not tracked:
+    return
   manager = client.get_object_manager()
 
-  def reconcile(client):
-    objects = volumes(client).get(uuid, [])
+  def reconcile_volume(client, objects, insertions):
     if len(objects) > 1:
       sequences = {insertion(obj) for obj in objects}
       if sequences.difference(insertions):
@@ -115,6 +132,11 @@ def watch(client, uuid):
     except OSError as error:
       print(f"Gaming library: {str(error)!r}", file=sys.stderr)
 
+  def reconcile(client):
+    current = volumes(client)
+    for uuid, insertions in tracked.items():
+      reconcile_volume(client, current.get(uuid, []), insertions)
+
   client.connect("changed", reconcile)
   reconcile(client)
   try:
@@ -125,9 +147,9 @@ def watch(client, uuid):
 
 
 if __name__ == "__main__":
-  mode, uuid, *labels = sys.argv[1:]
+  mode, remembered, *labels = sys.argv[1:]
   client = UDisks.Client.new_sync()
   if mode == "select":
-    select(client, uuid, *labels)
-  elif mode == "watch" and uuid:
-    watch(client, uuid)
+    select(client, remembered, *labels)
+  elif mode == "watch":
+    watch(client, remembered)
