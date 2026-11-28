@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pizzarchy adaptations: the SteamOS update stub's exit codes, the Steam PATH
+# Pizzarchy adaptations: the SteamOS update helper's exit codes, the Steam PATH
 # probe that leaves the private shim in place, and the console keymap pin.
 
 set -uo pipefail
@@ -8,22 +8,104 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$here/base-test.sh"
 
 stub=$ROOT/default/gaming/steamos-update
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/update-bin" "$work/update-runtime" "$work/update-home" "$work/update-tmp"
+
 stub_status() {
-  "$stub" "$@" >/dev/null
+  "$stub" "$@" >"$work/update.stdout" 2>"$work/update.stderr"
   printf '%s' "$?"
 }
 
-[[ $(stub_status check) == 7 ]] || fail "check exits 7"
-[[ $(stub_status apply) == 7 ]] || fail "apply exits 7"
-[[ $(stub_status) == 7 ]] || fail "no argument exits 7"
-[[ $(stub_status --supports-duplicate-detection) == 1 ]] || fail "duplicate detection exits 1"
+export GAMING_UPDATE_TEST_LOG=$work/update.log
+export GAMING_UPDATE_TEST_TOAST=$work/update.toast
+export GAMING_UPDATE_TEST_STATUS=0
+export GAMING_UPDATE_TEST_APPLIED=$work/update.applied
+cat >"$work/update-bin/checkupdates" <<'SH'
+#!/bin/bash
+[[ $1 == "--nocolor" && -n ${CHECKUPDATES_DB:-} && -d $CHECKUPDATES_DB ]] || exit 1
+printf '%s\n' "$CHECKUPDATES_DB" >> "$GAMING_UPDATE_TEST_LOG"
+exit "$GAMING_UPDATE_TEST_STATUS"
+SH
+cat >"$work/update-bin/omarchy-update" <<'SH'
+#!/bin/bash
+touch "$GAMING_UPDATE_TEST_APPLIED"
+SH
+cat >"$work/update-bin/omarchy-notification-send" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >> "$GAMING_UPDATE_TEST_TOAST"
+SH
+printf '#!/bin/bash\nexit 0\n' > "$work/update-bin/logger"
+chmod +x "$work/update-bin/"*
+
+test_steam_update() (
+  export PATH="$work/update-bin:$ROOT/bin:$PATH"
+  export HOME=$work/update-home
+  export TMPDIR=$work/update-tmp
+  export XDG_DATA_HOME=$work/update-data
+  export XDG_STATE_HOME=$work/update-state
+  export XDG_CURRENT_DESKTOP=gamescope
+  export OMARCHY_GAMING_RUNTIME=$work/update-runtime
+
+  [[ $(stub_status check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "Steam setup defers update checks"
+  [[ $(stub_status --enable-duplicate-detection check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "Steam setup defers duplicate-detection checks"
+  [[ $(stub_status apply) == 7 && ! -e $GAMING_UPDATE_TEST_TOAST ]] ||
+    fail "Steam setup can finish without launching the updater"
+  [[ $(stub_status) == 7 && ! -e $GAMING_UPDATE_TEST_APPLIED ]] ||
+    fail "Steam setup's argumentless apply changes no packages"
+  [[ $(stub_status --supports-duplicate-detection) == 1 ]] ||
+    fail "duplicate detection exits 1"
+  [[ $(stub_status no-such-verb) == 7 ]] || fail "an unknown startup verb exits 7"
+  pass "Steam setup still finishes without applying updates"
+
+  mkdir -p "$XDG_DATA_HOME/Steam/config"
+  local accounts=$XDG_DATA_HOME/Steam/config/loginusers.vdf
+  printf '"users"\n{\n}\n' > "$accounts"
+  touch "$OMARCHY_GAMING_RUNTIME/update-check-ready"
+  [[ $(stub_status check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "a ready Steam sign-in page does not trigger an update check"
+  printf '"users"\n{\n  "76561197960265729"\n  {\n    "AccountName" "test-account"\n  }\n}\n' > "$accounts"
+  [[ $(stub_status check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "an existing desktop account cannot interrupt the first Gaming session"
+  mkdir -p "$XDG_STATE_HOME/omarchy/gaming-session"
+  printf '%s\n' completed > "$XDG_STATE_HOME/omarchy/gaming-session/update-checks"
+  if (( EUID == 0 )); then
+    [[ $(stub_status check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+      fail "a privileged Steam probe cannot query repositories"
+    return 0
+  fi
+
+  [[ $(stub_status check) == 0 && -s $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "Steam reports pending repository updates after setup"
+  database=$(<"$GAMING_UPDATE_TEST_LOG")
+  [[ $database == "$TMPDIR"/* && ! -e $database ]] || fail "Steam leaves no check database behind"
+  [[ $(GAMING_UPDATE_TEST_STATUS=2 stub_status --enable-duplicate-detection check) == 7 ]] ||
+    fail "Steam reports up to date only after a successful empty check"
+  [[ $(GAMING_UPDATE_TEST_STATUS=1 stub_status check) == 1 ]] ||
+    fail "Steam distinguishes a failed check from up to date"
+  [[ $(GAMING_UPDATE_TEST_STATUS=124 stub_status check) == 1 ]] ||
+    fail "Steam does not report up to date on a timeout"
+  pass "Steam checks pending repository updates using the isolated Omarchy checker"
+
+  [[ $(stub_status apply) == 1 && ! -e $GAMING_UPDATE_TEST_APPLIED ]] ||
+    fail "Steam does not apply Omarchy updates or report success"
+  grep -Fq 'Switch to Desktop' "$GAMING_UPDATE_TEST_TOAST" ||
+    fail "Steam update guidance gives the Desktop route"
+  [[ $(stub_status --enable-duplicate-detection) == 1 && ! -e $GAMING_UPDATE_TEST_APPLIED ]] ||
+    fail "Steam's alternate apply route also updates nothing"
+  rm -f "$GAMING_UPDATE_TEST_LOG"
+  [[ $(XDG_CURRENT_DESKTOP=Hyprland stub_status check) == 7 && ! -e $GAMING_UPDATE_TEST_LOG ]] ||
+    fail "the Steam helper checks only in Gaming Mode"
+  pass "Steam routes applying updates to Desktop Mode without updating or rebooting"
+)
+
+test_steam_update || exit $?
 [[ $(stub_status help) == 0 ]] || fail "help exits 0"
-[[ $(stub_status no-such-verb) == 7 ]] || fail "an unknown verb exits 7"
 help_text=$("$stub" help)
 [[ $help_text == *"omarchy update"* ]] || fail "help tells the user to run omarchy update" "$help_text"
 [[ $help_text != *"pacman -Syu"* ]] || fail "help points at pacman -Syu" "$help_text"
-[[ $help_text == *"updates nothing"* ]] || fail "help says the stub updates nothing" "$help_text"
-pass "the SteamOS update stub answers Steam and updates nothing"
 
 for file in \
   "$ROOT/default/gaming/steamos-update" \
@@ -47,8 +129,6 @@ pass "only a User= inside [Autologin] counts"
 
 # shellcheck source=/dev/null
 source "$ROOT/default/gaming/steam-path.sh"
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/proc/4" "$work/bin" "$work/runtime"
 printf 'leave\n' > "$work/runtime/steam-path"
 private=$work/bin

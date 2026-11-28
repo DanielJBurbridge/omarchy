@@ -3,20 +3,24 @@
 # and let makepkg collect the checkout files for --allsource.
 pkgname=omarchy-gaming-session
 pkgver=1.0.0
-pkgrel=19
+pkgrel=20
 pkgdesc='Optional authenticated Omarchy handheld Gamescope sessions'
 arch=('x86_64')
 url='https://github.com/DanielJBurbridge/omarchy'
 license=('MIT')
 # The paired handheld runtime and settings supply the Omarchy entry points.
 # Current development packages provide the unversioned virtual name omarchy.
-depends=('omarchy' 'bash' 'coreutils' 'diffutils' 'gamescope>=3.17.0'
+depends=('omarchy' 'bash' 'coreutils' 'curl' 'diffutils' 'gamescope>=3.17.0'
          'inputplumber>=0.84.0' 'iproute2' 'lua51' 'pacman' 'polkit'
          'procps-ng' 'python' 'python-gobject' 'sddm' 'steam' 'sudo'
          'systemd' 'util-linux')
 optdepends=('mangohud: Gamescope overlay via mangoapp'
             'omarchy-rog-ally-powerbutton: RC71L power-button handling in Gaming Mode'
+            'sunshine: opt-in Moonlight hosting in Gaming Mode'
             'udisks2: remembered removable Steam libraries')
+# SteamOS publishes this MIT source through its source archives. The Jovian
+# mirror supplies the unchanged tagged source in a reproducible Git archive.
+_notifier_commit=0ba7aef86eec3efda037258ccb8bdf1ae357a9b9
 source=(
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-gamescope.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-gamescope.desktop"
   "${pkgname}-${pkgver}-${pkgrel}-omarchy-handheld.desktop::file://${startdir}/../../default/gaming/wayland-sessions/omarchy-handheld.desktop"
@@ -33,12 +37,14 @@ source=(
   'enable-new-inputplumber'
   'omarchy-gaming-inputplumber.hook'
   "${pkgname}-${pkgver}-${pkgrel}-LICENSE::file://${startdir}/../../LICENSE"
+  "steam_notif_daemon-${_notifier_commit}.tar.gz::https://codeload.github.com/Jovian-Experiments/steam_notif_daemon/tar.gz/${_notifier_commit}"
+  'steam-notifier-use-host-steam.patch'
 )
 sha256sums=('a697cc8058ae879fb3f0ef12fe69acafe79a227a5820ed085795c4431161a20a'
             '6a641adab37b03362dd4405684fd7c269cccc647fb96ac863896e79aeb618edb'
             '7534f5ebedda451110ed884d1a404244fc02bd34027c7b4ecf565a55040c853f'
             '9cd356df485b20ef525231da163d1fbeaba5e5b5d15b800bb3a335e1b86a0878'
-            '69f0d54d4aff96d5f275b080386405e1cbd35b3447f336c76b86517462ed5e98'
+            '6b255a501ca478539e7cbed7ee1bddf14f6ca159932a8f64044d45fd3e761396'
             'c64bc45684e189a4fb96de791d0c0343b4585afc7a6e52c93cbbb4055d9a50fc'
             'b17af87051655f9395f29d6b25c8791473e0ced7a4c31b8e0d3e1e8500468b4d'
             'c300fcef13686b115f50a21ad1da252724de887b0a3fc262838787ecd830a6da'
@@ -48,8 +54,26 @@ sha256sums=('a697cc8058ae879fb3f0ef12fe69acafe79a227a5820ed085795c4431161a20a'
             'a0c5e43a2651c66381052e92acfac78ce672041d3ff1a8a292cdb46c3d4bedf7'
             'c225d16e8e6b6e73797006a023f3057cc1650dd3db55728bed8f6e6de495d73b'
             '3bf621eeb444e281c066dd2457f7f97ab26cbe3d3fa1857d48e9da9d66ca987d'
-            '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2')
+            '717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2'
+            '88a1df4734b94e5ef9406702db3451a5417583b161950240bc59a8bd399fc368'
+            '0303ab95f33fad9f8b82e77e058540901e95213289ea3dcaefca76cc44d8d169')
 install=omarchy-gaming-session.install
+
+prepare() {
+  patch -d "$srcdir/steam_notif_daemon-$_notifier_commit" -p1 < "$srcdir/steam-notifier-use-host-steam.patch"
+}
+
+build() {
+  local -a c_flags cpp_flags ld_flags notifier_flags notifier_libraries
+  read -r -a c_flags <<< "$CFLAGS"
+  read -r -a cpp_flags <<< "$CPPFLAGS"
+  read -r -a ld_flags <<< "$LDFLAGS"
+  read -r -a notifier_flags <<< "$(pkg-config --cflags libsystemd libcurl)"
+  read -r -a notifier_libraries <<< "$(pkg-config --libs libsystemd libcurl)"
+  cc "${cpp_flags[@]}" "${c_flags[@]}" "${notifier_flags[@]}" -std=c11 -DHAVE_LIBSYSTEMD=1 \
+    "$srcdir/steam_notif_daemon-$_notifier_commit/main.c" "${ld_flags[@]}" "${notifier_libraries[@]}" \
+    -o "$srcdir/steam_notif_daemon"
+}
 
 package() {
   local checkout_source="$pkgname-$pkgver-$pkgrel"
@@ -59,6 +83,9 @@ package() {
   install -Dm644 "$srcdir/$checkout_source-omarchy-gaming.desktop" "$pkgdir/usr/share/applications/omarchy-gaming.desktop"
   install -Dm755 "$srcdir/$checkout_source-steamos-update" "$pkgdir/usr/bin/steamos-polkit-helpers/steamos-update"
   install -Dm755 "$srcdir/$checkout_source-sddm-user.sh" "$pkgdir/usr/lib/omarchy-gaming-session/sddm-user.sh"
+  install -Dm755 "$srcdir/steam_notif_daemon" "$pkgdir/usr/lib/omarchy-gaming-session/steam_notif_daemon"
+  install -Dm644 "$srcdir/steam_notif_daemon-$_notifier_commit/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/steam_notif_daemon.LICENSE"
   install -Dm644 "$srcdir/$checkout_source-omarchy-gaming-session.target" "$pkgdir/usr/lib/systemd/user/omarchy-gaming-session.target"
   install -Dm644 "$srcdir/$checkout_source-rog-ally-input-gaming-session.conf" \
     "$pkgdir/usr/lib/systemd/user/omarchy-rog-ally-input.service.d/10-gaming-session.conf"

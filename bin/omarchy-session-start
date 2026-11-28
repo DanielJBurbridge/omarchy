@@ -540,13 +540,14 @@ run_gaming() {
   if omarchy-cmd-present omarchy-hw-rog-ally-input && omarchy-pkg-present omarchy-rog-ally-input; then
     omarchy-hw-rog-ally-input gamepad || return 1
   fi
-  local display_args=() display_output
+  local display_args=() display_output overlay=auto
   display_output=$(omarchy-gaming-output gamescope-args) || return 1
   if [[ -n $display_output ]]; then mapfile -t display_args <<< "$display_output"; fi
-  if [[ -f $gaming_state/overlay && $(cat "$gaming_state/overlay") == "on" ]]; then
+  if [[ -f $gaming_state/overlay ]]; then overlay=$(<"$gaming_state/overlay"); fi
+  if [[ $overlay == "auto" || $overlay == "on" ]]; then
     if omarchy-cmd-present mangoapp; then
       gamescope_args+=(--mangoapp)
-    else
+    elif [[ $overlay == "on" ]]; then
       gaming_fail 'mangoapp is missing. Starting without the session overlay. Install MangoHud to enable it.'
     fi
   fi
@@ -615,9 +616,14 @@ LUA
   if [[ -s $gaming_state/library ]] && omarchy-pkg-present omarchy-gaming-session; then
     library_args+=("$(<"$gaming_state/library")")
   fi
+  # Gamescope checks VRR support on the active connector. Leave refresh rates
+  # to its panel profile and the docked display's advertised modes.
   systemd-run --user --scope --quiet --collect --unit="$scope" \
     --property=TimeoutStopSec=15s \
-    env "${keyboard_env[@]}" gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 \
+    env "${keyboard_env[@]}" \
+    GAMESCOPE_MODE_SAVE_FILE="${GAMESCOPE_MODE_SAVE_FILE-$gaming_state/gamescope-modes.cfg}" \
+    GAMESCOPE_PATCHED_EDID_FILE="${GAMESCOPE_PATCHED_EDID_FILE-$gaming_runtime/gamescope-edid.bin}" \
+    gamescope --backend drm -e --xwayland-count 2 --default-touch-mode 4 --adaptive-sync \
     "${display_args[@]}" "${gamescope_args[@]}" -- "$OMARCHY_PATH/bin/omarchy-gaming-steam" "${library_args[@]}" \
     > "$gaming_state/session.log" 2>&1 9>&- &
   scope_pid=$!
@@ -702,6 +708,13 @@ LUA
     request_gaming_shutdown
   fi
   stop_gaming
+  # A signed-in Desktop account can exist before Gaming Mode's first-run
+  # screens. Defer repository checks until one ready Gaming session ends.
+  if $started; then
+    if $returned || { (( status == 0 )) && [[ -f $gaming_runtime/steam-exit && $(<"$gaming_runtime/steam-exit") == "0" ]]; }; then
+      gaming_save update-checks completed || true
+    fi
+  fi
   # Append after Gamescope's log redirection has closed, so its exit text
   # cannot overwrite the return line the desktop switch is recognised by.
   if $returned; then

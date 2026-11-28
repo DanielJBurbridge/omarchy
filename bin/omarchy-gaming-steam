@@ -21,11 +21,20 @@ source "$OMARCHY_PATH/default/gaming/steam-ready.sh"
 library_pid=''
 power_pid=''
 shutdown_pid=''
+notifier_pid=''
+battery_alert_pid=''
+sunshine_pid=''
+update_check_ready=$OMARCHY_GAMING_RUNTIME/update-check-ready
 cleanup() {
-  local pid
-  for pid in "$library_pid" "$shutdown_pid" "$power_pid"; do
+  local pid parent
+  rm -f -- "$update_check_ready"
+  for pid in "$battery_alert_pid" "$notifier_pid" "$sunshine_pid" "$library_pid" "$shutdown_pid" "$power_pid"; do
     if [[ -n $pid ]]; then
-      kill "$pid" 2>/dev/null || true
+      # An optional helper can quit long before Steam. Only signal our children,
+      # since the kernel may have reused a finished helper's PID by then.
+      if read -r parent < <(ps -o ppid= -p "$pid") && [[ $parent == "$BASHPID" ]]; then
+        kill "$pid" 2>/dev/null || true
+      fi
       wait "$pid" 2>/dev/null || true
     fi
   done
@@ -46,8 +55,16 @@ if [[ -n ${1:-} ]]; then
 fi
 # Full connectivity, or the timeout. A missing NetworkManager client skips it.
 gaming_wait_for_steam_network
+rm -f -- "$update_check_ready"
 steam -steamos3 -steampal -steamdeck -gamepadui &
 steam_pid=$!
+notifier=/usr/lib/omarchy-gaming-session/steam_notif_daemon
+if [[ -x $notifier ]]; then
+  # Use Gamescope's display and scope. Upstream prints notification contents
+  # to stdout, which should never be retained in the session log.
+  "$notifier" >/dev/null &
+  notifier_pid=$!
+fi
 if [[ -p $OMARCHY_GAMING_RUNTIME/shutdown ]]; then
   # Run the shutdown command inside the same display and Steam environment.
   # Waiting here lets Gamescope own the Xwayland teardown after Steam exits.
@@ -73,6 +90,13 @@ if (( ready_wait_s < 1 )); then
 fi
 while kill -0 "$steam_pid" 2>/dev/null; do
   if steam_tree_has_ui "$proc_root" "$steam_pid"; then
+    : > "$update_check_ready"
+    if [[ -n $notifier_pid ]]; then
+      python "$OMARCHY_PATH/default/gaming/battery-alert.py" "$notifier_pid" &
+      battery_alert_pid=$!
+    fi
+    "$OMARCHY_PATH/bin/omarchy-games-sunshine" run &
+    sunshine_pid=$!
     # A reader that already timed out must not leave this write blocked.
     # A failed write means that reader is gone. Stop either way.
     timeout 1s bash -c 'printf "started\n" > "$1"' _ "$OMARCHY_GAMING_RUNTIME/ready" || true

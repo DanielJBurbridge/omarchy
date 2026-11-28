@@ -7,32 +7,92 @@ import os
 import pathlib
 import runpy
 import subprocess
+import sys
 import tempfile
 import textwrap
+from contextlib import redirect_stdout
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 repo = pathlib.Path(os.environ['OMARCHY_TEST_ROOT'])
 
 
+def check_gaming_battery_alert():
+    alert = runpy.run_path(str(repo / 'default/gaming/battery-alert.py'))['main']
+    from gi.repository import Gio, GLib
+
+    battery = Mock()
+    notifier = Mock()
+    values = {
+        'IsPresent': GLib.Variant('b', True),
+        'Percentage': GLib.Variant('d', 10.4),
+        'State': GLib.Variant('u', 2),
+    }
+    battery.get_cached_property.side_effect = values.get
+
+    def events():
+        callbacks = {name: callback for (name, callback), _ in battery.connect.call_args_list}
+        _, _, _, appeared, vanished = watch_name.call_args.args
+        changed = callbacks['g-properties-changed']
+        notifier.call_sync.return_value = GLib.Variant('(u)', (111,))
+        appeared(notifier, 'org.freedesktop.Notifications', ':1.1')
+        changed()
+        send.assert_not_called()
+        notifier.call_sync.return_value = GLib.Variant('(u)', (222,))
+        appeared(notifier, 'org.freedesktop.Notifications', ':1.2')
+        changed()
+        send.assert_called_once_with(['omarchy-battery-low', '10'], check=False)
+        values['Percentage'] = GLib.Variant('d', 12)
+        changed()
+        vanished()
+        values['Percentage'] = GLib.Variant('d', 7)
+        changed()
+        assert send.call_count == 1
+        appeared(notifier, 'org.freedesktop.Notifications', ':1.3')
+        send.assert_called_with(['omarchy-battery-low', '7'], check=False)
+        assert send.call_count == 2
+
+    with (patch.object(sys, 'argv', ['battery-alert.py', '222']),
+          patch.object(Gio.DBusProxy, 'new_for_bus_sync', return_value=battery),
+          patch.object(Gio, 'bus_watch_name') as watch_name,
+          patch.object(GLib, 'MainLoop', return_value=SimpleNamespace(run=events)),
+          patch.object(subprocess, 'run') as send):
+        alert()
+    print('PASS low battery alert follows the Gaming notifier and rearms above the warning threshold')
+
+
+def removable_volume(uuid, sequence, label, auto=True):
+    from gi.repository import GLib
+
+    obj = Mock()
+    block = obj.get_block.return_value
+    block.props = SimpleNamespace(id_uuid=uuid, id_label=label, id_usage='filesystem', hint_auto=auto,
+                                  hint_system=False, hint_ignore=False, configuration=GLib.Variant('as', []),
+                                  symlinks=[f'/dev/disk/by-diskseq/{sequence}'])
+    obj.get_filesystem.return_value.props.mount_points = []
+    return obj
+
+
 def check_removable_library(mount_path):
-    watch = runpy.run_path(str(repo / 'default/gaming/removable-library.py'))['watch']
+    library = runpy.run_path(str(repo / 'default/gaming/removable-library.py'))
     from gi.repository import Gio, GLib, UDisks
 
     client = Mock()
     manager = client.get_object_manager.return_value
     manager.get_name_owner.return_value = ':1.1'
-    obj = Mock()
-    manager.get_objects.return_value = [obj]
+    obj = removable_volume('AF04-DC18', 1, 'Games')
+    second = removable_volume('BB04-DC18', 4, 'Portable')
+    unknown = removable_volume('CC04-DC18', 5, 'Unknown')
+    excluded = removable_volume('DD04-DC18', 6, 'Ext4', auto=False)
+    manager.get_objects.return_value = [obj, unknown, excluded]
     block = obj.get_block.return_value
-    block.props = SimpleNamespace(id_uuid='AF04-DC18', id_usage='filesystem', hint_auto=True,
-                                  hint_system=False, hint_ignore=False, configuration=GLib.Variant('as', []),
-                                  symlinks=['/dev/disk/by-diskseq/1'])
     client.get_drive_for_block.return_value.props = SimpleNamespace(
         removable=True, seat=os.getenv('XDG_SEAT', 'seat0'))
     filesystem = obj.get_filesystem.return_value
-    filesystem.props.mount_points = []
     mount = filesystem.call_mount_sync
+    mount_second = second.get_filesystem.return_value.call_mount_sync
+    mount_second.return_value = str(mount_path)
     interrupted = GLib.Error.new_literal(Gio.dbus_error_quark(), 'udisksd disappeared', Gio.DBusError.NO_REPLY)
     denied = GLib.Error.new_literal(UDisks.error_quark(), 'access denied', UDisks.Error.NOT_AUTHORIZED)
     mount.side_effect = [interrupted, str(mount_path), denied, interrupted, interrupted]
@@ -68,13 +128,33 @@ def check_removable_library(mount_path):
         changed(client)
         assert mount.call_count == 5, 'an interrupted retry must exhaust the retry budget'
 
+        manager.get_objects.return_value.append(second)
+        changed(client)
+        assert mount.call_count == 5 and mount_second.call_count == 1, 'each remembered UUID owns its retry state'
+        manager.get_name_owner.return_value = ':1.7'
+        changed(client)
+        assert mount_second.call_count == 1, 'safe eject applies independently to each library'
+        for device in (unknown, excluded):
+            device.get_filesystem.return_value.call_mount_sync.assert_not_called()
+
     with patch.object(GLib, 'MainLoop', return_value=SimpleNamespace(run=events)), patch.object(os, 'write'):
-        watch(client, block.props.id_uuid)
-    print('PASS removable library retries interrupted mounts once after UDisks restarts')
+        library['watch'](client, 'AF04-DC18\nBB04-DC18\nDD04-DC18')
+
+    chosen = '["Portable\\tBB04-DC18", "Unknown\\tCC04-DC18"]'
+    output = StringIO()
+    with patch.object(subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=chosen)) as picker:
+        with redirect_stdout(output):
+            library['select'](client, 'AF04-DC18\nEE04-DC18', 'Libraries', 'Remembered', 'No drives')
+    options = picker.call_args.args[0]
+    assert '--multiple' in options and '--selected' in options and 'Remembered\tEE04-DC18' in options
+    assert '󰋊\tExt4\tDD04-DC18' not in options, 'the picker must honour the automount hint'
+    assert output.getvalue().splitlines() == ['BB04-DC18', 'CC04-DC18'], 'Apply replaces remembered UUIDs'
+    print('PASS multiple opted-in libraries retain independent retry and safe eject tracking')
 
 
 with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     root = pathlib.Path(temporary)
+    check_gaming_battery_alert()
     check_removable_library(root)
     bindir = root / 'bin'
     bindir.mkdir()
@@ -186,6 +266,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     ''')
     command('gamescope', '''#!/bin/bash
         printf 'gamescope:%s\\n' "$*" >> "$TEST_ROOT/actions"
+        printf 'modes:%s\\nedid:%s\\n' "$GAMESCOPE_MODE_SAVE_FILE" "$GAMESCOPE_PATCHED_EDID_FILE" >> "$TEST_ROOT/actions"
         case $MODE in crash) exit 23;; early) exit 0;; timeout) exec sleep 10;; esac
         while [[ $1 != -- ]]; do shift; done
         shift
@@ -247,7 +328,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         return directory / 'state/omarchy/gaming-session'
 
     setup = repo / 'bin/omarchy-setup-gaming-session'
-    directory, env = case('preference')
+    directory, env = case('preference', MISSING='mangoapp')
     run(env, setup, 'default', 'gaming')
     run(env, setup, 'next', 'desktop')
     run(env, selector, 'preferred')
@@ -256,10 +337,11 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     # 0.2s runs out on a loaded runner while the units are copied, before
     # Steam logs. The return cases keep the same longer waiter.
     env['OMARCHY_GAMING_READY_TIMEOUT'] = '8'
-    run(env, selector, 'preferred', timeout=25)
+    result = run(env, selector, 'preferred', timeout=25)
     actions = (directory / 'actions').read_text()
     assert 'steam:-steamos3 -steampal -steamdeck -gamepadui:DISPLAY=:77' in actions, (actions, (state(directory) / 'session.log').read_text())
-    assert '--xwayland-count 2' in actions, actions
+    assert '--xwayland-count 2' in actions and '--adaptive-sync' in actions, actions
+    assert '--mangoapp' not in actions and 'mangoapp is missing' not in result.stderr, (actions, result.stderr)
     run(env, setup, 'display', '720p', '40', 'fsr')
     # A remembered card and an unavailable UDisks on the private bus must still allow play.
     library = state(directory) / 'library'
@@ -271,8 +353,11 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
     assert '-w 1280 -h 720 --framerate-limit 40 -F fsr' in actions
     run(env, setup, 'display', 'bad', status=2)
     assert (state(directory) / 'display').read_text() == '720p 40 fsr\n'
+    modes = state(directory) / 'gamescope-modes.cfg'
+    modes.write_text('External display:1920x1080@60 0\n')
     run(env, setup, 'reset')
     assert not library.exists(), 'reset must also revoke the removable-library opt-in'
+    assert not modes.exists(), 'reset must remove the saved display modes'
     print('PASS persistent, consumed one-shot, display parser and reset')
 
     directory, env = case('invalid-docked-preference', MODE='crash')
@@ -316,6 +401,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         if mode in ('crash', 'early', 'timeout', 'steam-fail'):
             assert 'next-at-scope-stop:desktop' not in actions, (mode, actions)
             assert not (state(directory) / 'next').exists(), mode
+            assert not (state(directory) / 'update-checks').exists(), mode
             assert (state(directory) / 'recovery').exists(), mode
             before = actions.count('gamescope:')
             run(env, selector, 'preferred')
@@ -324,6 +410,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
             # Steam's steamos-session-select plasma is the explicit return.
             assert 'next-at-scope-stop:desktop\n' in actions, (mode, actions)
             assert not (state(directory) / 'recovery').exists(), mode
+            assert (state(directory) / 'update-checks').read_text() == 'completed\n', mode
         if mode == 'return':
             next_file = state(directory) / 'next'
             assert next_file.read_text() == 'desktop\n', next_file.read_text() if next_file.exists() else 'missing'
@@ -408,7 +495,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
 
     command('mangoapp', '#!/bin/bash\nexit 0\n')
     directory, env = case('optional-integrations', INPUT='good', ACTIVE_UNITS='steamos-manager.service')
-    run(env, setup, 'overlay', 'on')
+    env['XDG_STATE_HOME'] = str(directory / 'state directory')
     drm = directory / 'drm'
     env['OMARCHY_DRM_PATH'] = str(drm)
     for connector in ('card0-eDP-1', 'card0-DP-2'):
@@ -416,15 +503,26 @@ with tempfile.TemporaryDirectory(prefix='omarchy-gaming-session-') as temporary:
         (drm / connector / 'status').write_text('connected\n')
     (drm / 'card0-DP-2' / 'edid').write_bytes(b'\0' * 128)
     run(env, repo / 'bin/omarchy-gaming-output', 'DP-2')
-    marker = directory / 'state/omarchy/ally-power/enabled'
+    marker = pathlib.Path(env['XDG_STATE_HOME'], 'omarchy/ally-power/enabled')
     marker.parent.mkdir(parents=True)
     marker.touch()
     run(env, selector, 'gaming')
     actions = (directory / 'actions').read_text()
-    assert 'input:gamepad' in actions and '--prefer-output DP-2,eDP-1' in actions and '--mangoapp' in actions, actions
+    assert 'input:gamepad' in actions and '--prefer-output DP-2,eDP-1' in actions, actions
+    assert '--mangoapp' in actions and '--adaptive-sync' in actions, actions
+    modes = pathlib.Path(env['XDG_STATE_HOME'], 'omarchy/gaming-session/gamescope-modes.cfg')
+    edid = directory / 'runtime/omarchy-gaming-c71/gamescope-edid.bin'
+    assert f'modes:{modes}\n' in actions and f'edid:{edid}\n' in actions, actions
     assert 'ally-power' not in actions and 'steamos-manager' not in actions, actions
-    assert 'gamescope:' in actions, actions
-    print('PASS optional input, display and overlay, with no ally-power units')
+    print('PASS native output preferences, adaptive sync, saved modes and the automatic HUD coexist')
+
+    directory, env = case('disabled-overlay', GAMESCOPE_MODE_SAVE_FILE='', GAMESCOPE_PATCHED_EDID_FILE='/custom/display.edid')
+    run(env, setup, 'overlay', 'off')
+    run(env, selector, 'gaming')
+    actions = (directory / 'actions').read_text()
+    assert 'steam:-steamos3' in actions and '--mangoapp' not in actions, actions
+    assert 'modes:\nedid:/custom/display.edid\n' in actions, actions
+    print('PASS the HUD stays off when explicitly disabled, even with MangoApp installed')
 
     directory, env = case('missing-overlay', MISSING='mangoapp')
     run(env, setup, 'overlay', 'on')

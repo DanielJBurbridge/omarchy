@@ -428,6 +428,11 @@ fi
     entry=${source[$i]}
     if [[ $entry == *::* ]]; then
       url=${entry#*::}
+      # makepkg verifies external archive digests during the package build.
+      # This fixture only verifies sources available in the checkout.
+      if [[ $url == https://* && ${sha256sums[$i]} =~ ^[a-f0-9]{64}$ ]]; then
+        continue
+      fi
       [[ $url == file://* ]] || exit 1
       path=${url#file://}
       path=${path//%20/ }
