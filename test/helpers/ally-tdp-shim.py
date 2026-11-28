@@ -255,7 +255,10 @@ try:
     spl_min.write_text("8\n")
     run_writer("--reassert")
     events.expect(("TdpLimit", 8))
-    assert profiles.get_cached_property("PerformanceProfile").unpack() == "low-power"
+    # The shim updates both interfaces together but sends separate signals.
+    # An earlier marker event may have exposed Custom before the reassert.
+    profile, = call(BUS, OBJECT, PROPS, "Get", GLib.Variant("(ss)", (PROFILE, "PerformanceProfile"))).unpack()
+    assert profile == "low-power", profile
     spl_min.write_text("7\n")
     set_property(PROFILE, "PerformanceProfile", GLib.Variant("s", "performance"))
     events.expect(("PerformanceProfile", "performance"))
