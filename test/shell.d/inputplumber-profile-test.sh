@@ -205,7 +205,7 @@ shipped = {
   "omarchy-ally-pointer.yaml": ("Omarchy Ally boot pointer", ["xbox-elite", "mouse", "keyboard"]),
   "desktop.yaml": ("Omarchy Ally desktop v2", ["xbox-elite", "mouse", "keyboard"]),
   "osk.yaml": ("Omarchy Ally osk v2", ["xbox-elite", "mouse", "keyboard"]),
-  "gaming.yaml": ("Omarchy Ally gaming", ["deck-uhid", "mouse", "keyboard"]),
+  "gaming.yaml": ("Omarchy Ally gaming v2", ["deck-uhid", "mouse", "keyboard"]),
 }
 for filename, expected in shipped.items():
   text = (profiles / filename).read_text()
@@ -219,8 +219,6 @@ check(any(target in gamepads for target in gaming_targets), "gaming mode include
 check(set(gaming_targets) - {"mouse", "keyboard"}, "gaming is not a mouse and keyboard target list")
 check("motion:" not in gaming, "gaming does not map a stick to the pointer")
 check('button: "Guide"' in gaming and 'button: "West"' in gaming, "gaming keeps Guide then West")
-check('button: "QuickAccess"' not in gaming, "Armoury short stays unmapped so QAM passes through")
-check('button: "QuickAccess2"' in gaming and 'dbus: "omarchy_overlay"' in gaming, "Armoury long stays the overlay")
 for filename in ("omarchy-ally-pointer.yaml", "desktop.yaml", "osk.yaml"):
   other = (profiles / filename).read_text()
   check("deck" not in other and "ds5-edge" not in other, f"{filename} stays on xbox-elite")
@@ -231,7 +229,7 @@ osk = (profiles / "osk.yaml").read_text()
 def mapping_targets(text, button):
   lines = text.splitlines()
   for index, line in enumerate(lines):
-    if line.strip() != f'button: "{button}"':
+    if line != f'        button: "{button}"':
       continue
     chunk = []
     for later in lines[index + 1:]:
@@ -241,6 +239,9 @@ def mapping_targets(text, button):
     return "\n".join(chunk)
   return ""
 
+check(not mapping_targets(gaming, "QuickAccess"), "Armoury short stays unmapped so QAM passes through")
+check('button: "QuickAccess"' in mapping_targets(gaming, "QuickAccess2"),
+      "Armoury long sends QAM to the virtual controller")
 check('keyboard: "KeyBackspace"' in mapping_targets(osk, "East"), "osk east is backspace")
 check("mouse:" not in mapping_targets(osk, "East"), "osk east is not a mouse button")
 # The embedded stock xpad reports the labelled X as BTN_NORTH and Y as BTN_WEST.
@@ -521,6 +522,12 @@ check("/dev/uhid is unavailable; gaming falls back to ds5-edge" in err, "the fal
 
 bus.reset()
 prop(c1, "ProfileName", 's "Omarchy Ally gaming"')
+code, err = load_logged("gaming")
+check(code == 0 and sent_yaml() == fallback_yaml,
+      "a live Edge with the older Armoury map receives the new profile")
+
+bus.reset()
+prop(c1, "ProfileName", f's "{mod.profile_meta(gaming_on_disk)[0]}"')
 code, err = load_logged("gaming")
 check(code == 0 and bus.methods() == [], "a live Edge is kept while UHID remains unavailable")
 

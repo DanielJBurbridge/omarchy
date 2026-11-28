@@ -403,6 +403,8 @@ Spec 06 can replace these with a fuller accessibility pass. The names and the "o
 
 ### 12.1 What `gaming` is
 
+The current stock Gaming map routes Armoury long directly to Steam Quick Access through InputPlumber’s `QuickAccess` capability. InputPlumber handles the native Steam target and the DualSense Edge fallback. The `omarchy_overlay` event below describes the proposed overlay path.
+
 `gaming.yaml` is `gamepad.yaml` plus the target decision (D1) and the Δ3 mapping. Nothing else. Profile name `Omarchy Ally gaming`. Session start loads it instead of `gamepad`, before Gamescope.
 
 The older `gamepad.yaml` profile sends `dbus: omarchy_mode` for `QuickAccess2`. The gaming profile sends `dbus: omarchy_overlay`. Guide, QuickAccess and the paddles pass through to the virtual pad. Keyboard still sends Guide+West.
