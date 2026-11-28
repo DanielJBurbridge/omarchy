@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# omarchy:summary=Choose whether a paired Sunshine host starts with Gaming Mode on the original ROG Ally
+# omarchy:args=[status|on|off]
+
+set -euo pipefail
+
+usage() {
+  echo 'Usage: omarchy games sunshine [status|on|off]'
+  echo 'Set up Sunshine and pair a Moonlight client in Desktop Mode first.'
+  echo 'This preference applies at the next Gaming login.'
+}
+
+fail() {
+  echo "Omarchy Gaming: $*" >&2
+  exit 1
+}
+
+action=${1:-status}
+(( $# <= 1 )) || { usage >&2; exit 2; }
+case $action in
+  -h | --help) usage; exit 0 ;;
+  status | on | off | run) ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+# shellcheck source=default/gaming/session.sh
+source "$OMARCHY_PATH/default/gaming/session.sh"
+
+enabled() {
+  [[ -n $gaming_state && -d $gaming_state && ! -L $gaming_state && -O $gaming_state &&
+    -f $gaming_state/sunshine && ! -L $gaming_state/sunshine && -O $gaming_state/sunshine &&
+    $(<"$gaming_state/sunshine") == "on" ]]
+}
+
+host_running() {
+  local states
+  if pgrep -u "$UID" -x sunshine >/dev/null; then
+    return 0
+  fi
+  # The desktop unit has an ExecStartPre delay before the process exists.
+  states=$(systemctl --user is-active sunshine.service app-dev.lizardbyte.app.Sunshine.service 2>/dev/null) || true
+  grep -Eq '^(active|activating|reloading|deactivating)$' <<<"$states"
+}
+
+sunshine_config_value() {
+  awk -F= -v key="$1" '
+    {
+      sub(/#.*/, "")
+      name = $1
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+      if (NF > 1 && name == key) {
+        sub(/^[^=]*=/, "")
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+        print
+        exit
+      }
+    }
+  ' "$config"
+}
+
+sunshine_path() {
+  if [[ $1 == /* ]]; then
+    printf '%s\n' "$1"
+  else
+    printf '%s/%s\n' "$config_dir" "$1"
+  fi
+}
+
+require_paired_host() {
+  local capabilities config_dir config state credentials
+  if ! omarchy-pkg-present sunshine || ! sunshine_bin=$(type -P sunshine); then
+    fail 'Install Sunshine in Desktop Mode first.'
+  fi
+  capabilities=$(getcap "$sunshine_bin" 2>/dev/null) ||
+    fail 'The installed Sunshine binary does not support KMS capture.'
+  capabilities=${capabilities#"$sunshine_bin "}
+  [[ $capabilities =~ (^|[[:space:],])cap_sys_admin(,[a-z0-9_]+)*=[eip]*p[eip]*($|[[:space:]]) ]] ||
+    fail 'The installed Sunshine binary does not support KMS capture.'
+
+  config_dir=${CONFIGURATION_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}}/sunshine
+  config=$config_dir/sunshine.conf
+  [[ -f $config && -r $config ]] || fail 'Set up Sunshine in Desktop Mode first.'
+  state=$(sunshine_config_value file_state)
+  state=${state:-sunshine_state.json}
+  credentials=$(sunshine_config_value credentials_file)
+  credentials=$(sunshine_path "${credentials:-$state}")
+  state=$(sunshine_path "$state")
+  # Inspect existing credentials and paired-client records without emitting
+  # their contents or starting Sunshine's initial setup flow.
+  jq -e '
+    def set: type == "string" and length > 0;
+    [.username, .password, .salt] | all(set)
+  ' "$credentials" >/dev/null 2>&1 ||
+    fail 'Set a Sunshine administrator login in Desktop Mode first.'
+  jq -e '
+    def set: type == "string" and length > 0;
+    (.root.uniqueid | set) and (
+      any(.root.named_devices[]?; (.cert | set) and
+        (.enabled as $enabled | [null, true, 1, "true", "1"] | index($enabled) != null))
+      or any(.root.devices[]?.certs[]?; set)
+    )
+  ' "$state" >/dev/null 2>&1 ||
+    fail 'Pair a Moonlight client with Sunshine in Desktop Mode first.'
+}
+
+if [[ $action == "run" ]]; then
+  enabled || exit 0
+  [[ -n ${DISPLAY:-} && ${XDG_CURRENT_DESKTOP:-} == "gamescope" ]] || exit 0
+  gaming_runtime_path || exit 0
+  [[ ${OMARCHY_GAMING_RUNTIME:-} == "$gaming_runtime" && ! -L $gaming_runtime &&
+    -O $gaming_runtime && -p $gaming_runtime/ready ]] || exit 0
+fi
+
+(( EUID != 0 )) || fail 'Run this command as the gaming user.'
+omarchy-hw-rog-ally || fail 'Gaming Mode streaming supports the original ROG Ally RC71L.'
+
+case $action in
+  status)
+    if enabled; then
+      echo 'Sunshine for Gaming Mode is enabled.'
+      if host_running; then
+        echo 'A Sunshine host is already running.'
+      fi
+    else
+      echo 'Sunshine for Gaming Mode is off.'
+    fi
+    ;;
+  on | off)
+    if [[ $action == "on" ]]; then
+      omarchy-pkg-present omarchy-gaming-session || fail 'Install the Gaming Session companion first.'
+      require_paired_host
+    fi
+    gaming_state_init
+    gaming_save sunshine "$action"
+    echo "Sunshine for Gaming Mode is $action for the next Gaming login."
+    ;;
+  run)
+    exec 9>"$XDG_RUNTIME_DIR/omarchy-gaming-sunshine.lock"
+    flock -n 9 || fail 'A Gaming Mode Sunshine host is already starting or running.'
+    if host_running; then
+      fail 'A Sunshine host is already running. Stop it before entering Gaming Mode to use KMS capture.'
+    fi
+    require_paired_host
+    unset SUNSHINE_MIGRATE_CONFIG
+    exec "$sunshine_bin" capture=kms
+    ;;
+esac

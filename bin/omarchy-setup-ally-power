@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Switch power ownership between ASUS and Omarchy on the original ROG Ally
-# omarchy:args=[status | use-omarchy | restore-asus]
+# omarchy:args=[status | gaming-status | use-omarchy | restore-asus]
 # omarchy:examples=omarchy setup ally-power status | omarchy setup ally-power use-omarchy | omarchy setup ally-power restore-asus
 
 set -euo pipefail
@@ -21,7 +21,7 @@ fail() {
 }
 
 usage() {
-  printf '%s\n' 'Usage: omarchy setup ally-power [status | use-omarchy | restore-asus]' \
+  printf '%s\n' 'Usage: omarchy setup ally-power [status | gaming-status | use-omarchy | restore-asus]' \
     'With no arguments, open the desktop power setup picker.'
 }
 
@@ -72,6 +72,39 @@ status() {
   fi
 }
 
+# Report the conditions Steam needs without starting the shim or asking for
+# elevation. An inactive shim is normal in Desktop Mode.
+gaming_status() {
+  local result key value writable='' conflict=''
+  if ! omarchy-pkg-present omarchy-gaming-session; then
+    printf '%s\n' unavailable
+    return
+  fi
+  if ! session_backend_ready ||
+    [[ $(systemctl --user show -p LoadState --value omarchy-ally-tdp-shim.service 2>/dev/null) != "loaded" ]]; then
+    printf '%s\n' backend
+    return
+  fi
+  if ! result=$(omarchy-ally-tdp-apply --show 2>/dev/null); then
+    printf '%s\n' firmware
+    return
+  fi
+  while IFS='=' read -r key value; do
+    case $key in
+      writable) writable=$value ;;
+      conflict) conflict=$value ;;
+    esac
+  done <<<"$result"
+
+  if [[ $writable == "1" ]]; then
+    printf '%s\n' ready
+  elif [[ $conflict == "$asusd" ]]; then
+    printf '%s\n' asus
+  else
+    printf '%s\n' conflict
+  fi
+}
+
 choose() {
   local use_asus use_omarchy selection result code
   local title cancel
@@ -104,12 +137,17 @@ choose() {
   fi
 }
 
+session_backend_ready() {
+  local state
+  state=$(systemctl --system is-enabled power-profiles-daemon.service 2>/dev/null || true)
+  [[ -f $state_dir/power-profiles-daemon.state && $state == "masked" ]]
+}
+
 require_omarchy_power() {
-  local state owners unit
+  local owners unit
   omarchy-pkg-present omarchy-gaming-session ||
     fail 'Set up the optional Ally Gaming Session before changing power ownership.'
-  state=$(systemctl --system is-enabled power-profiles-daemon.service 2>/dev/null || true)
-  [[ -f $state_dir/power-profiles-daemon.state && $state == "masked" ]] ||
+  session_backend_ready ||
     fail 'The Ally Gaming Session has not set up the Omarchy power backend.'
   omarchy-ally-tdp-apply --show >/dev/null || fail 'The Ally firmware power controls are unavailable.'
   owners=$(omarchy-ally-tdp-apply --conflict-units) ||
@@ -221,7 +259,7 @@ action=${1:-choose}
 (( $# <= 1 )) || { usage >&2; exit 2; }
 case $action in
   -h | --help) usage; exit 0 ;;
-  choose | status | use-omarchy | restore-asus) ;;
+  choose | status | gaming-status | use-omarchy | restore-asus) ;;
   *) usage >&2; exit 2 ;;
 esac
 
@@ -233,6 +271,7 @@ omarchy-hw-rog-ally || fail 'This power setup supports the original ROG Ally RC7
 case $action in
   choose) choose; exit ;;
   status) status; exit ;;
+  gaming-status) gaming_status; exit ;;
 esac
 
 if (( EUID != 0 )); then

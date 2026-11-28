@@ -1,7 +1,7 @@
 #!/bin/bash
 # Adapted from Pizzarchy src/deck-session.sh render_update_stub, commit
 # daa9376ab733880e612569467164754096a5f0f4. The exit codes are Steam's.
-# This file updates nothing.
+# This file checks for repository updates. Applying them stays in Desktop Mode.
 #
 # Copyright (c) 2026 Diego Huyke
 #
@@ -23,18 +23,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# steamos-update: a stub. It updates nothing.
-#
 # Steam's Gaming Mode runs this absolute path
 # (/usr/bin/steamos-polkit-helpers/steamos-update) to ask about OS updates.
-# On SteamOS that path is a real updater. Here it is missing, Steam exits 127,
-# and first-run setup stops on a network error that is not a network error.
-#
-# Exit 7 is "already up to date" / "nothing to apply". Exit 0 on apply is what
-# Pizzarchy measured as "an update was applied", which makes Steam reboot.
-# This stub never exits 0 except for help.
-#
-# To update this system, from the desktop: omarchy update
+# Keep the first-run response of 7 until the managed Steam UI is ready.
+# After setup Steam reads 0 from check as "update available". It treats 0
+# from apply as "update installed" and may reboot, so apply never returns 0.
+# https://github.com/ublue-os/bazzite/blob/45.20261125/system_files/deck/shared/usr/libexec/ogc/os-update
 
 set -euo pipefail
 
@@ -43,36 +37,85 @@ note() {
   logger -t steamos-update -- "$1" || true
 }
 
+gaming_update_ready() {
+  # This helper also occupies Steam's polkit path. Keep repository queries,
+  # private state and notifications in the unprivileged Gamescope login.
+  local runtime=${OMARCHY_GAMING_RUNTIME:-}
+  local data_home=${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}
+  local state_home=${XDG_STATE_HOME:-${HOME:+$HOME/.local/state}}
+  (( EUID != 0 )) && [[ ${XDG_CURRENT_DESKTOP:-} == "gamescope" && -n $runtime && -n $state_home ]] || return 1
+  local ready=$runtime/update-check-ready
+  [[ -f $ready && ! -L $ready && -O $ready ]] || return 1
+  # A remembered Desktop account can predate Gaming Mode's first-run
+  # screens. Require at least one previous, orderly Gaming session.
+  local completed=$state_home/omarchy/gaming-session/update-checks
+  [[ -f $completed && ! -L $completed && -O $completed && $(<"$completed") == "completed" ]] || return 1
+  # A Steam webhelper may also draw the sign-in page. Wait until Steam has
+  # recorded an account. An empty "users" block is also a valid VDF file.
+  local accounts
+  for accounts in "${data_home:+$data_home/Steam/config/loginusers.vdf}" "${HOME:+$HOME/.steam/steam/config/loginusers.vdf}"; do
+    if [[ -f $accounts ]] && grep -Eiq '^[[:space:]]*"AccountName"[[:space:]]+"[^"]+"' -- "$accounts"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+desktop_route="Choose Switch to Desktop from Steam's Power menu, then choose Update → Omarchy."
+
 case ${1-} in
-  check)
-    exit 7
+  -h | --help | help)
+    cat <<'USAGE'
+Check for Omarchy repository updates from Steam Gaming Mode.
+
+  check                            0 pending, 7 current or Steam setup, 1 check failed
+  --supports-duplicate-detection   1 (no staged update to detect)
+  (no argument) | apply            7 during Steam setup, otherwise 1 with update guidance
+
+To install updates, choose Switch to Desktop from Steam’s Power menu.
+Then choose Update → Omarchy, or run omarchy update.
+USAGE
+    exit 0
     ;;
   --supports-duplicate-detection)
     exit 1
     ;;
-  "" | apply)
-    note "nothing to apply; this OS is updated with omarchy update"
-    exit 7
+esac
+
+gaming_update_ready || exit 7
+
+# Steam versions may send the legacy duplicate-detection flag with a check.
+if [[ ${1-} == "--enable-duplicate-detection" ]]; then
+  shift
+elif (( $# == 2 )) && [[ $1 == "check" && $2 == "--enable-duplicate-detection" ]]; then
+  set -- check
+fi
+(( $# <= 1 )) || exit 1
+
+case ${1-} in
+  check)
+    status=0
+    omarchy-update-check >/dev/null || status=$?
+    case $status in
+      0)
+        note "Omarchy repository updates are available. $desktop_route"
+        exit 0
+        ;;
+      2)
+        exit 7
+        ;;
+      *)
+        note "Could not check for Omarchy repository updates. $desktop_route"
+        exit 1
+        ;;
+    esac
     ;;
-  -h | --help | help)
-    cat <<'USAGE'
-steamos-update (stub) — reports up to date and updates nothing.
-
-Steam calls this path during Gaming Mode setup. It is not the SteamOS
-updater, and it does not download, stage or apply an update.
-
-  check                            exit 7 (already up to date)
-  --supports-duplicate-detection   exit 1 (not supported)
-  (no argument) | apply            exit 7 (nothing to apply)
-
-Exit 0 on apply is not used. Steam reads 0 as "applied" and reboots.
-
-To update this system, from the desktop: omarchy update
-USAGE
-    exit 0
+  "" | apply)
+    note "$desktop_route"
+    timeout 2s omarchy-notification-send --transient -u normal 'Install Omarchy updates in Desktop Mode' "$desktop_route" || true
+    exit 1
     ;;
   *)
-    note "unrecognised argument '$1'; answering up to date"
-    exit 7
+    exit 1
     ;;
 esac

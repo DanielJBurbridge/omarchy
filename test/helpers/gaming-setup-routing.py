@@ -23,6 +23,8 @@ printf '%s\\tfixture subtext\\n' "$line"
         'omarchy-launch-steam-bigpicture': '#!/bin/bash\necho bigpicture >> "$TEST_ROOT/actions"\n',
         'omarchy-launch-steam-desktop': '#!/bin/bash\necho desktop >> "$TEST_ROOT/actions"\n',
         'omarchy-menu': '#!/bin/bash\necho "$*" >> "$TEST_ROOT/actions"\n',
+        'omarchy-setup-ally-power': '#!/bin/bash\n[[ $* == gaming-status && -n ${POWER_STATUS:-} ]] || exit 1\nprintf "%s\\n" "$POWER_STATUS"\n',
+        'pacman': '#!/bin/bash\n[[ $* == "-Q -- omarchy-gaming-session" && ${COMPANION_PRESENT:-0} == 1 ]]\n',
     }
     for name, source in commands.items():
         path = root / name
@@ -60,9 +62,6 @@ printf '%s\\tfixture subtext\\n' "$line"
     print('PASS standalone-help')
 
     recovery = script.with_name('omarchy-menu-gaming-recovery')
-    pacman = root / 'pacman'
-    pacman.write_text('#!/bin/bash\n[[ $* == "-Q -- omarchy-gaming-session" && $COMPANION_PRESENT == 1 ]]\n')
-    pacman.chmod(0o755)
     (root / 'vendor').write_text('ASUSTeK COMPUTER INC.\n')
     (root / 'board').write_text('unknown\n')
     (root / 'choices').write_text('CANCEL\n')
@@ -97,6 +96,7 @@ printf '%s\\tfixture subtext\\n' "$line"
         else:
             assert result.returncode == 0 and not result.stdout and not result.stderr, (name, result)
             assert f'Gaming companion {package_label}\t{fallback_label}' in menus and hint in menus, (name, menus)
+            assert ('Gaming power limits' in menus) == bool(companion), (name, menus)
             assert 'local-only details' not in menus, (name, menus)
         if saved is None:
             assert not marker.exists()
@@ -107,3 +107,29 @@ printf '%s\\tfixture subtext\\n' "$line"
             assert marker.read_text() == saved
             marker.unlink()
         print('PASS recovery-' + name)
+
+    cases = [
+        ('setup-asus', script, 'ROG Ally RC71L', 1, 'asus', ['Ally Power Controls'], 'ASUS owns power', True),
+        ('setup-ready', script, 'ROG Ally RC71L', 1, 'ready', ['CANCEL'], 'Quick Access → Performance → Advanced', False),
+        ('setup-conflict', script, 'ROG Ally RC71L', 1, 'conflict', ['CANCEL'], 'Another power service', False),
+        ('setup-check-failed', script, 'ROG Ally RC71L', 1, '', ['CANCEL'], 'Could not check', False),
+        ('setup-laptop', script, 'ROG Strix G16', 1, 'asus', ['CANCEL'], '', False),
+        ('setup-no-companion', script, 'ROG Ally RC71L', 0, 'asus', ['CANCEL'], '', False),
+        ('recovery-asus', recovery, 'ROG Ally RC71L', 1, 'asus', ['Gaming power limits', 'Ally Power Controls'], 'ASUS owns power', True),
+    ]
+    for name, command, model, companion, power_status, choices, power_hint, handoff in cases:
+        (root / 'product').write_text(model + '\n')
+        (root / 'choices').write_text('\n'.join(choices) + '\n')
+        (root / 'count').write_text('0\n')
+        (root / 'menus').write_text('')
+        (root / 'actions').write_text('')
+        result = subprocess.run([str(command)], env=dict(env, COMPANION_PRESENT=str(companion), POWER_STATUS=power_status),
+                                capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0 and not result.stdout and not result.stderr, (name, result)
+        menus = (root / 'menus').read_text()
+        if power_hint:
+            assert power_hint in menus, (name, menus)
+        else:
+            assert 'Gaming power limits' not in menus and 'Ally Power Controls' not in menus, (name, menus)
+        assert (root / 'actions').read_text() == ('summon setup.ally-power\n' if handoff else ''), name
+        print('PASS', name)

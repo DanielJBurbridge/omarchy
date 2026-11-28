@@ -41,10 +41,8 @@ if ! $ppd_only && ally_tdp_profiles_enabled; then
   [[ -n $requested_profile ]] || exit 0
   ally_tdp=1
   profiles=()
-  declare -A tdp_watts=()
-  while IFS=$'\t' read -r name watts _; do
+  while IFS=$'\t' read -r name _; do
     profiles+=("$name")
-    tdp_watts[$name]=$watts
   done < <(ally_tdp_profiles)
   if (( ${#profiles[@]} == 0 )); then
     echo "Ally power profiles are unavailable." >&2
@@ -90,7 +88,7 @@ fi
 
 # The writer checks ownership again and clamps to the current power source.
 if (( ally_tdp )); then
-  omarchy-ally-tdp-apply --set "${tdp_watts[$profile]}" || exit
+  omarchy-ally-tdp-apply --set-profile "$profile" || exit
 else
   powerprofilesctl set "$profile" || exit
 fi

@@ -1,27 +1,44 @@
 #!/bin/bash
 
 # omarchy:summary=Read or change the ROG Ally battery charge limit
-# omarchy:args=[status|on|off]
+# omarchy:args=[status|on|off|choose]
 
 set -euo pipefail
 
+action=${1-status}
 fail() {
   printf '%s\n' "$1" >&2
+  if [[ $action == "choose" ]]; then
+    local message
+    if [[ ${2:-} == "asus" ]]; then
+      message=$(omarchy-i18n gaming.chargeLimitAsus)
+    else
+      message=$(omarchy-i18n gaming.chargeLimitUnavailable)
+    fi
+    omarchy-notification-send "$(omarchy-i18n gaming.chargeLimit)" \
+      "$message" || true
+  fi
   exit 1
 }
 
-action=${1-status}
-case "$action" in
-  -h | --help)
-    printf '%s\n' 'Usage: omarchy-battery-charge-limit [status|on|off]' \
-      'Enable or disable the charge limit configured by UPower on the original ROG Ally.'
-    exit 0
-    ;;
-esac
-if (( $# > 1 )) || [[ $action != "status" && $action != "on" && $action != "off" ]]; then
-  echo 'Usage: omarchy-battery-charge-limit [status|on|off]' >&2
+usage() {
+  printf '%s\n' 'Usage: omarchy-battery-charge-limit [status|on|off|choose]'
+}
+
+if (( $# > 1 )); then
+  usage >&2
   exit 2
 fi
+case "$action" in
+  -h | --help)
+    usage
+    printf '%s\n' 'Enable or disable the charge limit configured by UPower on the original ROG Ally.' \
+      'Use choose to open the fixed charge limit control in Desktop Mode.'
+    exit 0
+    ;;
+  status | on | off | choose) ;;
+  *) usage >&2; exit 2 ;;
+esac
 
 omarchy-hw-rog-ally || fail 'This charge limit control supports the original ROG Ally RC71L.'
 
@@ -29,15 +46,17 @@ service=org.freedesktop.UPower
 interface=$service.Device
 root_path=/org/freedesktop/UPower
 bus=(busctl --system --auto-start=no)
-listing=$("${bus[@]}" --json=short call "$service" "$root_path" "$service" EnumerateDevices)
-paths=$(jq -er 'select(.type == "ao") | .data[0] | join("\n")' <<<"$listing")
+listing=$("${bus[@]}" --json=short call "$service" "$root_path" "$service" EnumerateDevices) ||
+  fail 'Could not query the UPower devices.'
+paths=$(jq -er 'select(.type == "ao") | .data[0] | join("\n")' <<<"$listing") ||
+  fail 'Could not read the UPower device list.'
 
 battery=
 properties=
 while IFS= read -r path; do
   [[ $path == "$root_path/devices/"* && $path != "$root_path/devices/DisplayDevice" ]] || continue
   candidate=$("${bus[@]}" --json=short call "$service" "$path" \
-    org.freedesktop.DBus.Properties GetAll s "$interface")
+    org.freedesktop.DBus.Properties GetAll s "$interface") || fail 'Could not inspect a UPower device.'
   # UPower Type 2 is a battery. PowerSupply distinguishes the system battery
   # from controller and other peripheral batteries.
   if jq -e '.data[0] | .Type.data == 2 and .PowerSupply.data == true and .IsPresent.data == true' \
@@ -59,21 +78,64 @@ fi
 enabled=$(jq -er '.data[0].ChargeThresholdEnabled.data | select(type == "boolean") | tostring' <<<"$properties") ||
   fail 'UPower could not read the charge limit state.'
 
-if [[ $action != "status" ]]; then
-  if systemctl --system is-active --quiet asusd.service; then
-    fail 'asusd is running and can overwrite the charge limit on wake. Use one charge limit backend.'
+require_asus_idle() {
+  local state
+  state=$(systemctl --system show --property=ActiveState --value asusd.service) ||
+    fail 'Could not check ASUS charging ownership.'
+  case $state in
+    inactive | failed) ;;
+    active | activating | deactivating | reloading | refreshing)
+      fail 'asusd is running or changing state and can overwrite the charge limit.' asus
+      ;;
+    *) fail 'Could not determine ASUS charging ownership.' ;;
+  esac
+}
+
+current_charge_limit() {
+  if [[ $enabled == "true" ]]; then
+    omarchy-i18n gaming.chargeLimitEnabled "$limit"
+  else
+    omarchy-i18n gaming.chargeLimitDisabled "$limit"
   fi
+}
+
+if [[ $action != "status" ]]; then
   requested=false
-  [[ $action != "on" ]] || requested=true
+  if [[ $action == "choose" ]]; then
+    require_asus_idle
+    if [[ $enabled == "true" ]]; then
+      option=$(omarchy-i18n gaming.chargeLimitTurnOff)
+    else
+      requested=true
+      option=$(omarchy-i18n gaming.chargeLimitTurnOn "$limit")
+    fi
+    selection_status=0
+    selection=$(omarchy-menu-select "$(current_charge_limit)" "$(omarchy-i18n gaming.back)" "$option") ||
+      selection_status=$?
+    if (( selection_status == 1 )); then
+      exit 0
+    elif (( selection_status != 0 )); then
+      exit "$selection_status"
+    fi
+    [[ $selection == "$option" ]] || exit 0
+  elif [[ $action == "on" ]]; then
+    requested=true
+  fi
+
+  # ASUS may have reclaimed charging while the chooser was open.
+  require_asus_idle
   # UPower checks desktop authorisation and owns the firmware write and its
   # persistent state. Keep the configured percentage under UPower's control.
-  "${bus[@]}" call "$service" "$battery" "$interface" EnableChargeThreshold b "$requested"
+  "${bus[@]}" call "$service" "$battery" "$interface" EnableChargeThreshold b "$requested" ||
+    fail 'UPower could not change the charge limit.'
   [[ $("${bus[@]}" get-property "$service" "$battery" "$interface" ChargeThresholdEnabled) == "b $requested" ]] ||
     fail 'UPower did not confirm the requested charge limit state.'
   enabled=$requested
 fi
 
-if [[ $enabled == "true" ]]; then
+if [[ $action == "choose" ]]; then
+  omarchy-notification-send "$(omarchy-i18n gaming.chargeLimit)" "$(current_charge_limit)" || true
+elif [[ $enabled == "true" ]]; then
   printf 'UPower charge limit is on (%s%%).\n' "$limit"
 else
   printf 'UPower charge limit is off (%s%% configured).\n' "$limit"

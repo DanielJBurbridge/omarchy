@@ -6,7 +6,7 @@
 # It exposes gyro, L4/R4 and Quick Access over UHID without a USB/IP attachment.
 version: 1
 kind: "DeviceProfile"
-name: "Omarchy Ally gaming"
+name: "Omarchy Ally gaming v2"
 target_devices:
   - "deck-uhid"
   - "mouse"
@@ -17,7 +17,10 @@ mapping:
       gamepad:
         button: "QuickAccess2"
     target_events:
-      - dbus: "omarchy_overlay"
+      # InputPlumber sends the native button on deck-uhid and the
+      # Guide+South chord on ds5-edge.
+      - gamepad:
+          button: "QuickAccess"
   - name: "Steam keyboard"
     source_event:
       gamepad:

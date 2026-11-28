@@ -6,6 +6,7 @@ set -euo pipefail
 
 (( $# == 0 )) || exit 2
 omarchy-hw-rog-ally || exit 1
+# shellcheck source=default/gaming/session.sh
 source "$OMARCHY_PATH/default/gaming/session.sh"
 
 fallback_status() {
@@ -22,8 +23,11 @@ fallback_status() {
   fi
 }
 
+power_option=()
 if omarchy-pkg-present omarchy-gaming-session; then
   companion=$(omarchy-i18n gamingRecovery.companionInstalled)
+  power_label=$(omarchy-i18n gaming.powerLimits)
+  power_option=(""$'\t'"$power_label"$'\t'"$(omarchy-i18n gamingRecovery.powerHint)")
 else
   companion=$(omarchy-i18n gamingRecovery.companionUndetected)
 fi
@@ -34,15 +38,19 @@ else
   guidance=$(omarchy-i18n gamingRecovery.findSteamSetup)
 fi
 
-status=0
-omarchy-menu-select "$(omarchy-i18n gamingRecovery.title)" \
+if selection=$(omarchy-menu-select "$(omarchy-i18n gamingRecovery.title)" \
   ""$'\t'"$companion"$'\t'"$(fallback_status)" \
   "󰍹"$'\t'"$(omarchy-i18n gamingRecovery.stayOnDesktop)"$'\t'"$guidance" \
-  -- --width 540 >/dev/null || status=$?
-
-# Escape, Back and tapping outside cancel the picker.
-if (( status == 1 )); then
-  exit 0
+  "${power_option[@]}" -- --width 540); then
+  if (( ${#power_option[@]} )) && [[ ${selection%%$'\t'*} == "$power_label" ]]; then
+    omarchy-setup-gaming power
+  fi
 else
-  exit "$status"
+  status=$?
+  # Escape, Back and tapping outside cancel the picker.
+  if (( status == 1 )); then
+    exit 0
+  else
+    exit "$status"
+  fi
 fi

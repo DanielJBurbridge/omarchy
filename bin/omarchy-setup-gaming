@@ -1,16 +1,17 @@
 #!/bin/bash
 
-# omarchy:summary=Set up Steam for controller and touch play in the desktop session
-# omarchy:args=[--help]
+# omarchy:summary=Set up Steam for desktop play and find Gaming Mode power controls
+# omarchy:args=[power|--help]
 
 set -euo pipefail
 
 if (( $# == 1 )) && [[ $1 == "--help" || $1 == "-h" ]]; then
-  echo "Usage: omarchy-setup-gaming"
+  echo "Usage: omarchy-setup-gaming [power]"
   echo "Open Steam installation, first sign-in, controller and desktop-return guidance."
+  echo "Use power for Gaming Mode power limit guidance on the original ROG Ally."
   exit 0
-elif (( $# != 0 )); then
-  echo "Usage: omarchy-setup-gaming [--help]" >&2
+elif (( $# > 1 )) || [[ ${1-power} != "power" ]]; then
+  echo "Usage: omarchy-setup-gaming [power|--help]" >&2
   exit 2
 fi
 
@@ -34,6 +35,34 @@ choose() {
   fi
 }
 
+load_power_option() {
+  local hint
+  power_status=$(omarchy-setup-ally-power gaming-status 2>/dev/null) || power_status=unavailable
+  power_label=$(omarchy-i18n gaming.powerLimits)
+  case $power_status in
+    ready) hint=$(omarchy-i18n gaming.powerReady) ;;
+    asus)
+      power_label=$(omarchy-i18n allyPower.title)
+      hint=$(omarchy-i18n gaming.powerAsus)
+      ;;
+    backend) hint=$(omarchy-i18n gaming.powerBackend) ;;
+    firmware) hint=$(omarchy-i18n gaming.powerFirmware) ;;
+    conflict) hint=$(omarchy-i18n gaming.powerConflict) ;;
+    *) hint=$(omarchy-i18n gaming.powerUnavailable) ;;
+  esac
+  power_option=$(row '' "$power_label" "$hint")
+}
+
+if [[ ${1:-} == "power" ]]; then
+  omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session || exit 1
+  load_power_option
+  choose "$(omarchy-i18n gaming.powerLimits)" "$power_option"
+  if [[ $power_status == "asus" && $selection == "$power_label" ]]; then
+    omarchy-menu summon setup.ally-power
+  fi
+  exit
+fi
+
 while true; do
   if omarchy-cmd-present steam; then
     options=(
@@ -48,12 +77,20 @@ while true; do
   elif omarchy-cmd-present omarchy-setup-rog-ally-keyboard && omarchy-hw-rog-ally; then
     options+=("$(row '' "$(omarchy-i18n gaming.installKeyboard)" "$(omarchy-i18n gaming.keyboardAur)")")
   fi
+  power_status=''
   if omarchy-hw-rog-ally && omarchy-pkg-present omarchy-gaming-session; then
+    load_power_option
+    options+=("$power_option")
+    options+=("$(row '󰁹' "$(omarchy-i18n gaming.chargeLimit)" "$(omarchy-i18n gaming.chargeLimitHint)")")
     options+=("$(row '󰋊' "$(omarchy-i18n gaming.library)" "$(omarchy-i18n gaming.libraryHint)")")
   fi
   options+=("$(row '󰋖' "$(omarchy-i18n gaming.help)" "$(omarchy-i18n gaming.helpTopics)")" "$(row '󰅖' "$(omarchy-i18n gaming.close)" "$(omarchy-i18n gaming.closeHelp)")")
   choose "$(omarchy-i18n gaming.title)" "${options[@]}"
 
+  if [[ $power_status == "asus" && $selection == "$power_label" ]]; then
+    omarchy-menu summon setup.ally-power
+    exit
+  fi
   if [[ $selection == "$(omarchy-i18n gaming.help)" ]]; then
     choose "$(omarchy-i18n gaming.help)" \
       "$(row '󰌾' "$(omarchy-i18n gaming.firstSignIn)" "$(omarchy-i18n gaming.firstSignInHint)")" \
@@ -64,18 +101,26 @@ while true; do
 
   case "$selection" in
     "$(omarchy-i18n gaming.openBigPicture)") omarchy-launch-steam-bigpicture; exit ;;
+    "$(omarchy-i18n gaming.chargeLimit)") omarchy-battery-charge-limit choose || true ;;
     "$(omarchy-i18n gaming.library)")
+      # shellcheck source=default/gaming/session.sh
       source "$OMARCHY_PATH/default/gaming/session.sh"
       gaming_handheld_variant || exit 1
       saved=''
-      if [[ -f $gaming_state/library ]]; then read -r saved < "$gaming_state/library"; fi
-      choice=$(python "$OMARCHY_PATH/default/gaming/removable-library.py" select "$saved" \
-        "$(omarchy-i18n gaming.chooseLibrary)" "$(omarchy-i18n gaming.forgetLibrary)" "$(omarchy-i18n gaming.back)")
-      if [[ $choice == "forget" ]]; then
-        rm -f -- "$gaming_state/library"
-      elif [[ -n $choice ]]; then
+      if [[ -f $gaming_state/library ]]; then saved=$(<"$gaming_state/library"); fi
+      if choice=$(python "$OMARCHY_PATH/default/gaming/removable-library.py" select "$saved" \
+        "$(omarchy-i18n gaming.chooseLibrary)" "$(omarchy-i18n gaming.rememberedLibrary)" \
+        "$(omarchy-i18n gaming.noLibraries)"); then
+        [[ $choice != "$saved" ]] || continue
         gaming_state_init
-        gaming_save library "$choice"
+        if [[ -n $choice ]]; then
+          gaming_save library "$choice"
+        else
+          rm -f -- "$gaming_state/library"
+        fi
+      else
+        status=$?
+        if (( status != 1 )); then exit "$status"; fi
       fi
       ;;
     "$(omarchy-i18n gaming.desktopMode)") omarchy-launch-steam-desktop; exit ;;

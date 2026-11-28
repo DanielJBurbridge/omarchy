@@ -2,11 +2,10 @@
 
 # omarchy:hidden=true
 # omarchy:summary=Apply the ROG Ally sustained power limit
-# omarchy:args=--show | --conflict-units | --snapshot | --set <watts> | --reassert
+# omarchy:args=--show | --conflict-units | --snapshot | --set <watts> | --set-custom <watts> | --set-profile <profile> | --reassert
 
 # RC71L sustained limit. SPPT and FPPT are derived here. The caller never
-# passes them. --show is unprivileged. --snapshot, --set and --reassert
-# re-exec through pkexec unless this process is already root.
+# passes them. Privileged operations re-exec through pkexec.
 #
 # The three current_value stores follow FirmwareAttributeLimitManager::set_tdp_limit
 # in evlaV/steamos-manager 85fbd8f (SPDX-License-Identifier: MIT, Collabora,
@@ -44,7 +43,7 @@ log() {
 }
 
 usage() {
-  echo "Usage: omarchy-ally-tdp-apply --show | --conflict-units | --snapshot | --set <watts> | --reassert" >&2
+  echo "Usage: omarchy-ally-tdp-apply --show | --conflict-units | --snapshot | --set <watts> | --set-custom <watts> | --set-profile <power-saver|balanced|performance|custom> | --reassert" >&2
   exit 1
 }
 
@@ -142,6 +141,7 @@ fi
 
 verb=
 watts=
+profile=
 case ${1:-} in
   --show)
     [[ $# -eq 1 ]] || usage
@@ -151,10 +151,16 @@ case ${1:-} in
     [[ $# -eq 1 ]] || usage
     verb="snapshot"
     ;;
-  --set)
+  --set | --set-custom)
     [[ $# -eq 2 ]] || usage
-    verb="set"
+    verb=${1#--}
     watts=$2
+    ;;
+  --set-profile)
+    [[ $# -eq 2 ]] || usage
+    case $2 in power-saver | balanced | performance | custom) ;; *) usage ;; esac
+    verb=set-profile
+    profile=$2
     ;;
   --reassert)
     [[ $# -eq 1 ]] || usage
@@ -165,7 +171,7 @@ case ${1:-} in
     ;;
 esac
 
-if [[ $verb == set || $verb == reassert || $verb == snapshot ]]; then
+if [[ $verb != show ]]; then
   if [[ $EUID -ne 0 && $fixture -eq 0 ]]; then
     exec pkexec /usr/bin/omarchy-ally-tdp-apply "$@"
   fi
@@ -295,11 +301,63 @@ load_snap() {
 
 request_file=$state_dir/request
 
-read_stored() {
-  local value
-  [[ -f $request_file ]] || return 1
-  value=$(read_int "$request_file") || return 1
-  printf '%s\n' "$value"
+preset_watts() {
+  case $1 in
+    power-saver) printf '%s\n' "$2" ;;
+    balanced) printf '%s\n' "$BATTERY_SPL_POLICY" ;;
+    performance) printf '%s\n' "$AC_SPL_POLICY" ;;
+    *) return 1 ;;
+  esac
+}
+
+read_request() {
+  stored=
+  mode=
+  if [[ -f $request_file ]]; then
+    {
+      IFS= read -r stored || stored=
+      IFS= read -r mode || mode=
+    } 2>/dev/null <"$request_file" || return 0
+    stored=${stored//$'\r'/}
+    canonical_watts "$stored" || stored=
+  fi
+}
+
+save_request() {
+  local temporary
+  mkdir -p -- "$state_dir" || return 1
+  temporary=$(mktemp "$state_dir/.request.XXXXXXXX") || return 1
+  # The first line stays readable by older releases and the reapply path.
+  if {
+    printf '%s\n' "$1" &&
+      if [[ -n $2 ]]; then printf '%s\n' "$2"; fi
+  } >"$temporary" && chmod 0644 "$temporary" && mv -T -- "$temporary" "$request_file"; then
+    return 0
+  fi
+  rm -f -- "$temporary"
+  return 1
+}
+
+active_profile() {
+  local requested=$1 mode=$2 limit=$3 min=$4 max=$5 preset target active=
+  if target=$(preset_watts "$mode" "$min"); then
+    if [[ $limit == "$(clamp_to "$target" "$min" "$max")" ]]; then
+      active=$mode
+    fi
+  elif [[ -z $mode ]]; then
+    # Older requests only record watts. Infer a preset only from a unique match.
+    for preset in power-saver balanced performance; do
+      target=$(preset_watts "$preset" "$min")
+      [[ $requested == "$target" ]] || continue
+      [[ $limit == "$(clamp_to "$target" "$min" "$max")" ]] || continue
+      if [[ -n $active ]]; then
+        active=
+        break
+      fi
+      active=$preset
+    done
+  fi
+  printf '%s\n' "${active:-custom}"
 }
 
 # Plan applied SPL/SPPT/FPPT for a stored request on this source.
@@ -474,10 +532,12 @@ slider_bounds() {
 }
 
 emit_status() {
-  local source=$1 stored=$2 limit=$3 spl=$4 sppt=$5 fppt=$6 min=$7 max=$8 writable=$9
+  local source=$1 spl=$2 sppt=$3 fppt=$4 min=$5 max=$6 writable=$7
+  local stored mode
+  read_request
   printf 'source=%s\n' "$source"
   printf 'stored=%s\n' "$stored"
-  printf 'limit=%s\n' "$limit"
+  printf 'limit=%s\n' "$spl"
   printf 'spl=%s\n' "$spl"
   printf 'sppt=%s\n' "$sppt"
   printf 'fppt=%s\n' "$fppt"
@@ -487,6 +547,7 @@ emit_status() {
   printf 'conflict=%s\n' "$owner"
   printf 'spl_policy_battery=%s\n' "$BATTERY_SPL_POLICY"
   printf 'spl_policy_ac=%s\n' "$AC_SPL_POLICY"
+  printf 'profile=%s\n' "$(active_profile "$stored" "$mode" "$spl" "$min" "$max")"
 }
 
 acquire_lock() {
@@ -508,7 +569,7 @@ acquire_lock() {
 }
 
 if [[ $verb != "show" ]]; then
-  if [[ $verb == "set" ]] && ! canonical_watts "$watts"; then
+  if [[ $verb == "set" || $verb == "set-custom" ]] && ! canonical_watts "$watts"; then
     log "watts must be a canonical whole number"
     exit 1
   fi
@@ -529,16 +590,13 @@ if [[ $verb == show ]]; then
   spl=$(read_int "$armoury/ppt_pl1_spl/current_value") || exit 1
   sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value") || exit 1
   fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value") || exit 1
-  stored=""
-  stored=$(read_stored || true)
   if ! bounds=$(slider_bounds "$source"); then
     log "slider window is empty"
     exit 1
   fi
   min=$(printf '%s\n' "$bounds" | sed -n '1p')
   max=$(printf '%s\n' "$bounds" | sed -n '2p')
-  limit=$spl
-  emit_status "$source" "$stored" "$limit" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
+  emit_status "$source" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
   exit 0
 fi
 
@@ -564,23 +622,41 @@ ensure_snapshot "$source" || {
   exit 1
 }
 
-if [[ $verb == snapshot ]]; then
-  stored=$(read_stored || true)
+bounds=$(slider_bounds "$source")
+min=${bounds%%$'\n'*}
+max=${bounds##*$'\n'}
+
+if [[ $verb == "snapshot" || $verb == "set-profile" && $profile == "custom" || $verb == "set-custom" ]]; then
   spl=$(read_int "$armoury/ppt_pl1_spl/current_value")
   sppt=$(read_int "$armoury/ppt_pl2_sppt/current_value")
   fppt=$(read_int "$armoury/ppt_pl3_fppt/current_value")
-  bounds=$(slider_bounds "$source")
-  min=$(printf '%s\n' "$bounds" | sed -n '1p')
-  max=$(printf '%s\n' "$bounds" | sed -n '2p')
-  emit_status "$source" "$stored" "$spl" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
-  exit 0
+  read_request
+  if [[ $verb == "set-profile" ]]; then
+    verify_power_source "$source" "custom profile request discarded" || exit 1
+    if [[ $mode == "power-saver" || -z $stored || $(clamp_to "$stored" "$min" "$max") != "$spl" ]]; then
+      stored=$spl
+    fi
+    save_request "$stored" custom || exit 1
+  fi
+  # Steam can send the effective wattage back after a preset was selected.
+  # Preserve the preset's request, especially 30 W clamped to 20 W on battery.
+  if [[ $verb != "set-custom" ]] ||
+    { [[ $watts == "$spl" ]] && [[ $(active_profile "$stored" "$mode" "$spl" "$min" "$max") != "custom" ]]; }; then
+    emit_status "$source" "$spl" "$sppt" "$fppt" "$min" "$max" "$writable"
+    exit 0
+  fi
 fi
 
+if [[ $verb == "set-profile" ]]; then
+  watts=$(preset_watts "$profile" "$min")
+fi
 if [[ $verb == reassert ]]; then
-  if ! watts=$(read_stored); then
+  read_request
+  if [[ -z $stored ]]; then
     log "no stored request to reassert"
     exit 0
   fi
+  watts=$(preset_watts "$mode" "$min") || watts=$stored
 fi
 
 if ! planned=$(plan_tuple "$watts" "$source"); then
@@ -593,13 +669,12 @@ got_spl=${limits[0]}
 got_sppt=${limits[1]}
 got_fppt=${limits[2]}
 
-if [[ $verb == set ]]; then
-  mkdir -p -- "$state_dir"
-  printf '%s\n' "$watts" >"$request_file"
-fi
-
-stored=$(read_stored || true)
+case $verb in
+  set) save_request "$watts" '' || exit 1 ;;
+  set-profile) save_request "$watts" "$profile" || exit 1 ;;
+  set-custom) save_request "$watts" custom || exit 1 ;;
+esac
 bounds=$(slider_bounds "$source")
-min=$(printf '%s\n' "$bounds" | sed -n '1p')
-max=$(printf '%s\n' "$bounds" | sed -n '2p')
-emit_status "$source" "$stored" "$got_spl" "$got_spl" "$got_sppt" "$got_fppt" "$min" "$max" 1
+min=${bounds%%$'\n'*}
+max=${bounds##*$'\n'}
+emit_status "$source" "$got_spl" "$got_sppt" "$got_fppt" "$min" "$max" 1

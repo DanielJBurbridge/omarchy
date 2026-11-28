@@ -1,13 +1,10 @@
 #!/usr/bin/python3
 # omarchy:hidden=true
-# omarchy:summary=Session bus owner for Steam's TDP slider on the ROG Ally RC71L
-"""Session bus owner for Steam's TDP slider on the ROG Ally RC71L.
+# omarchy:summary=Expose Steam performance presets and TDP on the ROG Ally RC71L
+"""Expose Steam performance presets and TDP on the ROG Ally RC71L.
 
-TdpLimit1 is loaded from the vendored MIT interface (evlaV/steamos-manager
-85fbd8f, Collabora, Valve, Igalia). The notice sits beside that file. The
-device model is reported through the SteamOS Manager interface.
-This process never writes sysfs. It pkexecs omarchy-ally-tdp-apply for
---set only. Wake reassert is omarchy-ally-tdp-resume.service.
+The interfaces follow evlaV/steamos-manager 85fbd8f. The notice is in
+default/ally-tdp. All changes go through omarchy-ally-tdp-apply.
 """
 
 import os
@@ -19,12 +16,19 @@ from pathlib import Path
 BUS = "com.steampowered.SteamOSManager1"
 OBJECT = "/com/steampowered/SteamOSManager1"
 TDP = BUS + ".TdpLimit1"
+PROFILE = BUS + ".PerformanceProfile1"
 MANAGER = BUS + ".Manager2"
 PROPS = "org.freedesktop.DBus.Properties"
 OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 SYSTEMD = "org.freedesktop.systemd1"
 SYSTEMD_PATH = "/org/freedesktop/systemd1"
 TDP_PROPERTIES = {"TdpLimit": "limit", "TdpLimitMin": "min", "TdpLimitMax": "max"}
+PROFILE_NAMES = {
+    "power-saver": "low-power",
+    "balanced": "balanced",
+    "performance": "performance",
+    "custom": "custom",
+}
 
 # Steam discovers the supported interfaces through the manager at the bus root.
 OBJECT_MANAGER_XML = """<node>
@@ -52,6 +56,14 @@ MANAGER_XML = """<node>
 </node>
 """
 
+PROFILE_XML = """<node>
+  <interface name="com.steampowered.SteamOSManager1.PerformanceProfile1">
+    <property name="AvailablePerformanceProfiles" type="as" access="read"/>
+    <property name="PerformanceProfile" type="s" access="readwrite"/>
+    <property name="SuggestedDefaultPerformanceProfile" type="s" access="read"/>
+  </interface>
+</node>
+"""
 
 def apply_bin():
     override = os.environ.get("OMARCHY_ALLY_TDP_APPLY")
@@ -72,7 +84,7 @@ def interface_xml():
 
 def run_apply(args):
     command = [apply_bin(), *args]
-    if use_pkexec() and args and args[0] == "--set":
+    if use_pkexec() and args[0] != "--show" and args[0] != "--conflict-units":
         command = ["pkexec", apply_bin(), *args]
     return subprocess.run(command, check=False, text=True, capture_output=True)
 
@@ -88,11 +100,12 @@ def parse_show(stdout):
         return None
     try:
         props = {name: int(data[key]) for name, key in TDP_PROPERTIES.items()}
+        profile = PROFILE_NAMES[data["profile"]]
     except (KeyError, ValueError):
         return None
     if any(value < 0 or value > 0xFFFFFFFF for value in props.values()):
         return None
-    return props
+    return {**props, "PerformanceProfile": profile}
 
 
 def show():
@@ -126,59 +139,67 @@ def main():
         return 1
 
     loop = GLib.MainLoop()
-    tdp = Gio.DBusNodeInfo.new_for_xml(tdp_xml).interfaces[0]
-    state = {"failed": False, "stopping": False, "session": None, "last": None, "tdp_id": 0}
+    power_interfaces = {
+        TDP: Gio.DBusNodeInfo.new_for_xml(tdp_xml).interfaces[0],
+        PROFILE: Gio.DBusNodeInfo.new_for_xml(PROFILE_XML).interfaces[0],
+    }
+    state = {"failed": False, "stopping": False, "session": None, "last": None, "objects": []}
 
     def stop():
         state["stopping"] = True
         loop.quit()
         return GLib.SOURCE_REMOVE
 
-    def tdp_properties(info):
-        return {name: GLib.Variant("u", value) for name, value in info.items()}
+    def power_properties(interface, info):
+        if interface == TDP:
+            return {name: GLib.Variant("u", info[name]) for name in TDP_PROPERTIES}
+        return {
+            "AvailablePerformanceProfiles": GLib.Variant("as", list(PROFILE_NAMES.values())),
+            "PerformanceProfile": GLib.Variant("s", info["PerformanceProfile"]),
+            "SuggestedDefaultPerformanceProfile": GLib.Variant("s", "balanced"),
+        }
 
-    def refresh_tdp(info, announce=True):
+    def refresh_power(info, announce=True):
         connection = state["session"]
         previous = state["last"]
         if connection is None or info == previous:
             return
         state["last"] = info
         if info is None:
-            connection.unregister_object(state["tdp_id"])
-            state["tdp_id"] = 0
+            for object_id in state["objects"]:
+                connection.unregister_object(object_id)
+            state["objects"].clear()
             connection.emit_signal(
-                None, "/", OBJECT_MANAGER, "InterfacesRemoved", GLib.Variant("(oas)", (OBJECT, [TDP])),
+                None, "/", OBJECT_MANAGER, "InterfacesRemoved", GLib.Variant("(oas)", (OBJECT, list(power_interfaces))),
             )
             return
         if previous is None:
-            state["tdp_id"] = connection.register_object(OBJECT, tdp, on_method, on_get, on_set)
+            for interface in power_interfaces.values():
+                state["objects"].append(connection.register_object(OBJECT, interface, on_method, on_get, on_set))
             if announce:
+                properties = {name: power_properties(name, info) for name in power_interfaces}
                 connection.emit_signal(
                     None, "/", OBJECT_MANAGER, "InterfacesAdded",
-                    GLib.Variant("(oa{sa{sv}})", (OBJECT, {TDP: tdp_properties(info)})),
+                    GLib.Variant("(oa{sa{sv}})", (OBJECT, properties)),
                 )
             return
-        changed = tdp_properties({name: value for name, value in info.items() if value != previous[name]})
-        connection.emit_signal(
-            None,
-            OBJECT,
-            PROPS,
-            "PropertiesChanged",
-            GLib.Variant.new_tuple(
-                GLib.Variant("s", TDP),
-                GLib.Variant("a{sv}", changed),
-                GLib.Variant("as", []),
-            ),
-        )
+        for interface in power_interfaces:
+            before = power_properties(interface, previous)
+            changed = {name: value for name, value in power_properties(interface, info).items() if value != before[name]}
+            if changed:
+                connection.emit_signal(
+                    None, OBJECT, PROPS, "PropertiesChanged",
+                    GLib.Variant("(sa{sv}as)", (interface, changed, [])),
+                )
 
     def on_method(_connection, _sender, _path, _interface, method, _params, invocation):
         invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
     def get_property(interface, name):
-        if interface == TDP:
+        if interface in power_interfaces:
             info = state["last"]
-            if info is not None and name in info:
-                return GLib.Variant("u", info[name])
+            if info is not None:
+                return power_properties(interface, info).get(name)
         if interface == MANAGER and name == "DeviceModel":
             return GLib.Variant("(ss)", ("rog_ally", "RC71L"))
         return None
@@ -188,29 +209,34 @@ def main():
 
     def on_set(_connection, _sender, _path, interface, name, value):
         if interface == TDP and name == "TdpLimit":
-            watts = value.get_uint32()
-            try:
-                proc = run_apply(["--set", str(watts)])
-            except OSError:
-                proc = None
-            applied = proc is not None and proc.returncode == 0
-            info = parse_show(proc.stdout) if applied else None
-            if info is None:
-                info = show()
-            refresh_tdp(info)
-            return applied and info is not None
-        return False
+            args = ["--set-custom", str(value.get_uint32())]
+        elif interface == PROFILE and name == "PerformanceProfile":
+            requested = value.get_string()
+            profile = next((key for key, label in PROFILE_NAMES.items() if label == requested), None)
+            if profile is None:
+                return False
+            args = ["--set-profile", profile]
+        else:
+            return False
+        try:
+            proc = run_apply(args)
+        except OSError:
+            proc = None
+        applied = proc is not None and proc.returncode == 0
+        info = parse_show(proc.stdout) if applied else None
+        refresh_power(info if info is not None else show())
+        return applied and info is not None
 
     def on_bus(connection, _name):
         state["session"] = connection
         manager = Gio.DBusNodeInfo.new_for_xml(MANAGER_XML).interfaces[0]
         connection.register_object(OBJECT, manager, on_method, on_get, on_set)
-        refresh_tdp(show(), announce=False)
+        refresh_power(show(), announce=False)
 
         def get_managed_objects(_connection, _sender, _path, _interface, _method, _params, invocation):
             managed = {MANAGER: {"DeviceModel": get_property(MANAGER, "DeviceModel")}}
             if state["last"] is not None:
-                managed[TDP] = tdp_properties(state["last"])
+                managed.update({name: power_properties(name, state["last"]) for name in power_interfaces})
             invocation.return_value(GLib.Variant("(a{oa{sa{sv}}})", ({OBJECT: managed},)))
 
         object_manager = Gio.DBusNodeInfo.new_for_xml(OBJECT_MANAGER_XML).interfaces[0]
@@ -223,13 +249,13 @@ def main():
 
     def on_update(_monitor, _file, _other_file, event):
         if event == Gio.FileMonitorEvent.CHANGES_DONE_HINT and state["session"] is not None:
-            refresh_tdp(show())
+            refresh_power(show())
 
     def on_unit_change(_connection, _sender, path, _interface, _signal, parameters):
         if path in conflict_paths and state["session"] is not None:
             _unit, changed, invalidated = parameters.unpack()
             if "ActiveState" in changed or "ActiveState" in invalidated:
-                refresh_tdp(show())
+                refresh_power(show())
 
     lock = "/run/omarchy-ally-tdp.lock"
     if os.environ.get("OMARCHY_ALLY_TDP_FIXTURE") == "1" and not use_pkexec():

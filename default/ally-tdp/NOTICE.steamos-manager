@@ -1,4 +1,4 @@
-The TdpLimit1 interface and the sustained/boost/peak write order are from
+The TdpLimit1 and PerformanceProfile1 interfaces and the sustained/boost/peak write order are from
 evlaV/steamos-manager commit 85fbd8f97719277c4df326cf27e4803d4cb31ef9
 (the same tree as gitlab.steamos.cloud/holo/steamos-manager at that pin).
 SPDX-License-Identifier: MIT

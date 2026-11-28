@@ -105,7 +105,7 @@ case ${1:-status} in
     (( $# == 1 )) || exit 2
     gaming_state_init
     # shellcheck disable=SC2031
-    rm -f "$gaming_state/"{preference,next,last,display,overlay,library,recovery}
+    rm -f "$gaming_state/"{preference,next,last,display,overlay,library,recovery,gamescope-modes.cfg,sunshine,update-checks}
     ;;
   *) gaming_fail 'unknown option; use --help.'; exit 2 ;;
 esac
