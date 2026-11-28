@@ -1,6 +1,6 @@
 # Omarchy Handheld
 
-**Status as of 26 November 2026 (AWST).** The first target is the original ASUS ROG Ally RC71L. The goal is to match Bazzite and CachyOS Handheld for boot and sign-in with handheld controls, Steam launch, suspend and resume of the same game, and deliberate switching to a usable Hyprland desktop. The physical receipts are from a Z1 Extreme. The Z1, Ally X and Xbox Ally each need their own acceptance run. [Feature parity and hardware receipts](feature-parity.md)
+**Status as of 28 November 2026 (AWST).** The first target is the original ASUS ROG Ally RC71L. The goal is to match Bazzite and CachyOS Handheld for boot and sign-in with handheld controls, Steam launch, suspend and resume of the same game, and deliberate switching to a usable Hyprland desktop. The physical receipts are from a Z1 Extreme. The Z1, Ally X and Xbox Ally each need their own acceptance run. [Feature parity and hardware receipts](feature-parity.md)
 
 ## Architecture
 
@@ -10,7 +10,7 @@
 | `omacom/omarchy-pkgs` | Build and distribute optional dependencies such as output-aware `wvkbd` and the Gaming Mode power-button helper. Review package changes independently of desktop and session policy. |
 | Opt-in `omarchy-gaming-session` | Register the dedicated Gamescope/Steam session and managed Desktop entry. Keep preference, controller profile, authenticated return and optional gaming integrations with their session lifecycle. The ordinary Hyprland entry remains the recovery path. |
 
-The unified baseline, `work/ally-unified-quattro` at `191329fee`, combined upstream Quattro `a3bad0b1b`, the managed desktop (Track B, `5f7d0775b`), the session work (Track A, `c53706bfa`, through fork #92), the RC71L i8042 exclusion from fork #39 and the power-button follow-ups from fork #76. The current in-place candidate is integration revision `7d87d9ef` with companion `1.0.0-18`. Its corrected package trio passed an isolated upgrade and rollback rehearsal and awaits an attended desktop reload. The physical Z1 Extreme still runs `918cd56c` with companion `1.0.0-15`, and the fresh-install run is deferred. [Fork #92](https://github.com/DanielJBurbridge/omarchy/pull/92) · [Fork #39](https://github.com/DanielJBurbridge/omarchy/pull/39) · [Fork #76](https://github.com/DanielJBurbridge/omarchy/pull/76) · [Candidate and evidence](feature-parity.md#unified-integration-baseline)
+The unified baseline, `work/ally-unified-quattro` at `191329fee`, combined upstream Quattro `a3bad0b1b`, the managed desktop (Track B, `5f7d0775b`), the session work (Track A, `c53706bfa`, through fork #92), the RC71L i8042 exclusion from fork #39 and the power-button follow-ups from fork #76. The physical Z1 Extreme now runs integration revision `d0942bae` with companion `1.0.0-20`. A fresh Gaming Mode login exposed the four Steam power presets and started the notification relay. The fresh-install run is deferred. [Fork #92](https://github.com/DanielJBurbridge/omarchy/pull/92) · [Fork #39](https://github.com/DanielJBurbridge/omarchy/pull/39) · [Fork #76](https://github.com/DanielJBurbridge/omarchy/pull/76) · [Rollout and evidence](feature-parity.md#unified-integration-baseline)
 
 ## Ordered upstream PR stack
 
