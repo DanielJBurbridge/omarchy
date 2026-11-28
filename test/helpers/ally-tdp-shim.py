@@ -12,6 +12,7 @@ from gi.repository import Gio, GLib
 BUS = "com.steampowered.SteamOSManager1"
 OBJECT = "/com/steampowered/SteamOSManager1"
 TDP = BUS + ".TdpLimit1"
+PROFILE = BUS + ".PerformanceProfile1"
 MANAGER = BUS + ".Manager2"
 SYSTEMD = "org.freedesktop.systemd1"
 PROPS = "org.freedesktop.DBus.Properties"
@@ -70,6 +71,10 @@ def call(bus, path, interface, method, params=None):
     return connection.call_sync(bus, path, interface, method, params, None, Gio.DBusCallFlags.NONE, 5000, None)
 
 
+def set_property(interface, name, value):
+    call(BUS, OBJECT, PROPS, "Set", GLib.Variant("(ssv)", (interface, name, value)))
+
+
 call(DBUS, DBUS_PATH, DBUS, "RequestName", GLib.Variant("(su)", (SYSTEMD, 0)))
 manager_node = Gio.DBusNodeInfo.new_for_xml(f'''<node>
   <interface name="{SYSTEMD}.Manager"><method name="Subscribe"/></interface>
@@ -124,7 +129,7 @@ def stop_shim(shim):
 
 
 def properties_changed(_client, _object, proxy, changed, _invalidated):
-    if proxy.get_interface_name() == TDP:
+    if proxy.get_interface_name() in (TDP, PROFILE):
         for name, value in changed.unpack().items():
             events.put((name, value))
 
@@ -139,20 +144,30 @@ def manager_client():
     model = client.get_interface(OBJECT, MANAGER).get_cached_property("DeviceModel")
     assert model.unpack() == ("rog_ally", "RC71L")
     assert client.get_interface(OBJECT, BUS + ".GpuPerformanceLevel1") is None
-    assert client.get_interface(OBJECT, BUS + ".PerformanceProfile1") is None
     return client
 
 
 def require_unsupported(client):
-    assert client.get_interface(OBJECT, TDP) is None, "ObjectManager still advertises TdpLimit1"
     introspect = call(BUS, OBJECT, DBUS + ".Introspectable", "Introspect").unpack()[0]
-    assert f'<interface name="{TDP}">' not in introspect, "TdpLimit1 still accepts direct calls"
+    for interface in (TDP, PROFILE):
+        assert client.get_interface(OBJECT, interface) is None, f"ObjectManager still advertises {interface}"
+        assert f'<interface name="{interface}">' not in introspect, f"{interface} still accepts direct calls"
 
 
 def limits(client):
     proxy = client.get_interface(OBJECT, TDP)
     assert proxy is not None, "Steam discovery could not find TdpLimit1"
     return tuple(proxy.get_cached_property(name).get_uint32() for name in ("TdpLimit", "TdpLimitMin", "TdpLimitMax"))
+
+
+def profile_proxy(client):
+    proxy = client.get_interface(OBJECT, PROFILE)
+    assert proxy is not None, "Steam discovery could not find PerformanceProfile1"
+    assert proxy.get_cached_property("AvailablePerformanceProfiles").unpack() == [
+        "low-power", "balanced", "performance", "custom",
+    ]
+    assert proxy.get_cached_property("SuggestedDefaultPerformanceProfile").unpack() == "balanced"
+    return proxy
 
 
 def test_foreign_owner():
@@ -163,14 +178,19 @@ def test_foreign_owner():
         require_unsupported(client)
         set_owner(False)
         events.expect(("added", TDP))
+        events.expect(("added", PROFILE))
         assert limits(client) == (30, 7, 30)
+        profile_proxy(client)
         set_owner(True)
         events.expect(("removed", TDP))
+        events.expect(("removed", PROFILE))
         require_unsupported(client)
         set_owner(False)
         events.expect(("added", TDP))
+        events.expect(("added", PROFILE))
         assert limits(client) == (30, 7, 30)
-        print("ok - external ownership removes and restores the TDP interface on the same session bus name")
+        profile_proxy(client)
+        print("ok - external ownership removes and restores both Steam power interfaces")
     finally:
         stop_shim(shim)
 
@@ -178,7 +198,9 @@ def test_foreign_owner():
 test_foreign_owner()
 shim = start_shim()
 try:
-    assert limits(manager_client()) == (30, 7, 30)
+    client = manager_client()
+    assert limits(client) == (30, 7, 30)
+    profile_proxy(client)
 finally:
     stop_shim(shim)
 
@@ -190,16 +212,58 @@ try:
     fppt.with_suffix(".missing").rename(fppt)
     run_writer("--reassert")
     events.expect(("added", TDP))
+    events.expect(("added", PROFILE))
     assert limits(client) == (30, 7, 30)
-    print("ok - initially absent firmware gains the TDP interface after the writer reports readiness")
-    call(BUS, OBJECT, PROPS, "Set", GLib.Variant("(ssv)", (TDP, "TdpLimit", GLib.Variant("u", 30))))
-    assert request.read_text().strip() == "30"
+    profiles = profile_proxy(client)
+    print("ok - initially absent firmware gains both power interfaces after the writer reports readiness")
+    set_property(TDP, "TdpLimit", GLib.Variant("u", 30))
+    assert request.read_text().splitlines() == ["30", "custom"]
     ac.write_text("0\n")
     run_writer("--reassert")
     events.expect(("TdpLimitMax", 20))
     events.expect(("TdpLimit", 20))
     assert limits(client) == (20, 7, 20)
-    assert request.read_text().strip() == "30"
+    assert request.read_text().splitlines() == ["30", "custom"]
+
+    set_property(PROFILE, "PerformanceProfile", GLib.Variant("s", "balanced"))
+    events.expect(("PerformanceProfile", "balanced"))
+    assert request.read_text().splitlines() == ["20", "balanced"]
+
+    firmware = [
+        fppt.parent.parent / attr / "current_value"
+        for attr in ("ppt_pl1_spl", "ppt_pl2_sppt", "ppt_pl3_fppt")
+    ]
+    for path in firmware:
+        os.utime(path, (1, 1))
+    before_custom = [(path.read_text(), path.stat().st_mtime_ns) for path in firmware]
+    set_property(PROFILE, "PerformanceProfile", GLib.Variant("s", "custom"))
+    events.expect(("PerformanceProfile", "custom"))
+    assert [(path.read_text(), path.stat().st_mtime_ns) for path in firmware] == before_custom
+    assert request.read_text().splitlines() == ["20", "custom"]
+    set_property(TDP, "TdpLimit", GLib.Variant("u", 18))
+    events.expect(("TdpLimit", 18))
+    set_property(TDP, "TdpLimit", GLib.Variant("u", 20))
+    events.expect(("TdpLimit", 20))
+    assert request.read_text().splitlines() == ["20", "custom"]
+    assert profiles.get_cached_property("PerformanceProfile").unpack() == "custom"
+
+    set_property(PROFILE, "PerformanceProfile", GLib.Variant("s", "low-power"))
+    events.expect(("PerformanceProfile", "low-power"))
+    events.expect(("TdpLimit", 7))
+    assert request.read_text().splitlines() == ["7", "power-saver"]
+    spl_min = firmware[0].with_name("min_value")
+    spl_min.write_text("8\n")
+    run_writer("--reassert")
+    events.expect(("TdpLimit", 8))
+    assert profiles.get_cached_property("PerformanceProfile").unpack() == "low-power"
+    spl_min.write_text("7\n")
+    set_property(PROFILE, "PerformanceProfile", GLib.Variant("s", "performance"))
+    events.expect(("PerformanceProfile", "performance"))
+    events.expect(("TdpLimit", 20))
+    assert request.read_text().splitlines() == ["30", "performance"]
+    set_property(TDP, "TdpLimit", GLib.Variant("u", 20))
+    assert request.read_text().splitlines() == ["30", "performance"], "Steam's slider echo discarded the preset"
+    print("ok - Steam presets apply live TDP limits, and Custom keeps direct slider control")
 
     # A power change updates bounds even when no explicit request exists.
     request.unlink()

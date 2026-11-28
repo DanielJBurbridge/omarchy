@@ -9,43 +9,26 @@ ally_tdp_profiles_enabled() {
   esac
 }
 
-# Print each preset, its requested SPL and whether it is active. A clamped
-# request still identifies the preset, but only if the live SPL agrees.
+# Print each preset, its requested SPL and whether the writer reports it active.
 ally_tdp_profiles() {
-  local status key value profile applied active=
+  local status key value profile
   local -A tdp watts
   local presets=(power-saver balanced performance)
   status=$(omarchy-ally-tdp-apply --show 2>/dev/null) || return 1
   while IFS='=' read -r key value; do
     case $key in
-      writable | stored | limit | min | max | spl_policy_battery | spl_policy_ac)
+      writable | profile | min | spl_policy_battery | spl_policy_ac)
         tdp[$key]=$value ;;
     esac
   done <<<"$status"
   [[ ${tdp[writable]:-} == "1" ]] || return 1
-  for key in limit min max spl_policy_battery spl_policy_ac; do
+  for key in min spl_policy_battery spl_policy_ac; do
     [[ ${tdp[$key]:-} =~ ^(0|[1-9][0-9]*)$ ]] || return 1
   done
 
   watts=([power-saver]=${tdp[min]} [balanced]=${tdp[spl_policy_battery]} [performance]=${tdp[spl_policy_ac]})
   for profile in "${presets[@]}"; do
-    [[ ${tdp[stored]:-} == "${watts[$profile]}" ]] || continue
-    applied=${watts[$profile]}
-    if (( applied < tdp[min] )); then
-      applied=${tdp[min]}
-    elif (( applied > tdp[max] )); then
-      applied=${tdp[max]}
-    fi
-    (( applied == tdp[limit] )) || continue
-    if [[ -n $active ]]; then
-      active=
-      break
-    fi
-    active=$profile
-  done
-
-  for profile in "${presets[@]}"; do
-    if [[ $profile == "$active" ]]; then
+    if [[ $profile == "${tdp[profile]:-}" ]]; then
       printf '%s\t%s\t1\n' "$profile" "${watts[$profile]}"
     else
       printf '%s\t%s\t0\n' "$profile" "${watts[$profile]}"

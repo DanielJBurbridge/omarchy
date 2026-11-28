@@ -247,7 +247,7 @@ run_apply() {
 
 stored() {
   if [[ -f $state/request ]]; then
-    cat "$state/request"
+    head -n 1 "$state/request"
   fi
 }
 

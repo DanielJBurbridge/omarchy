@@ -40,7 +40,18 @@ SH
 cat > "$work/bin/omarchy-ally-tdp-apply" <<'SH'
 #!/bin/bash
 case $1 in
-  --show) [[ ${FIRMWARE_AVAILABLE:-1} == 1 ]] ;;
+  --show)
+    [[ ${FIRMWARE_AVAILABLE:-1} == 1 ]] || exit 1
+    conflict=${CONFLICT_UNIT:-}
+    if [[ -z $conflict && -f $SETUP_FIXTURE/asusd.service.active ]]; then
+      conflict=asusd.service
+    fi
+    if [[ -n $conflict ]]; then
+      printf 'source=ac\nwritable=0\nconflict=%s\n' "$conflict"
+    else
+      printf 'source=ac\nwritable=1\nconflict=\n'
+    fi
+    ;;
   --conflict-units) printf '%s\n' asusd.service power-profiles-daemon.service hhd.service ;;
   *) touch "$SETUP_FIXTURE/writer-called"; exit 1 ;;
 esac
@@ -49,10 +60,16 @@ SH
 cat > "$work/bin/systemctl" <<'SH'
 #!/bin/bash
 set -euo pipefail
-[[ $1 == --system ]] || exit 2
+scope=$1
 shift
 printf '%s\n' "$*" >> "$SETUP_FIXTURE/systemctl.log"
 unit=${*: -1}
+if [[ $scope == --user ]]; then
+  [[ $1 == show && $unit == omarchy-ally-tdp-shim.service ]] || exit 2
+  printf '%s\n' "${SHIM_STATE:-loaded}"
+  exit
+fi
+[[ $scope == --system ]] || exit 2
 case $1 in
   is-enabled)
     printf '%s\n' "${PPD_STATE:-masked}"
@@ -106,6 +123,31 @@ SH
 
 chmod +x "$work/bin/"*
 export PATH="$work/bin:$PATH"
+
+check_gaming_status() {
+  local expected=$1 result
+  shift
+  result=$(env SETUP_PRIVILEGED=0 "$@" "$command" gaming-status </dev/null) ||
+    fail "the Gaming power status failed for $expected"
+  [[ $result == "$expected" ]] ||
+    fail "the Gaming power status should report $expected" "$result"
+}
+
+check_gaming_status unavailable SESSION_INSTALLED=0
+check_gaming_status backend
+touch "$states/power-profiles-daemon.state"
+check_gaming_status backend SHIM_STATE=not-found
+check_gaming_status firmware FIRMWARE_AVAILABLE=0
+check_gaming_status conflict CONFLICT_UNIT=hhd.service
+check_gaming_status ready
+touch "$work/asusd.service.active"
+check_gaming_status asus
+[[ ! -e $work/auth.log && ! -e $work/writer-called && ! -e $receipt && ! -L $mask && -f $work/asusd.service.active ]] ||
+  fail 'reporting Gaming power status changed state or requested administration'
+if rg -q '^(start|stop|restart|enable|disable|daemon-reload)( |$)' "$work/systemctl.log"; then
+  fail 'reporting Gaming power status changed a systemd unit'
+fi
+pass 'Gaming power status distinguishes provisioning, firmware and active power owners without changing them'
 
 touch "$states/power-profiles-daemon.state" "$work/asusd.service.active" "$work/asus-shutdown.service.active"
 if DMI=laptop "$command" use-omarchy; then fail 'a non-Ally received the ASUS power handoff'; fi
